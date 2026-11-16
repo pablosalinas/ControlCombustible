@@ -25,6 +25,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         :root {
             --primary: #0f766e;
@@ -417,6 +418,21 @@
                 <label>Contraseña</label>
                 <input type="password" id="login-pass" class="form-control" required autocomplete="current-password">
             </div>
+            <!-- Verificación Anti-Robots: Suma sencilla de 2 dígitos de una cifra -->
+            <div style="background:#f8fafc; padding:0.75rem 0.9rem; border-radius:10px; border:1px dashed #cbd5e1; margin-bottom:1rem;">
+                <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--primary); margin-bottom:0.45rem;">
+                    <i class="fa-solid fa-shield-halved"></i> Verificación de Seguridad (Suma) *
+                </label>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem;">
+                    <div id="captcha-question" style="background:#fff; border:1px solid var(--border); border-radius:8px; padding:0.5rem 0.85rem; font-weight:800; font-size:1rem; color:var(--primary-dark); user-select:none;">
+                        3 + 4 = ?
+                    </div>
+                    <input type="number" id="login-captcha" class="form-control" required placeholder="Resultado" style="max-width:130px; text-align:center; font-weight:700;" autocomplete="off">
+                    <button type="button" class="btn btn-outline" style="padding:0.5rem 0.65rem;" onclick="generateCaptcha()" title="Nueva suma">
+                        <i class="fa-solid fa-rotate"></i>
+                    </button>
+                </div>
+            </div>
             <button type="submit" class="btn btn-primary btn-block" style="margin-top: 0.5rem; padding: 0.9rem;">
                 <i class="fa-solid fa-right-to-bracket"></i> Iniciar Sesión
             </button>
@@ -440,7 +456,10 @@
                     <div style="font-size: 0.72rem; color: #94a3b8; font-weight: 500;" id="user-badge-text">Conectado</div>
                 </div>
             </div>
-            <div style="display: flex; gap: 0.45rem;">
+            <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
+                <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openImportModal()">
+                    <i class="fa-solid fa-file-import" style="color:var(--primary)"></i> Importar Excel/CSV
+                </button>
                 <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openVehiclesModal()">
                     <i class="fa-solid fa-car"></i> Vehículos
                 </button>
@@ -674,10 +693,127 @@
     </div>
 </div>
 
+<!-- MODAL DE IMPORTACIÓN EXCEL / CSV CONFIGURABLE POR VEHÍCULO -->
+<div class="modal-backdrop" id="import-modal">
+    <div class="modal-content" style="max-width: 720px;">
+        <div class="card-header" style="margin-bottom:0.8rem;">
+            <div class="card-title"><i class="fa-solid fa-file-excel" style="color:#16a34a;"></i> Importar Excel (.xlsx / .xls) o CSV por Vehículo</div>
+            <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closeImportModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <!-- Guía de Estructura de Columnas y Plantilla -->
+        <div style="background:#f8fafc; border:1px solid var(--border); border-radius:12px; padding:0.9rem; margin-bottom:1rem; font-size:0.81rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.45rem;">
+                <strong style="color:var(--primary-dark);"><i class="fa-solid fa-circle-info"></i> ¿Cómo deben estructurarse las columnas?</strong>
+                <button type="button" class="btn btn-outline" style="padding:0.25rem 0.6rem; font-size:0.75rem;" onclick="downloadTemplateCSV()">
+                    <i class="fa-solid fa-download"></i> Descargar Plantilla CSV
+                </button>
+            </div>
+            <p style="color:var(--muted); margin-bottom:0.4rem;">
+                Por defecto se reconoce automáticamente la estructura original de tu hoja:
+                <code>Col A: FECHA</code> · <code>Col B: LITROS</code> · <code>Col C: PRECIO</code> · <code>Col D: IMPORTE</code> · <code>Col E: KM.</code> · <code>Notas (opcional)</code>.
+            </p>
+            <p style="color:var(--muted);">
+                <strong>¿Tienes otro Excel/CSV distinto?</strong> Al elegir el archivo se mostrarán todas sus columnas para que asignes libremente cuál corresponde a cada dato. Los campos calculados (consumos, diferencias, acumulados) los genera el sistema automáticamente.
+            </p>
+        </div>
+
+        <div class="grid-2">
+            <div class="form-group">
+                <label>1. Vehículo destino de los datos *</label>
+                <select id="import-vehiculo" class="form-control" required></select>
+            </div>
+            <div class="form-group">
+                <label>2. Seleccionar archivo Excel (.xlsx, .xls) o .CSV *</label>
+                <input type="file" id="import-file" accept=".xlsx,.xls,.csv,.txt" class="form-control" onchange="handleImportFile(this)">
+            </div>
+        </div>
+
+        <div style="margin-bottom:0.85rem;">
+            <label style="font-size:0.82rem; display:inline-flex; align-items:center; gap:0.45rem; cursor:pointer; font-weight:600;">
+                <input type="checkbox" id="import-has-header" checked onchange="reparseImportSheet()">
+                La primera fila del archivo contiene los títulos/encabezados de columna
+            </label>
+        </div>
+
+        <!-- Configurador de Mapeo de Columnas -->
+        <div id="import-mapping-section" class="hidden" style="border-top:1px solid var(--border); padding-top:0.9rem;">
+            <h4 style="font-size:0.88rem; margin-bottom:0.65rem; color:var(--text);">3. Configurar correspondencia de columnas de tu archivo:</h4>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:0.65rem; margin-bottom:0.9rem;">
+                <div>
+                    <label style="font-size:0.75rem; font-weight:700; color:var(--muted);">Columna FECHA *</label>
+                    <select id="map-fecha" class="form-control" style="padding:0.45rem;" onchange="renderImportPreview()"></select>
+                </div>
+                <div>
+                    <label style="font-size:0.75rem; font-weight:700; color:var(--muted);">Columna LITROS *</label>
+                    <select id="map-litros" class="form-control" style="padding:0.45rem;" onchange="renderImportPreview()"></select>
+                </div>
+                <div>
+                    <label style="font-size:0.75rem; font-weight:700; color:var(--muted);">Columna PRECIO (€/L)</label>
+                    <select id="map-precio" class="form-control" style="padding:0.45rem;" onchange="renderImportPreview()"></select>
+                </div>
+                <div>
+                    <label style="font-size:0.75rem; font-weight:700; color:var(--muted);">Columna IMPORTE (€)</label>
+                    <select id="map-importe" class="form-control" style="padding:0.45rem;" onchange="renderImportPreview()"></select>
+                </div>
+                <div>
+                    <label style="font-size:0.75rem; font-weight:700; color:var(--muted);">Columna KM. (Odómetro) *</label>
+                    <select id="map-km" class="form-control" style="padding:0.45rem;" onchange="renderImportPreview()"></select>
+                </div>
+                <div>
+                    <label style="font-size:0.75rem; font-weight:700; color:var(--muted);">Columna NOTAS (Opcional)</label>
+                    <select id="map-notas" class="form-control" style="padding:0.45rem;" onchange="renderImportPreview()"></select>
+                </div>
+                <div>
+                    <label style="font-size:0.75rem; font-weight:700; color:var(--muted);">Estación (Opcional)</label>
+                    <select id="map-estacion" class="form-control" style="padding:0.45rem;" onchange="renderImportPreview()"></select>
+                </div>
+            </div>
+
+            <div id="import-preview-info" style="font-size:0.8rem; font-weight:600; color:var(--primary-dark); margin-bottom:0.45rem;"></div>
+            <div class="table-responsive" style="max-height:190px; margin-bottom:1rem;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Litros</th>
+                            <th>Precio €/L</th>
+                            <th>Importe €</th>
+                            <th>KM.</th>
+                            <th>Notas</th>
+                        </tr>
+                    </thead>
+                    <tbody id="import-preview-tbody"></tbody>
+                </table>
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:0.6rem;">
+                <button type="button" class="btn btn-outline" onclick="closeImportModal()">Cancelar</button>
+                <button type="button" id="btn-run-import" class="btn btn-primary" onclick="executeCustomImport()">
+                    <i class="fa-solid fa-cloud-arrow-up"></i> Confirmar e Importar al Vehículo
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 let authCreds = null;
 let currentData = { vehiculos: [], repostajes: [], resumen: {}, user: {} };
 let chartInstance = null;
+let captchaExpected = 7;
+let rawImportedRows = [];
+
+function generateCaptcha() {
+    const a = Math.floor(Math.random() * 9) + 1;
+    const b = Math.floor(Math.random() * 9) + 1;
+    captchaExpected = a + b;
+    const qEl = document.getElementById('captcha-question');
+    if (qEl) qEl.textContent = `${a} + ${b} = ?`;
+    const inEl = document.getElementById('login-captcha');
+    if (inEl) inEl.value = '';
+}
+generateCaptcha();
 
 function fmtNum(val, dec = 2) {
     if (val === null || val === undefined || isNaN(val)) return '-';
@@ -704,6 +840,15 @@ async function apiCall(action, payload = {}, method = 'POST') {
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const userCaptcha = parseInt(document.getElementById('login-captcha').value, 10);
+    if (isNaN(userCaptcha) || userCaptcha !== captchaExpected) {
+        const err = document.getElementById('login-error');
+        err.textContent = 'La suma de verificación anti-robots no es correcta. Inténtalo de nuevo.';
+        err.classList.remove('hidden');
+        generateCaptcha();
+        return;
+    }
+
     const username = document.getElementById('login-user').value.trim();
     const password = document.getElementById('login-pass').value;
     authCreds = { username, password };
@@ -718,6 +863,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
             const err = document.getElementById('login-error');
             err.textContent = res.error || 'Error de autenticación';
             err.classList.remove('hidden');
+            generateCaptcha();
         }
     } catch (ex) {
         alert('Error conectando con el servidor: ' + ex.message);
@@ -1111,6 +1257,190 @@ async function deactivateVehicle(id) {
     if (res.success) {
         await loadDashboard();
         renderVehiclesList();
+    }
+}
+
+// IMPORTADOR CONFIGURABLE DE EXCEL (.XLSX / .XLS) Y CSV POR VEHÍCULO
+function openImportModal() {
+    const sel = document.getElementById('import-vehiculo');
+    sel.innerHTML = '';
+    const activeVehId = parseInt(document.getElementById('vehicle-selector').value || '0', 10);
+    (currentData.vehiculos || []).forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.id;
+        opt.textContent = `${v.nombre}${v.matricula ? ' (' + v.matricula + ')' : ''}`;
+        if (parseInt(v.id, 10) === activeVehId) opt.selected = true;
+        sel.appendChild(opt);
+    });
+    document.getElementById('import-file').value = '';
+    document.getElementById('import-mapping-section').classList.add('hidden');
+    document.getElementById('import-modal').classList.add('active');
+}
+
+function closeImportModal() {
+    document.getElementById('import-modal').classList.remove('active');
+}
+
+function downloadTemplateCSV() {
+    const csvContent = "FECHA,LITROS,PRECIO,IMPORTE,KM.,NOTAS\n2025-03-01,48.50,1.429,69.31,183200,Repostaje normal\n2025-03-15,51.20,1.439,73.68,184120,Cambio filtro aire\n";
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'Plantilla_Repostajes_Combustible.csv';
+    link.click();
+}
+
+function handleImportFile(input) {
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array', raw: false, dateNF: 'yyyy-mm-dd' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        rawImportedRows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+        reparseImportSheet();
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function colLetter(idx) {
+    let s = '';
+    let n = idx;
+    while (n >= 0) {
+        s = String.fromCharCode((n % 26) + 65) + s;
+        n = Math.floor(n / 26) - 1;
+    }
+    return s;
+}
+
+function reparseImportSheet() {
+    if (!rawImportedRows || rawImportedRows.length === 0) return;
+    const hasHeader = document.getElementById('import-has-header').checked;
+    const firstRow = rawImportedRows[0] || [];
+    const maxCols = Math.max(...rawImportedRows.slice(0, 10).map(r => r.length), firstRow.length);
+
+    const mapIds = ['map-fecha', 'map-litros', 'map-precio', 'map-importe', 'map-km', 'map-notas', 'map-estacion'];
+    mapIds.forEach((id, fieldIdx) => {
+        const sel = document.getElementById(id);
+        sel.innerHTML = (fieldIdx >= 5) ? '<option value="-1">-- Ninguna --</option>' : '';
+        for (let c = 0; c < maxCols; c++) {
+            const title = hasHeader && firstRow[c] !== undefined && String(firstRow[c]).trim() !== ''
+                ? `Col ${colLetter(c)}: ${String(firstRow[c]).trim()}`
+                : `Columna ${colLetter(c)} (Ej: ${rawImportedRows[hasHeader ? 1 : 0]?.[c] ?? ''})`;
+            const opt = document.createElement('option');
+            opt.value = c;
+            opt.textContent = title;
+            sel.appendChild(opt);
+        }
+    });
+
+    // Autodetectar por nombres de cabecera o por posición estándar (A=0, B=1, C=2, D=3, E=4, Q=16)
+    let defFecha = 0, defLitros = 1, defPrecio = 2, defImporte = 3, defKm = 4, defNotas = (maxCols > 16 ? 16 : (maxCols > 5 ? 5 : -1)), defEst = -1;
+    if (hasHeader) {
+        firstRow.forEach((h, idx) => {
+            const u = String(h || '').toUpperCase().trim();
+            if (u.includes('FECHA') || u === 'DATE') defFecha = idx;
+            else if (u === 'LITROS' || u === 'LTS' || u === 'VOLUMEN') defLitros = idx;
+            else if (u.includes('PRECIO') || u === '€/L' || u === 'EUR/L') defPrecio = idx;
+            else if (u.includes('IMPORTE') || u === 'TOTAL' || u === 'EUROS') defImporte = idx;
+            else if (u === 'KM.' || u === 'KM' || u.includes('KILOMETR') || u.includes('ODOMETR')) defKm = idx;
+            else if (u.includes('NOTA') || u.includes('INCIDENCIA') || u.includes('OBSERV')) defNotas = idx;
+            else if (u.includes('ESTACION') || u.includes('GASOLINERA')) defEst = idx;
+        });
+    }
+
+    document.getElementById('map-fecha').value = String(defFecha);
+    document.getElementById('map-litros').value = String(defLitros);
+    document.getElementById('map-precio').value = String(defPrecio);
+    document.getElementById('map-importe').value = String(defImporte);
+    document.getElementById('map-km').value = String(defKm);
+    document.getElementById('map-notas').value = String(defNotas < maxCols ? defNotas : -1);
+    document.getElementById('map-estacion').value = String(defEst);
+
+    document.getElementById('import-mapping-section').classList.remove('hidden');
+    renderImportPreview();
+}
+
+function getMappedImportRows() {
+    const hasHeader = document.getElementById('import-has-header').checked;
+    const cFecha = parseInt(document.getElementById('map-fecha').value, 10);
+    const cLitros = parseInt(document.getElementById('map-litros').value, 10);
+    const cPrecio = parseInt(document.getElementById('map-precio').value, 10);
+    const cImporte = parseInt(document.getElementById('map-importe').value, 10);
+    const cKm = parseInt(document.getElementById('map-km').value, 10);
+    const cNotas = parseInt(document.getElementById('map-notas').value, 10);
+    const cEst = parseInt(document.getElementById('map-estacion').value, 10);
+
+    const startRow = hasHeader ? 1 : 0;
+    const mapped = [];
+    for (let i = startRow; i < rawImportedRows.length; i++) {
+        const r = rawImportedRows[i];
+        if (!r || r.length === 0) continue;
+        const fVal = cFecha >= 0 ? String(r[cFecha] ?? '').trim() : '';
+        if (!fVal) continue;
+        const rawNote = cNotas >= 0 ? String(r[cNotas] ?? '').trim() : '';
+        const cleanNote = (rawNote && isNaN(Number(rawNote)) && !rawNote.includes('PRECIO') && !rawNote.includes('MINIMO')) ? rawNote : '';
+        mapped.push({
+            fecha: fVal,
+            litros: cLitros >= 0 ? r[cLitros] : '',
+            precio_litro: cPrecio >= 0 ? r[cPrecio] : '',
+            importe_total: cImporte >= 0 ? r[cImporte] : '',
+            km_odometro: cKm >= 0 ? r[cKm] : '',
+            notas: cleanNote,
+            estacion_servicio: cEst >= 0 ? String(r[cEst] ?? '').trim() : ''
+        });
+    }
+    return mapped;
+}
+
+function renderImportPreview() {
+    const mapped = getMappedImportRows();
+    document.getElementById('import-preview-info').textContent =
+        `Se han detectado ${mapped.length} filas de datos listas para importar. Vista previa de las primeras 6 filas:`;
+    const tbody = document.getElementById('import-preview-tbody');
+    tbody.innerHTML = '';
+    mapped.slice(0, 6).forEach(m => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${m.fecha}</td>
+            <td>${m.litros}</td>
+            <td>${m.precio_litro}</td>
+            <td>${m.importe_total}</td>
+            <td>${m.km_odometro}</td>
+            <td>${m.notas || ''}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+async function executeCustomImport() {
+    const vehiculoId = parseInt(document.getElementById('import-vehiculo').value || '0', 10);
+    if (!vehiculoId) {
+        alert('Selecciona primero el vehículo al que quieres importar los datos.');
+        return;
+    }
+    const rows = getMappedImportRows();
+    if (rows.length === 0) {
+        alert('No hay filas válidas para importar.');
+        return;
+    }
+    const btn = document.getElementById('btn-run-import');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Importando...';
+    try {
+        const res = await apiCall('import_custom_rows', { vehiculo_id: vehiculoId, rows });
+        if (res.success) {
+            alert(res.message);
+            closeImportModal();
+            document.getElementById('vehicle-selector').value = String(vehiculoId);
+            await loadDashboard();
+        } else {
+            alert(res.error || 'Error en la importación');
+        }
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Confirmar e Importar al Vehículo';
     }
 }
 

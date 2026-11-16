@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'models/models.dart';
 import 'services/api_service.dart';
@@ -100,10 +101,35 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _userCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
+  final _captchaCtrl = TextEditingController();
+  int _n1 = 3;
+  int _n2 = 4;
   bool _loading = false;
   String? _error;
 
+  @override
+  void initState() {
+    super.initState();
+    _generateCaptcha();
+  }
+
+  void _generateCaptcha() {
+    final rnd = Random();
+    setState(() {
+      _n1 = rnd.nextInt(9) + 1;
+      _n2 = rnd.nextInt(9) + 1;
+      _captchaCtrl.clear();
+    });
+  }
+
   Future<void> _submit() async {
+    final userSum = int.tryParse(_captchaCtrl.text.trim());
+    if (userSum == null || userSum != (_n1 + _n2)) {
+      setState(() => _error = 'La suma de seguridad anti-robots es incorrecta.');
+      _generateCaptcha();
+      return;
+    }
+
     setState(() {
       _loading = true;
       _error = null;
@@ -114,9 +140,11 @@ class _LoginScreenState extends State<LoginScreen> {
         widget.onLoggedIn();
       } else {
         setState(() => _error = 'Usuario o contraseña de moratalla-murcia.com incorrectos.');
+        _generateCaptcha();
       }
     } catch (e) {
       setState(() => _error = 'Error de conexión: $e');
+      _generateCaptcha();
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -182,6 +210,49 @@ class _LoginScreenState extends State<LoginScreen> {
                       labelText: 'Contraseña',
                       prefixIcon: Icon(Icons.lock_outline),
                       border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFCBD5E1)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Text(
+                            '$_n1 + $_n2 = ?',
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: Color(0xFF0F766E)),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: _captchaCtrl,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            decoration: const InputDecoration(
+                              hintText: 'Suma',
+                              isDense: true,
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Nueva suma',
+                          onPressed: _generateCaptcha,
+                          icon: const Icon(Icons.refresh),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 20),

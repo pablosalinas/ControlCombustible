@@ -548,6 +548,144 @@ try {
             ));
             break;
 
+        case 'import_custom_rows':
+            $vehiculoId = (int)arr_get($jsonBody, 'vehiculo_id', isset($_POST['vehiculo_id']) ? $_POST['vehiculo_id'] : 0);
+            $rows       = arr_get($jsonBody, 'rows', array());
+
+            if ($vehiculoId <= 0) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'Debes seleccionar el vehículo destino para la importación.'));
+                exit;
+            }
+            if (!is_array($rows) || empty($rows)) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'No se recibieron filas válidas para importar.'));
+                exit;
+            }
+
+            // Verificar que el vehículo existe y el usuario tiene permiso
+            if ($isAdmin) {
+                $stmtV = $pdo->prepare("SELECT id, usuario_id FROM `veh_vehiculos` WHERE id = ? AND activo = 1");
+                $stmtV->execute(array($vehiculoId));
+            } else {
+                $stmtV = $pdo->prepare("SELECT id, usuario_id FROM `veh_vehiculos` WHERE id = ? AND usuario_id = ? AND activo = 1");
+                $stmtV->execute(array($vehiculoId, $userId));
+            }
+            $vRow = $stmtV->fetch();
+            if (!$vRow) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Vehículo no encontrado o sin permisos.'));
+                exit;
+            }
+            $ownerUserId = (int)$vRow['usuario_id'];
+
+            $stmtExists = $pdo->prepare("
+                SELECT id FROM `veh_repostajes`
+                WHERE vehiculo_id = ? AND fecha = ? AND ABS(km_odometro - ?) < 0.01 AND ABS(litros - ?) < 0.01 AND activo = 1
+                LIMIT 1
+            ");
+            $stmtIns = $pdo->prepare("
+                INSERT INTO `veh_repostajes`
+                (vehiculo_id, usuario_id, fecha, litros, precio_litro, importe_total, km_odometro, estacion_servicio, notas, activo)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+            ");
+
+            $inserted = 0;
+            $skipped  = 0;
+            $invalid  = 0;
+
+            foreach ($rows as $r) {
+                if (!is_array($r)) continue;
+                $rawFecha = trim((string)arr_get($r, 'fecha', ''));
+                if ($rawFecha === '') {
+                    $invalid++;
+                    continue;
+                }
+
+                // Normalizar fecha (YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY o serial Excel)
+                $fechaNorm = null;
+                if (preg_match('/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/', $rawFecha, $m)) {
+                    $fechaNorm = sprintf('%04d-%02d-%02d', (int)$m[1], (int)$m[2], (int)$m[3]);
+                } elseif (preg_match('/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/', $rawFecha, $m)) {
+                    $yr = (int)$m[3];
+                    if ($yr < 100) $yr += 2000;
+                    $fechaNorm = sprintf('%04d-%02d-%02d', $yr, (int)$m[2], (int)$m[1]);
+                } elseif (is_numeric($rawFecha) && (float)$rawFecha > 25000 && (float)$rawFecha < 65000) {
+                    $unixTimestamp = ((int)$rawFecha - 25569) * 86400;
+                    $fechaNorm = gmdate('Y-m-d', $unixTimestamp);
+                }
+
+                if (!$fechaNorm) {
+                    $invalid++;
+                    continue;
+                }
+
+                $cleanNum = function($val) {
+                    if ($val === null || $val === '') return 0.0;
+                    $s = preg_replace('/[^0-9,\.\-]/', '', (string)$val);
+                    if (strpos($s, ',') !== false && strpos($s, '.') !== false) {
+                        if (strrpos($s, ',') > strrpos($s, '.')) {
+                            $s = str_replace('.', '', $s);
+                            $s = str_replace(',', '.', $s);
+                        } else {
+                            $s = str_replace(',', '', $s);
+                        }
+                    } else {
+                        $s = str_replace(',', '.', $s);
+                    }
+                    return (float)$s;
+                };
+
+                $litros  = $cleanNum(arr_get($r, 'litros', 0));
+                $precio  = $cleanNum(arr_get($r, 'precio_litro', 0));
+                $importe = $cleanNum(arr_get($r, 'importe_total', 0));
+                $km      = $cleanNum(arr_get($r, 'km_odometro', 0));
+                $estacion = trim((string)arr_get($r, 'estacion_servicio', ''));
+                $notas    = trim((string)arr_get($r, 'notas', ''));
+
+                if ($importe <= 0 && $litros > 0 && $precio > 0) {
+                    $importe = round($litros * $precio, 2);
+                } elseif ($litros <= 0 && $importe > 0 && $precio > 0) {
+                    $litros = round($importe / $precio, 3);
+                } elseif ($precio <= 0 && $importe > 0 && $litros > 0) {
+                    $precio = round($importe / $litros, 4);
+                }
+
+                if ($litros <= 0 && $importe <= 0) {
+                    $invalid++;
+                    continue;
+                }
+
+                $stmtExists->execute(array($vehiculoId, $fechaNorm, $km, $litros));
+                if ($stmtExists->fetch()) {
+                    $skipped++;
+                    continue;
+                }
+
+                $stmtIns->execute(array(
+                    $vehiculoId,
+                    $ownerUserId,
+                    $fechaNorm,
+                    $litros,
+                    $precio,
+                    $importe,
+                    $km,
+                    $estacion !== '' ? $estacion : null,
+                    $notas !== '' ? $notas : null
+                ));
+                $inserted++;
+            }
+
+            echo json_encode(array(
+                'success'     => true,
+                'message'     => "Importación finalizada: $inserted registros nuevos añadidos, $skipped duplicados omitidos" . ($invalid > 0 ? ", $invalid filas ignoradas." : "."),
+                'vehiculo_id' => $vehiculoId,
+                'insertados'  => $inserted,
+                'omitidos'    => $skipped,
+                'ignorados'   => $invalid,
+            ));
+            break;
+
         default:
             http_response_code(400);
             echo json_encode(array(
