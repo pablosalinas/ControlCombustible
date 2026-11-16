@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -9,7 +10,18 @@ class PdfReportService {
     required ResumenEstadisticas resumen,
     required List<Repostaje> repostajes,
   }) async {
-    final doc = pw.Document();
+    // Cargar fuente TrueType Unicode (Roboto) para soportar € y caracteres españoles sin Internet
+    final fontData = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
+    final ttfFont = pw.Font.ttf(fontData);
+
+    final doc = pw.Document(
+      theme: pw.ThemeData.withFont(
+        base: ttfFont,
+        bold: ttfFont,
+        italic: ttfFont,
+        boldItalic: ttfFont,
+      ),
+    );
 
     doc.addPage(
       pw.MultiPage(
@@ -98,14 +110,14 @@ class PdfReportService {
               r.fecha,
               r.litros.toStringAsFixed(2),
               r.precioLitro.toStringAsFixed(3),
-              '${r.importeTotal.toStringAsFixed(2)}€',
+              '${r.importeTotal.toStringAsFixed(2)} €',
               r.kmOdometro.toStringAsFixed(0),
               r.difKm > 0 ? '+${r.difKm.toStringAsFixed(0)}' : '-',
               r.litrosPor100 != null ? r.litrosPor100!.toStringAsFixed(2) : '-',
               r.kmPorLitro != null ? r.kmPorLitro!.toStringAsFixed(2) : '-',
               r.eurosPorKm != null ? r.eurosPorKm!.toStringAsFixed(3) : '-',
               r.totalLitrosAcum.toStringAsFixed(1),
-              '${r.totalEurosAcum.toStringAsFixed(1)}€',
+              '${r.totalEurosAcum.toStringAsFixed(1)} €',
               r.notas.length > 18 ? '${r.notas.substring(0, 18)}…' : r.notas,
             ]).toList(),
             headerStyle: pw.TextStyle(
