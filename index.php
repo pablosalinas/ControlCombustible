@@ -471,7 +471,7 @@
                 <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openVehiclesModal()">
                     <i class="fa-solid fa-car"></i> Vehículos
                 </button>
-                <button class="btn btn-accent" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="exportPDFReport()">
+                <button class="btn btn-accent" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openPdfOptionsModal()">
                     <i class="fa-solid fa-file-pdf"></i> PDF
                 </button>
                 <button class="btn btn-danger" style="padding: 0.45rem 0.7rem; font-size: 0.8rem;" onclick="logout()" title="Cerrar sesión">
@@ -749,6 +749,44 @@
                 <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Guardar Estación</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- MODAL CONFIGURACIÓN DE INFORME PDF (FILTRO + ORDEN POR FECHA) -->
+<div class="modal-backdrop" id="pdf-options-modal">
+    <div class="modal-content" style="max-width: 460px;">
+        <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-file-pdf" style="color:var(--accent)"></i> Configurar Informe PDF (A4 Vertical)</div>
+            <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closePdfOptionsModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="grid-2">
+            <div class="form-group">
+                <label>Desde Fecha</label>
+                <input type="date" id="pdf-from" class="form-control" onchange="updatePdfPreviewCount()">
+            </div>
+            <div class="form-group">
+                <label>Hasta Fecha</label>
+                <input type="date" id="pdf-to" class="form-control" onchange="updatePdfPreviewCount()">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Filtro de texto (vehículo, estación, km, nota...)</label>
+            <input type="text" id="pdf-search" class="form-control" placeholder="Opcional (toma el buscador activo)" oninput="updatePdfPreviewCount()">
+        </div>
+        <div class="form-group">
+            <label>Ordenación por Fecha *</label>
+            <select id="pdf-sort-order" class="form-control">
+                <option value="desc">⬇️ Descendente (Más recientes primero)</option>
+                <option value="asc">⬆️ Ascendente (Más antiguos primero)</option>
+            </select>
+        </div>
+        <div id="pdf-count-info" style="font-size:0.82rem; font-weight:600; color:var(--primary-dark); background:#f0fdfa; padding:0.55rem 0.75rem; border-radius:8px; margin-bottom:1rem;"></div>
+        <div style="display:flex; justify-content:flex-end; gap:0.6rem;">
+            <button type="button" class="btn btn-outline" onclick="closePdfOptionsModal()">Cancelar</button>
+            <button type="button" class="btn btn-accent" onclick="exportPDFReport()">
+                <i class="fa-solid fa-file-pdf"></i> Generar PDF
+            </button>
+        </div>
     </div>
 </div>
 
@@ -1663,21 +1701,95 @@ async function executeCustomImport() {
     }
 }
 
-// GENERACIÓN DE INFORMES PDF OPTIMIZADO EN A4 VERTICAL
+// GENERACIÓN DE INFORMES PDF OPTIMIZADO EN A4 VERTICAL CON FILTRO Y ORDEN POR FECHA
+function openPdfOptionsModal() {
+    document.getElementById('pdf-from').value = document.getElementById('filter-from').value || '';
+    document.getElementById('pdf-to').value = document.getElementById('filter-to').value || '';
+    document.getElementById('pdf-search').value = document.getElementById('search-input').value || '';
+    updatePdfPreviewCount();
+    document.getElementById('pdf-options-modal').classList.add('active');
+}
+
+function closePdfOptionsModal() {
+    document.getElementById('pdf-options-modal').classList.remove('active');
+}
+
+function getFilteredSortedRowsForPdf() {
+    const from = document.getElementById('pdf-from').value || '';
+    const to   = document.getElementById('pdf-to').value || '';
+    const q    = (document.getElementById('pdf-search').value || '').toLowerCase().trim();
+    const order = document.getElementById('pdf-sort-order').value || 'desc';
+
+    const list = (currentData.repostajes || []).filter(r => {
+        if (from && r.fecha < from) return false;
+        if (to && r.fecha > to) return false;
+        if (q) {
+            const match = (r.fecha && r.fecha.toLowerCase().includes(q)) ||
+                          String(r.km_odometro).includes(q) ||
+                          (r.notas && r.notas.toLowerCase().includes(q)) ||
+                          (r.estacion_servicio && r.estacion_servicio.toLowerCase().includes(q)) ||
+                          (r.vehiculo_nombre && r.vehiculo_nombre.toLowerCase().includes(q));
+            if (!match) return false;
+        }
+        return true;
+    });
+
+    list.sort((a, b) => {
+        const cmp = (a.fecha || '').localeCompare(b.fecha || '');
+        if (cmp !== 0) return order === 'asc' ? cmp : -cmp;
+        const kmCmp = (parseFloat(a.km_odometro) || 0) - (parseFloat(b.km_odometro) || 0);
+        return order === 'asc' ? kmCmp : -kmCmp;
+    });
+    return list;
+}
+
+function updatePdfPreviewCount() {
+    const list = getFilteredSortedRowsForPdf();
+    document.getElementById('pdf-count-info').textContent =
+        `Se incluirán ${list.length} repostaje(s) según los filtros seleccionados.`;
+}
+
 function exportPDFReport() {
+    const filteredList = getFilteredSortedRowsForPdf();
+    if (filteredList.length === 0) {
+        alert('No hay registros que coincidan con el filtro seleccionado.');
+        return;
+    }
+    const order = document.getElementById('pdf-sort-order').value || 'desc';
+    const from  = document.getElementById('pdf-from').value || '';
+    const to    = document.getElementById('pdf-to').value || '';
+
+    // Calcular resumen sobre el conjunto filtrado
+    let totalLitros = 0, totalEuros = 0, totalKm = 0;
+    const consumos = [], precios = [];
+    filteredList.forEach(r => {
+        totalLitros += parseFloat(r.litros) || 0;
+        totalEuros  += parseFloat(r.importe_total) || 0;
+        if ((parseFloat(r.dif_km) || 0) > 0) totalKm += parseFloat(r.dif_km);
+        if (r.litros_por_100 !== null && !isNaN(r.litros_por_100)) consumos.push(parseFloat(r.litros_por_100));
+        if ((parseFloat(r.precio_litro) || 0) > 0) precios.push(parseFloat(r.precio_litro));
+    });
+    const cMax = consumos.length ? Math.max(...consumos) : 0;
+    const cMin = consumos.length ? Math.min(...consumos) : 0;
+    const cMed = consumos.length ? (consumos.reduce((a, b) => a + b, 0) / consumos.length) : 0;
+    const pMax = precios.length ? Math.max(...precios) : 0;
+    const pMin = precios.length ? Math.min(...precios) : 0;
+    const coste100 = totalKm > 0 ? ((totalEuros / totalKm) * 100) : 0;
+
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const s = currentData.resumen || {};
     const selText = document.getElementById('vehicle-selector').selectedOptions[0].textContent.replace(/[^\w\sáéíóúÁÉÍÓÚñÑ()\-]/g, '').trim();
+    const orderLabel = order === 'asc' ? 'Ascendente (fecha)' : 'Descendente (fecha)';
+    const rangeLabel = (from || to) ? ` | Periodo: ${from || '...'} a ${to || '...'}` : '';
 
     // Cabecera compacta A4 Vertical
     doc.setFontSize(13);
     doc.setTextColor(15, 118, 110);
     doc.text('INFORME DE CONTROL DE COMBUSTIBLE Y CONSUMO', 8, 12);
 
-    doc.setFontSize(8.5);
+    doc.setFontSize(8.2);
     doc.setTextColor(70, 70, 70);
-    doc.text(`Ámbito: ${selText}   |   Fecha de emisión: ${new Date().toLocaleDateString('es-ES')}`, 8, 17);
+    doc.text(`Ámbito: ${selText}${rangeLabel} | Orden: ${orderLabel} | Emisión: ${new Date().toLocaleDateString('es-ES')}`, 8, 17);
 
     // Caja resumen de indicadores en A4 Vertical (194 mm ancho útil)
     doc.setDrawColor(203, 213, 225);
@@ -1687,15 +1799,15 @@ function exportPDFReport() {
     doc.setFontSize(7.5);
     doc.setTextColor(15, 23, 42);
     doc.text(
-        `Consumo Medio: ${fmtNum(s.consumo_medio_l100, 2)} L/100km  |  Máx / Mín: ${fmtNum(s.consumo_maximo, 2)} / ${fmtNum(s.consumo_minimo, 2)} L/100 (Dif: ${fmtNum(s.diferencia_consumo, 2)})  |  Precio Máx / Mín: ${fmtNum(s.precio_maximo, 3)} / ${fmtNum(s.precio_minimo, 3)} €/L`,
+        `Consumo Medio: ${fmtNum(cMed, 2)} L/100km  |  Máx / Mín: ${fmtNum(cMax, 2)} / ${fmtNum(cMin, 2)} L/100 (Dif: ${fmtNum(cMax - cMin, 2)})  |  Precio Máx / Mín: ${fmtNum(pMax, 3)} / ${fmtNum(pMin, 3)} €/L`,
         11, 25.5
     );
     doc.text(
-        `Total Litros: ${fmtNum(s.total_litros, 2)} L (${s.num_repostajes || 0} rep.)  |  Gasto Acumulado: ${fmtNum(s.total_euros, 2)} €  |  Km Recorridos: ${fmtNum(s.total_km_recorridos, 0)} km  |  Coste Medio: ${fmtNum(s.coste_medio_100km, 2)} €/100km`,
+        `Total Litros: ${fmtNum(totalLitros, 2)} L (${filteredList.length} rep.)  |  Gasto: ${fmtNum(totalEuros, 2)} €  |  Km Recorridos: ${fmtNum(totalKm, 0)} km  |  Coste Medio: ${fmtNum(coste100, 2)} €/100km`,
         11, 30.5
     );
 
-    const rows = (currentData.repostajes || []).map(r => [
+    const rows = filteredList.map(r => [
         r.fecha,
         fmtNum(r.litros, 2),
         fmtNum(r.precio_litro, 3),
@@ -1755,6 +1867,7 @@ function exportPDFReport() {
         }
     });
 
+    closePdfOptionsModal();
     doc.save(`Informe_Combustible_A4_${new Date().toISOString().slice(0,10)}.pdf`);
 }
 

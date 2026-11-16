@@ -407,6 +407,143 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> _showPdfOptionsDialog(List<Repostaje> currentFiltered) async {
+    final fromCtrl = TextEditingController();
+    final toCtrl = TextEditingController();
+    bool ascending = false;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: const Text('Configurar Informe PDF'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Ámbito: ${_getScopeTitle()}',
+                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF0F766E)),
+                ),
+                if (_searchQuery.isNotEmpty)
+                  Text('Filtro texto activo: "$_searchQuery"', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: fromCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Desde fecha (YYYY-MM-DD, opcional)',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: toCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Hasta fecha (YYYY-MM-DD, opcional)',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text('Ordenar por fecha:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                RadioListTile<bool>(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Descendente (Más recientes primero)'),
+                  value: false,
+                  groupValue: ascending,
+                  onChanged: (v) => setDlgState(() => ascending = v ?? false),
+                ),
+                RadioListTile<bool>(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Ascendente (Más antiguos primero)'),
+                  value: true,
+                  groupValue: ascending,
+                  onChanged: (v) => setDlgState(() => ascending = v ?? true),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(ctx, true),
+              icon: const Icon(Icons.picture_as_pdf, size: 18),
+              label: const Text('Generar PDF'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final fromStr = fromCtrl.text.trim();
+    final toStr = toCtrl.text.trim();
+    final pdfRows = currentFiltered.where((r) {
+      if (fromStr.isNotEmpty && r.fecha.compareTo(fromStr) < 0) return false;
+      if (toStr.isNotEmpty && r.fecha.compareTo(toStr) > 0) return false;
+      return true;
+    }).toList();
+
+    pdfRows.sort((a, b) {
+      final cmp = a.fecha.compareTo(b.fecha);
+      if (cmp != 0) return ascending ? cmp : -cmp;
+      final kmCmp = a.kmOdometro.compareTo(b.kmOdometro);
+      return ascending ? kmCmp : -kmCmp;
+    });
+
+    if (pdfRows.isEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No hay repostajes que coincidan con el filtro.')),
+      );
+      return;
+    }
+
+    double totL = 0, totE = 0, totKm = 0;
+    final cons = <double>[], precs = <double>[];
+    for (final r in pdfRows) {
+      totL += r.litros;
+      totE += r.importeTotal;
+      if (r.difKm > 0) totKm += r.difKm;
+      if (r.litrosPor100 != null) cons.add(r.litrosPor100!);
+      if (r.precioLitro > 0) precs.add(r.precioLitro);
+    }
+    final cMax = cons.isNotEmpty ? cons.reduce((a, b) => a > b ? a : b) : 0.0;
+    final cMin = cons.isNotEmpty ? cons.reduce((a, b) => a < b ? a : b) : 0.0;
+    final cMed = cons.isNotEmpty ? cons.reduce((a, b) => a + b) / cons.length : 0.0;
+    final pMax = precs.isNotEmpty ? precs.reduce((a, b) => a > b ? a : b) : 0.0;
+    final pMin = precs.isNotEmpty ? precs.reduce((a, b) => a < b ? a : b) : 0.0;
+    final coste100 = totKm > 0 ? (totE / totKm) * 100.0 : 0.0;
+    final eurKm = totKm > 0 ? totE / totKm : 0.0;
+
+    final filteredResumen = ResumenEstadisticas(
+      numRepostajes: pdfRows.length,
+      totalLitros: totL,
+      totalEuros: totE,
+      totalKmRecorridos: totKm,
+      consumoMaximo: cMax,
+      consumoMinimo: cMin,
+      diferenciaConsumo: cMax - cMin,
+      precioMaximo: pMax,
+      precioMinimo: pMin,
+      diferenciaPrecio: pMax - pMin,
+      consumoMedioL100: cMed,
+      costeMedio100Km: coste100,
+      eurosPorKmMedio: eurKm,
+    );
+
+    final orderLabel = ascending ? 'Ascendente' : 'Descendente';
+    await PdfReportService.generateAndSharePdf(
+      scopeTitle: '${_getScopeTitle()} ($orderLabel)',
+      resumen: filteredResumen,
+      repostajes: pdfRows,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = _repostajes.where((r) {
@@ -467,11 +604,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             icon: const Icon(Icons.picture_as_pdf),
             onPressed: _resumen == null
                 ? null
-                : () => PdfReportService.generateAndSharePdf(
-                      scopeTitle: _getScopeTitle(),
-                      resumen: _resumen!,
-                      repostajes: filtered,
-                    ),
+                : () => _showPdfOptionsDialog(filtered),
           ),
           IconButton(
             tooltip: 'Cerrar sesión',
