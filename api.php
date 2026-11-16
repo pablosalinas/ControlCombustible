@@ -350,23 +350,13 @@ try {
                 }));
             }
 
-            // Obtener estaciones de servicio activas
-            if ($isAdmin) {
-                $stmtEst = $pdo->query("
-                    SELECT id, usuario_id, nombre, marca, localidad, direccion, notas
-                    FROM `veh_estaciones`
-                    WHERE activo = 1
-                    ORDER BY nombre ASC
-                ");
-            } else {
-                $stmtEst = $pdo->prepare("
-                    SELECT id, usuario_id, nombre, marca, localidad, direccion, notas
-                    FROM `veh_estaciones`
-                    WHERE usuario_id = ? AND activo = 1
-                    ORDER BY nombre ASC
-                ");
-                $stmtEst->execute(array($userId));
-            }
+            // Obtener estaciones de servicio activas (comunes para todos los usuarios)
+            $stmtEst = $pdo->query("
+                SELECT id, usuario_id, nombre, marca, localidad, direccion, notas
+                FROM `veh_estaciones`
+                WHERE activo = 1
+                ORDER BY nombre ASC
+            ");
             $estaciones = $stmtEst->fetchAll();
 
             // Obtener último odómetro registrado por cada vehículo del usuario
@@ -505,22 +495,12 @@ try {
             break;
 
         case 'list_estaciones':
-            if ($isAdmin) {
-                $stmt = $pdo->query("
-                    SELECT id, usuario_id, nombre, marca, localidad, direccion, notas, created_at
-                    FROM `veh_estaciones`
-                    WHERE activo = 1
-                    ORDER BY nombre ASC
-                ");
-            } else {
-                $stmt = $pdo->prepare("
-                    SELECT id, usuario_id, nombre, marca, localidad, direccion, notas, created_at
-                    FROM `veh_estaciones`
-                    WHERE usuario_id = ? AND activo = 1
-                    ORDER BY nombre ASC
-                ");
-                $stmt->execute(array($userId));
-            }
+            $stmt = $pdo->query("
+                SELECT id, usuario_id, nombre, marca, localidad, direccion, notas, created_at
+                FROM `veh_estaciones`
+                WHERE activo = 1
+                ORDER BY nombre ASC
+            ");
             echo json_encode(array(
                 'success'    => true,
                 'estaciones' => $stmt->fetchAll(),
@@ -542,21 +522,12 @@ try {
             }
 
             if ($id > 0) {
-                if ($isAdmin) {
-                    $stmt = $pdo->prepare("
-                        UPDATE `veh_estaciones`
-                        SET nombre = ?, marca = ?, localidad = ?, direccion = ?, notas = ?
-                        WHERE id = ? AND activo = 1
-                    ");
-                    $stmt->execute(array($nombre, $marca, $localidad, $direccion, $notas, $id));
-                } else {
-                    $stmt = $pdo->prepare("
-                        UPDATE `veh_estaciones`
-                        SET nombre = ?, marca = ?, localidad = ?, direccion = ?, notas = ?
-                        WHERE id = ? AND usuario_id = ? AND activo = 1
-                    ");
-                    $stmt->execute(array($nombre, $marca, $localidad, $direccion, $notas, $id, $userId));
-                }
+                $stmt = $pdo->prepare("
+                    UPDATE `veh_estaciones`
+                    SET nombre = ?, marca = ?, localidad = ?, direccion = ?, notas = ?
+                    WHERE id = ? AND activo = 1
+                ");
+                $stmt->execute(array($nombre, $marca, $localidad, $direccion, $notas, $id));
                 $savedId = $id;
             } else {
                 $stmt = $pdo->prepare("
@@ -581,13 +552,8 @@ try {
                 echo json_encode(array('success' => false, 'error' => 'ID de estación inválido.'));
                 exit;
             }
-            if ($isAdmin) {
-                $stmt = $pdo->prepare("UPDATE `veh_estaciones` SET activo = 0 WHERE id = ?");
-                $stmt->execute(array($id));
-            } else {
-                $stmt = $pdo->prepare("UPDATE `veh_estaciones` SET activo = 0 WHERE id = ? AND usuario_id = ?");
-                $stmt->execute(array($id, $userId));
-            }
+            $stmt = $pdo->prepare("UPDATE `veh_estaciones` SET activo = 0 WHERE id = ?");
+            $stmt->execute(array($id));
             echo json_encode(array(
                 'success' => true,
                 'message' => 'Estación dada de baja lógicamente (activo = 0).',
