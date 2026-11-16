@@ -82,6 +82,35 @@ function authenticateMoratallaUser(PDO $pdo, array $jsonBody) {
     }
 
     if (!$username || !$password) {
+        if (session_status() === PHP_SESSION_NONE) {
+            @session_start();
+        }
+        if (!empty($_SESSION['admin_id'])) {
+            $stmtSess = $pdo->prepare("SELECT id, username, role, acceso_sistema, es_superusuario FROM `users` WHERE id = ? LIMIT 1");
+            $stmtSess->execute(array((int)$_SESSION['admin_id']));
+            $uSess = $stmtSess->fetch();
+            if ($uSess) {
+                $roleSess = isset($uSess['role']) ? $uSess['role'] : 'editor';
+                $esSuperSess = !empty($uSess['es_superusuario']) || ($roleSess === 'admin' && !isset($uSess['es_superusuario']));
+                $accSess = isset($uSess['acceso_sistema']) && $uSess['acceso_sistema'] !== '' ? $uSess['acceso_sistema'] : 'ambos';
+                if (!$esSuperSess && $accSess === 'web') {
+                    http_response_code(403);
+                    echo json_encode(array(
+                        'success' => false,
+                        'error'   => 'Tu usuario tiene asignado acceso exclusivo a moratalla-murcia.com.'
+                    ));
+                    exit;
+                }
+                return array(
+                    'id'             => (int)$uSess['id'],
+                    'username'       => $uSess['username'],
+                    'role'           => $roleSess,
+                    'acceso_sistema' => $esSuperSess ? 'ambos' : $accSess,
+                    'is_admin'       => (bool)$esSuperSess,
+                );
+            }
+        }
+
         http_response_code(401);
         echo json_encode(array(
             'success' => false,

@@ -136,10 +136,14 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const CircleAvatar(
-                    radius: 32,
-                    backgroundColor: Color(0xFFCCFBF1),
-                    child: Icon(Icons.local_gas_station, size: 34, color: Color(0xFF0F766E)),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: Image.asset(
+                      'assets/logo_v2.png',
+                      width: 84,
+                      height: 84,
+                      fit: BoxFit.cover,
+                    ),
                   ),
                   const SizedBox(height: 14),
                   const Text(
@@ -316,7 +320,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF0F172A),
         foregroundColor: Colors.white,
-        title: Text(widget.api.isAdmin ? 'Control de Combustible.' : 'Control de Combustible'),
+        title: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.asset('assets/logo_v2.png', width: 32, height: 32),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                widget.api.isAdmin ? 'Control de Combustible.' : 'Control de Combustible',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
         actions: [
           IconButton(
             tooltip: 'Gestionar Vehículos',

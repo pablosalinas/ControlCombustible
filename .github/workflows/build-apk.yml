@@ -29,18 +29,31 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: 🔧 Inicializar plataforma Android y permisos (Cámara + Internet + minSdk 23)
+      - name: 🔧 Inicializar Android, Iconos _v2 y Reglas R8/MLKit
         working-directory: ./flutter_app
         run: |
           if [ ! -d "android" ]; then
             flutter create --platforms=android --org com.moratallamurcia.combustible .
           fi
-          # Asegurar permisos de Internet y Cámara en AndroidManifest.xml
+
+          # 1. Instalar iconos generados _v2 en todas las densidades mipmap de Android
+          cp -r assets/android_res/mipmap-* android/app/src/main/res/
+          # Eliminar adaptive icon por defecto de Flutter para que use nuestro ic_launcher.png _v2
+          rm -rf android/app/src/main/res/mipmap-anydpi-v26 || true
+          for dir in android/app/src/main/res/mipmap-*; do
+            if [ -f "$dir/ic_launcher.png" ]; then
+              cp "$dir/ic_launcher.png" "$dir/ic_launcher_round.png" || true
+            fi
+          done
+
+          # 2. Asegurar permisos de Internet y Cámara y nombre de la app en AndroidManifest.xml
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           if ! grep -q "android.permission.CAMERA" "$MANIFEST"; then
             sed -i 's/<application/<uses-permission android:name="android.permission.INTERNET"\/><uses-permission android:name="android.permission.CAMERA"\/><application/' "$MANIFEST"
           fi
-          # Asegurar minSdk 23 requerido por Google ML Kit OCR
+          sed -i 's/android:label="control_combustible_app"/android:label="Control Combustible"/g' "$MANIFEST" || true
+
+          # 3. Asegurar minSdk 23 requerido por Google ML Kit OCR
           if [ -f "android/app/build.gradle" ]; then
             sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' android/app/build.gradle || true
             sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/g' android/app/build.gradle || true
@@ -48,12 +61,23 @@ jobs:
           if [ -f "android/app/build.gradle.kts" ]; then
             sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' android/app/build.gradle.kts || true
           fi
+
+          # 4. Crear reglas ProGuard/R8 para evitar error Missing class Chinese/Japanese/Korean/Devanagari de MLKit
+          cat << 'EOF' > android/app/proguard-rules.pro
+          -keep class com.google.mlkit.** { *; }
+          -dontwarn com.google.mlkit.**
+          -dontwarn com.google.mlkit.vision.text.chinese.**
+          -dontwarn com.google.mlkit.vision.text.devanagari.**
+          -dontwarn com.google.mlkit.vision.text.japanese.**
+          -dontwarn com.google.mlkit.vision.text.korean.**
+          EOF
+
           flutter pub get
 
-      - name: 🏗️ Compilar APK Release
+      - name: 🏗️ Compilar APK Release (con --no-shrink para compatibilidad MLKit)
         working-directory: ./flutter_app
         run: |
-          flutter build apk --release
+          flutter build apk --release --no-shrink
           cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/ControlCombustible.apk
 
       - name: 📦 Subir APK como Artefacto de GitHub Actions
@@ -65,8 +89,8 @@ jobs:
       - name: 🚀 Publicar Descarga Directa en GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0
-          name: "App Android Control de Combustible (APK)"
-          body: "Descarga directa del instalador Android (`ControlCombustible.apk`) con soporte para login moratalla-murcia.com, multivehículo, OCR de tickets/odómetro e informes PDF."
+          tag_name: v1.0.2
+          name: "App Android Control de Combustible v2 (APK)"
+          body: "Descarga directa del instalador Android (`ControlCombustible.apk`) con el icono oficial `_v2`, login moratalla-murcia.com, multivehículo, OCR de tickets/odómetro e informes PDF."
           files: flutter_app/build/app/outputs/flutter-apk/ControlCombustible.apk
           prerelease: false

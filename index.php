@@ -11,6 +11,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Control de Combustible y Gastos - Vehículos</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/icons/favicon-16x16.png">
+    <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+    <link rel="manifest" href="site.webmanifest">
+    <meta name="theme-color" content="#0f172a">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
@@ -237,39 +243,88 @@
         .table-responsive {
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            max-height: 68vh;
         }
         table {
             width: 100%;
-            border-collapse: collapse;
-            font-size: 0.84rem;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 0.81rem;
         }
         th, td {
-            padding: 0.65rem 0.6rem;
+            padding: 0.55rem 0.5rem;
             text-align: right;
             border-bottom: 1px solid var(--border);
             white-space: nowrap;
+            font-variant-numeric: tabular-nums;
         }
         th:first-child, td:first-child,
         th:nth-child(2), td:nth-child(2) {
             text-align: left;
         }
-        th {
-            background: #f8fafc;
-            color: var(--muted);
+        thead th {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: #0f172a;
+            color: #f8fafc;
             font-weight: 700;
-            font-size: 0.75rem;
+            font-size: 0.72rem;
             text-transform: uppercase;
+            letter-spacing: 0.3px;
         }
-        tr:hover { background: #f8fafc; }
+        tbody tr:nth-child(even) { background: #f8fafc; }
+        tbody tr:hover { background: #f0fdfa; }
         .badge {
             display: inline-block;
-            padding: 0.2rem 0.5rem;
+            padding: 0.18rem 0.48rem;
             border-radius: 6px;
-            font-size: 0.74rem;
-            font-weight: 600;
+            font-size: 0.73rem;
+            font-weight: 700;
         }
         .badge-teal { background: var(--primary-light); color: var(--primary-dark); }
         .badge-amber { background: #fef3c7; color: #b45309; }
+
+        /* Vista Tarjetas Responsive para Móvil */
+        .mobile-cards-container {
+            display: none;
+            flex-direction: column;
+            gap: 0.65rem;
+        }
+        .rep-mobile-card {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 0.85rem;
+            background: #fff;
+            box-shadow: 0 1px 4px rgba(15,23,42,0.04);
+        }
+        .rep-mobile-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.45rem;
+        }
+        .rep-mobile-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.4rem;
+            background: #f8fafc;
+            padding: 0.55rem;
+            border-radius: 8px;
+            font-size: 0.76rem;
+            margin-top: 0.45rem;
+        }
+        .rep-mobile-grid div span {
+            display: block;
+            color: var(--muted);
+            font-size: 0.68rem;
+        }
+        .rep-mobile-grid div strong {
+            color: var(--text);
+            font-size: 0.8rem;
+        }
 
         /* Modals */
         .modal-backdrop {
@@ -327,6 +382,15 @@
             z-index: 150;
         }
         .hidden { display: none !important; }
+        @media (max-width: 768px) {
+            .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
+            .kpi-card { padding: 0.8rem; }
+            .kpi-value { font-size: 1.15rem; }
+            .header-top { flex-wrap: wrap; }
+            .vehicle-bar input[type="date"] { flex: 1; min-width: 130px; }
+            .table-responsive.auto-hide-mobile { display: none; }
+            .mobile-cards-container { display: flex; }
+        }
         @media (max-width: 600px) {
             .grid-2 { grid-template-columns: 1fr; }
             .ocr-bar { grid-template-columns: 1fr; }
@@ -339,7 +403,7 @@
 <div id="login-screen">
     <div class="login-card">
         <div class="login-header">
-            <div class="login-icon"><i class="fa-solid fa-gas-pump"></i></div>
+            <img src="assets/icons/icon-192.png" alt="Logo Control de Combustible" style="width: 84px; height: 84px; border-radius: 18px; margin-bottom: 0.8rem; box-shadow: 0 6px 18px rgba(15,118,110,0.28);">
             <h1 style="font-size: 1.35rem; font-weight: 800;">Control de Combustible</h1>
             <p style="font-size: 0.85rem; color: var(--muted); margin-top: 0.3rem;">Acceso con tu cuenta de moratalla-murcia.com</p>
         </div>
@@ -368,7 +432,9 @@
     <header class="app-header">
         <div class="header-top">
             <div class="brand">
-                <span class="brand-badge" id="brand-icon-box"><i class="fa-solid fa-gas-pump"></i></span>
+                <span class="brand-badge" id="brand-icon-box" style="overflow:hidden; padding:0; background:transparent;">
+                    <img src="assets/icons/icon-192.png" alt="Icono" style="width:36px; height:36px; border-radius:10px; display:block;">
+                </span>
                 <div>
                     <div id="app-title-text">Control de Combustible</div>
                     <div style="font-size: 0.72rem; color: #94a3b8; font-weight: 500;" id="user-badge-text">Conectado</div>
@@ -447,14 +513,17 @@
                     <i class="fa-solid fa-table-list" style="color:var(--primary)"></i>
                     Histórico de Repostajes y Cálculos Encadenados
                 </div>
-                <div style="display:flex; gap:0.5rem; align-items:center;">
-                    <input type="text" id="search-input" class="form-control" placeholder="Buscar fecha, km, nota..." style="max-width:210px; padding:0.45rem 0.75rem; font-size:0.84rem;" oninput="renderTable()">
+                <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                    <input type="text" id="search-input" class="form-control" placeholder="Buscar fecha, km, nota..." style="max-width:200px; padding:0.45rem 0.75rem; font-size:0.84rem;" oninput="renderTable()">
+                    <button class="btn btn-outline" id="btn-toggle-view" style="padding:0.45rem 0.75rem; font-size:0.8rem;" onclick="toggleViewMode()" title="Alternar vista Tarjetas / Tabla">
+                        <i class="fa-solid fa-grip"></i> Vista
+                    </button>
                     <button class="btn btn-primary" style="padding:0.48rem 0.85rem; font-size:0.84rem;" onclick="openRepostajeModal()">
                         <i class="fa-solid fa-plus"></i> Nuevo
                     </button>
                 </div>
             </div>
-            <div class="table-responsive">
+            <div class="table-responsive auto-hide-mobile" id="repostajes-table-wrap">
                 <table id="repostajes-table">
                     <thead>
                         <tr>
@@ -478,6 +547,8 @@
                     <tbody id="repostajes-tbody"></tbody>
                 </table>
             </div>
+            <!-- Vista Tarjetas Responsive para Móvil o Pantalla Compacta -->
+            <div class="mobile-cards-container" id="repostajes-mobile-cards"></div>
         </div>
     </main>
 
@@ -614,15 +685,19 @@ function fmtNum(val, dec = 2) {
 }
 
 async function apiCall(action, payload = {}, method = 'POST') {
-    const headers = {
-        'Content-Type': 'application/json',
-        'Authorization': 'Basic ' + btoa(authCreds.username + ':' + authCreds.password)
-    };
+    const headers = { 'Content-Type': 'application/json' };
+    if (authCreds && authCreds.username && authCreds.password) {
+        headers['Authorization'] = 'Basic ' + btoa(authCreds.username + ':' + authCreds.password);
+    }
     const url = 'api.php?action=' + encodeURIComponent(action);
+    const bodyObj = (authCreds && authCreds.username)
+        ? { ...payload, username: authCreds.username, password: authCreds.password }
+        : { ...payload };
     const res = await fetch(url, {
         method,
         headers,
-        body: method === 'POST' ? JSON.stringify({ ...payload, username: authCreds.username, password: authCreds.password }) : undefined
+        credentials: 'same-origin',
+        body: method === 'POST' ? JSON.stringify(bodyObj) : undefined
     });
     return await res.json();
 }
@@ -718,10 +793,26 @@ async function loadDashboard() {
     renderChart();
 }
 
+let forceCardsView = false;
+function toggleViewMode() {
+    forceCardsView = !forceCardsView;
+    const tableWrap = document.getElementById('repostajes-table-wrap');
+    const cardsWrap = document.getElementById('repostajes-mobile-cards');
+    if (forceCardsView) {
+        tableWrap.style.display = 'none';
+        cardsWrap.style.display = 'flex';
+    } else {
+        tableWrap.style.display = '';
+        cardsWrap.style.display = '';
+    }
+}
+
 function renderTable() {
     const q = (document.getElementById('search-input').value || '').toLowerCase().trim();
     const tbody = document.getElementById('repostajes-tbody');
+    const cardsContainer = document.getElementById('repostajes-mobile-cards');
     tbody.innerHTML = '';
+    cardsContainer.innerHTML = '';
 
     const filtered = (currentData.repostajes || []).filter(r => {
         if (!q) return true;
@@ -738,7 +829,7 @@ function renderTable() {
             <td><span class="badge badge-teal">${r.vehiculo_nombre || 'Vehículo'}</span></td>
             <td>${fmtNum(r.litros, 2)}</td>
             <td>${fmtNum(r.precio_litro, 3)} €</td>
-            <td style="font-weight:700;">${fmtNum(r.importe_total, 2)} €</td>
+            <td style="font-weight:700; color:var(--primary-dark);">${fmtNum(r.importe_total, 2)} €</td>
             <td style="font-weight:600;">${fmtNum(r.km_odometro, 0)}</td>
             <td>${r.dif_km > 0 ? '+' + fmtNum(r.dif_km, 0) : '-'}</td>
             <td>${r.litros_por_100 !== null ? `<span class="badge badge-amber">${fmtNum(r.litros_por_100, 2)}</span>` : '-'}</td>
@@ -754,6 +845,36 @@ function renderTable() {
             </td>
         `;
         tbody.appendChild(tr);
+
+        const card = document.createElement('div');
+        card.className = 'rep-mobile-card';
+        card.innerHTML = `
+            <div class="rep-mobile-top">
+                <div>
+                    <strong style="font-size:0.92rem;">${r.fecha}</strong>
+                    <span class="badge badge-teal" style="margin-left:0.35rem;">${r.vehiculo_nombre || 'Vehículo'}</span>
+                </div>
+                <div style="font-weight:800; font-size:1.05rem; color:var(--primary-dark);">${fmtNum(r.importe_total, 2)} €</div>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:0.82rem; color:var(--muted);">
+                <span><strong>${fmtNum(r.km_odometro, 0)} km</strong> (${r.dif_km > 0 ? '+' + fmtNum(r.dif_km, 0) + ' km' : 'Inicio'})</span>
+                <span>${fmtNum(r.litros, 2)} L × ${fmtNum(r.precio_litro, 3)} €/L</span>
+            </div>
+            <div class="rep-mobile-grid">
+                <div><span>Consumo L/100</span><strong>${r.litros_por_100 !== null ? fmtNum(r.litros_por_100, 2) : '-'}</strong></div>
+                <div><span>Km / Litro</span><strong>${r.km_por_litro !== null ? fmtNum(r.km_por_litro, 2) : '-'}</strong></div>
+                <div><span>Coste / Km</span><strong>${r.euros_por_km !== null ? fmtNum(r.euros_por_km, 4) + ' €' : '-'}</strong></div>
+                <div><span>Acum. Litros</span><strong>${fmtNum(r.total_litros_acum, 1)} L</strong></div>
+                <div><span>Acum. Gasto</span><strong>${fmtNum(r.total_euros_acum, 2)} €</strong></div>
+                <div><span>Media €/100</span><strong>${r.coste_medio_100_acum !== null ? fmtNum(r.coste_medio_100_acum, 2) + ' €' : '-'}</strong></div>
+            </div>
+            ${r.notas ? `<div style="margin-top:0.45rem; font-size:0.78rem; color:#92400e; background:#fef3c7; padding:0.3rem 0.55rem; border-radius:6px;"><i class="fa-solid fa-screwdriver-wrench"></i> ${r.notas}</div>` : ''}
+            <div style="display:flex; justify-content:flex-end; gap:0.4rem; margin-top:0.55rem;">
+                <button class="btn btn-outline" style="padding:0.3rem 0.65rem; font-size:0.76rem;" onclick='editRepostaje(${JSON.stringify(r)})'><i class="fa-solid fa-pen"></i> Editar</button>
+                <button class="btn btn-danger" style="padding:0.3rem 0.65rem; font-size:0.76rem;" onclick="deleteRepostaje(${r.id})"><i class="fa-solid fa-trash"></i> Baja</button>
+            </div>
+        `;
+        cardsContainer.appendChild(card);
     });
 }
 
@@ -993,64 +1114,115 @@ async function deactivateVehicle(id) {
     }
 }
 
-// GENERACIÓN DE INFORMES PDF EN EL MÓVIL
+// GENERACIÓN DE INFORMES PDF OPTIMIZADO EN A4 VERTICAL
 function exportPDFReport() {
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const s = currentData.resumen || {};
-    const selText = document.getElementById('vehicle-selector').selectedOptions[0].textContent;
+    const selText = document.getElementById('vehicle-selector').selectedOptions[0].textContent.replace(/[^\w\sáéíóúÁÉÍÓÚñÑ()\-]/g, '').trim();
 
-    doc.setFontSize(16);
+    // Cabecera compacta A4 Vertical
+    doc.setFontSize(13);
     doc.setTextColor(15, 118, 110);
-    doc.text('Informe de Control de Combustible y Consumo', 14, 15);
+    doc.text('INFORME DE CONTROL DE COMBUSTIBLE Y CONSUMO', 8, 12);
 
-    doc.setFontSize(10);
-    doc.setTextColor(80, 80, 80);
-    doc.text(`Ámbito: ${selText} | Fecha de emisión: ${new Date().toLocaleDateString('es-ES')}`, 14, 22);
+    doc.setFontSize(8.5);
+    doc.setTextColor(70, 70, 70);
+    doc.text(`Ámbito: ${selText}   |   Fecha de emisión: ${new Date().toLocaleDateString('es-ES')}`, 8, 17);
+
+    // Caja resumen de indicadores en A4 Vertical (194 mm ancho útil)
+    doc.setDrawColor(203, 213, 225);
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(8, 20, 194, 13, 2, 2, 'FD');
+
+    doc.setFontSize(7.5);
+    doc.setTextColor(15, 23, 42);
     doc.text(
-        `Total Litros: ${fmtNum(s.total_litros, 2)} L | Total Gasto: ${fmtNum(s.total_euros, 2)} € | Km Recorridos: ${fmtNum(s.total_km_recorridos, 0)} km | Consumo Medio: ${fmtNum(s.consumo_medio_l100, 2)} L/100km | Máx/Mín: ${fmtNum(s.consumo_maximo, 2)} / ${fmtNum(s.consumo_minimo, 2)} L/100`,
-        14, 28
+        `Consumo Medio: ${fmtNum(s.consumo_medio_l100, 2)} L/100km  |  Máx / Mín: ${fmtNum(s.consumo_maximo, 2)} / ${fmtNum(s.consumo_minimo, 2)} L/100 (Dif: ${fmtNum(s.diferencia_consumo, 2)})  |  Precio Máx / Mín: ${fmtNum(s.precio_maximo, 3)} / ${fmtNum(s.precio_minimo, 3)} €/L`,
+        11, 25.5
+    );
+    doc.text(
+        `Total Litros: ${fmtNum(s.total_litros, 2)} L (${s.num_repostajes || 0} rep.)  |  Gasto Acumulado: ${fmtNum(s.total_euros, 2)} €  |  Km Recorridos: ${fmtNum(s.total_km_recorridos, 0)} km  |  Coste Medio: ${fmtNum(s.coste_medio_100km, 2)} €/100km`,
+        11, 30.5
     );
 
     const rows = (currentData.repostajes || []).map(r => [
         r.fecha,
-        r.vehiculo_nombre || '-',
         fmtNum(r.litros, 2),
         fmtNum(r.precio_litro, 3),
         fmtNum(r.importe_total, 2) + ' €',
         fmtNum(r.km_odometro, 0),
-        r.dif_km > 0 ? fmtNum(r.dif_km, 0) : '-',
+        r.dif_km > 0 ? '+' + fmtNum(r.dif_km, 0) : '-',
         r.litros_por_100 !== null ? fmtNum(r.litros_por_100, 2) : '-',
         r.km_por_litro !== null ? fmtNum(r.km_por_litro, 2) : '-',
-        r.euros_por_km !== null ? fmtNum(r.euros_por_km, 4) : '-',
+        r.euros_por_km !== null ? fmtNum(r.euros_por_km, 3) : '-',
         fmtNum(r.total_litros_acum, 1),
         fmtNum(r.total_euros_acum, 2) + ' €',
-        r.notas || ''
+        (r.notas || '').substring(0, 22)
     ]);
 
     doc.autoTable({
-        startY: 33,
-        head: [['Fecha', 'Vehículo', 'Litros', '€/L', 'Importe', 'KM', 'DIF Km', 'L/100', 'Km/L', '€/Km', 'T.Litros', 'Total €', 'Notas']],
+        startY: 36,
+        margin: { top: 12, right: 8, bottom: 12, left: 8 },
+        head: [['Fecha', 'Litros', '€/L', 'Importe', 'KM.', 'DIF.', 'L/100', 'Km/L', '€/Km', 'T.Litros', 'Total €', 'Notas']],
         body: rows,
-        styles: { fontSize: 7.5, cellPadding: 1.8 },
-        headStyles: { fillColor: [15, 118, 110] }
+        styles: {
+            fontSize: 6.8,
+            cellPadding: 1.3,
+            valign: 'middle',
+            overflow: 'linebreak'
+        },
+        headStyles: {
+            fillColor: [15, 118, 110],
+            textColor: 255,
+            fontStyle: 'bold',
+            halign: 'right'
+        },
+        columnStyles: {
+            0: { halign: 'left', cellWidth: 18 },
+            1: { halign: 'right', cellWidth: 13 },
+            2: { halign: 'right', cellWidth: 12 },
+            3: { halign: 'right', cellWidth: 16, fontStyle: 'bold' },
+            4: { halign: 'right', cellWidth: 16 },
+            5: { halign: 'right', cellWidth: 13 },
+            6: { halign: 'right', cellWidth: 13, fontStyle: 'bold' },
+            7: { halign: 'right', cellWidth: 13 },
+            8: { halign: 'right', cellWidth: 13 },
+            9: { halign: 'right', cellWidth: 16 },
+            10: { halign: 'right', cellWidth: 18 },
+            11: { halign: 'left', cellWidth: 'auto' }
+        },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        didDrawPage: function (data) {
+            const pageCount = doc.internal.getNumberOfPages();
+            doc.setFontSize(7.5);
+            doc.setTextColor(120, 120, 120);
+            doc.text(
+                `Página ${data.pageNumber} de ${pageCount} - Control de Combustible (A4 Vertical)`,
+                105,
+                291,
+                { align: 'center' }
+            );
+        }
     });
 
-    doc.save(`Informe_Combustible_${new Date().toISOString().slice(0,10)}.pdf`);
+    doc.save(`Informe_Combustible_A4_${new Date().toISOString().slice(0,10)}.pdf`);
 }
 
-// Restaurar sesión si existe
+// Restaurar sesión (por sessionStorage o por sesión activa de moratalla-murcia.com/admin)
 window.addEventListener('DOMContentLoaded', async () => {
     const saved = sessionStorage.getItem('veh_auth');
     if (saved) {
         authCreds = JSON.parse(saved);
+    }
+    try {
         const res = await apiCall('login');
-        if (res.success) {
+        if (res && res.success) {
             document.getElementById('login-screen').classList.add('hidden');
             document.getElementById('app-screen').classList.remove('hidden');
             await loadDashboard();
         }
-    }
+    } catch (e) {}
 });
 </script>
 </body>

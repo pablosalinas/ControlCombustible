@@ -13,88 +13,123 @@ class PdfReportService {
 
     doc.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4.landscape,
-        margin: const pw.EdgeInsets.all(20),
+        pageFormat: PdfPageFormat.a4, // A4 Vertical (Portrait) optimizado
+        margin: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+        footer: (context) => pw.Container(
+          alignment: pw.Alignment.centerRight,
+          margin: const pw.EdgeInsets.only(top: 6),
+          child: pw.Text(
+            'Página ${context.pageNumber} de ${context.pagesCount}',
+            style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600),
+          ),
+        ),
         build: (context) => [
-          pw.Header(
-            level: 0,
+          pw.Container(
+            padding: const pw.EdgeInsets.only(bottom: 6),
+            decoration: const pw.BoxDecoration(
+              border: pw.Border(bottom: pw.BorderSide(color: PdfColors.teal700, width: 1.5)),
+            ),
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.end,
               children: [
-                pw.Text(
-                  'Informe de Control de Combustible y Consumo',
-                  style: pw.TextStyle(
-                    fontSize: 16,
-                    fontWeight: pw.FontWeight.bold,
-                    color: PdfColors.teal800,
-                  ),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'INFORME DE CONTROL DE COMBUSTIBLE Y CONSUMO',
+                      style: pw.TextStyle(
+                        fontSize: 12,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.teal800,
+                      ),
+                    ),
+                    pw.SizedBox(height: 2),
+                    pw.Text(
+                      'Ámbito: $scopeTitle',
+                      style: const pw.TextStyle(fontSize: 8.5, color: PdfColors.grey800),
+                    ),
+                  ],
                 ),
                 pw.Text(
-                  scopeTitle,
-                  style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
+                  'Fecha: ${DateTime.now().toIso8601String().substring(0, 10)}',
+                  style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
                 ),
               ],
             ),
           ),
-          pw.SizedBox(height: 8),
+          pw.SizedBox(height: 6),
           pw.Container(
-            padding: const pw.EdgeInsets.all(10),
+            padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             decoration: pw.BoxDecoration(
               color: PdfColors.grey100,
-              borderRadius: pw.BorderRadius.circular(6),
+              borderRadius: pw.BorderRadius.circular(4),
+              border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
             ),
             child: pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
                 _kpiBox('Consumo Medio', '${resumen.consumoMedioL100.toStringAsFixed(2)} L/100'),
-                _kpiBox('Consumo Máx/Mín', '${resumen.consumoMaximo.toStringAsFixed(2)} / ${resumen.consumoMinimo.toStringAsFixed(2)}'),
-                _kpiBox('Precio Máx/Mín', '${resumen.precioMaximo.toStringAsFixed(3)} / ${resumen.precioMinimo.toStringAsFixed(3)} €'),
+                _kpiBox('Máx / Mín (L/100)', '${resumen.consumoMaximo.toStringAsFixed(2)} / ${resumen.consumoMinimo.toStringAsFixed(2)}'),
+                _kpiBox('Precio Máx / Mín', '${resumen.precioMaximo.toStringAsFixed(3)} / ${resumen.precioMinimo.toStringAsFixed(3)} €'),
                 _kpiBox('Total Litros', '${resumen.totalLitros.toStringAsFixed(2)} L'),
                 _kpiBox('Total Gasto', '${resumen.totalEuros.toStringAsFixed(2)} €'),
                 _kpiBox('Km Recorridos', '${resumen.totalKmRecorridos.toStringAsFixed(0)} km'),
               ],
             ),
           ),
-          pw.SizedBox(height: 12),
+          pw.SizedBox(height: 8),
           pw.TableHelper.fromTextArray(
             headers: const [
               'Fecha',
-              'Vehículo',
               'Litros',
               '€/L',
               'Importe',
               'KM.',
               'DIF.',
-              'LTS.x.100',
-              'KM.x.LTS',
-              '€ x 1KM.',
+              'L/100',
+              'Km/L',
+              '€/Km',
               'T.Litros',
               'Total €',
               'Notas',
             ],
             data: repostajes.map((r) => [
               r.fecha,
-              r.vehiculoNombre,
               r.litros.toStringAsFixed(2),
               r.precioLitro.toStringAsFixed(3),
-              '${r.importeTotal.toStringAsFixed(2)} €',
+              '${r.importeTotal.toStringAsFixed(2)}€',
               r.kmOdometro.toStringAsFixed(0),
               r.difKm > 0 ? '+${r.difKm.toStringAsFixed(0)}' : '-',
               r.litrosPor100 != null ? r.litrosPor100!.toStringAsFixed(2) : '-',
               r.kmPorLitro != null ? r.kmPorLitro!.toStringAsFixed(2) : '-',
-              r.eurosPorKm != null ? r.eurosPorKm!.toStringAsFixed(4) : '-',
+              r.eurosPorKm != null ? r.eurosPorKm!.toStringAsFixed(3) : '-',
               r.totalLitrosAcum.toStringAsFixed(1),
-              '${r.totalEurosAcum.toStringAsFixed(2)} €',
-              r.notas,
+              '${r.totalEurosAcum.toStringAsFixed(1)}€',
+              r.notas.length > 18 ? '${r.notas.substring(0, 18)}…' : r.notas,
             ]).toList(),
             headerStyle: pw.TextStyle(
               fontWeight: pw.FontWeight.bold,
               color: PdfColors.white,
-              fontSize: 8,
+              fontSize: 6.8,
             ),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.teal700),
-            cellStyle: const pw.TextStyle(fontSize: 7.5),
-            cellAlignment: pw.Alignment.centerRight,
+            cellStyle: const pw.TextStyle(fontSize: 6.5),
+            cellPadding: const pw.EdgeInsets.symmetric(horizontal: 2.5, vertical: 2.2),
+            cellAlignments: {
+              0: pw.Alignment.centerLeft,
+              1: pw.Alignment.centerRight,
+              2: pw.Alignment.centerRight,
+              3: pw.Alignment.centerRight,
+              4: pw.Alignment.centerRight,
+              5: pw.Alignment.centerRight,
+              6: pw.Alignment.centerRight,
+              7: pw.Alignment.centerRight,
+              8: pw.Alignment.centerRight,
+              9: pw.Alignment.centerRight,
+              10: pw.Alignment.centerRight,
+              11: pw.Alignment.centerLeft,
+            },
           ),
         ],
       ),
@@ -102,7 +137,7 @@ class PdfReportService {
 
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => doc.save(),
-      name: 'Informe_Combustible_${DateTime.now().toIso8601String().substring(0, 10)}.pdf',
+      name: 'Informe_Combustible_A4_${DateTime.now().toIso8601String().substring(0, 10)}.pdf',
     );
   }
 
@@ -110,9 +145,9 @@ class PdfReportService {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Text(label, style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
-        pw.SizedBox(height: 2),
-        pw.Text(value, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+        pw.Text(label, style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.grey700)),
+        pw.SizedBox(height: 1.5),
+        pw.Text(value, style: pw.TextStyle(fontSize: 8.2, fontWeight: pw.FontWeight.bold, color: PdfColors.teal900)),
       ],
     );
   }
