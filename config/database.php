@@ -40,7 +40,10 @@ if (!function_exists('veh_load_env')) {
 $localEnvLoaded = veh_load_env(dirname(__DIR__) . '/.env');
 // 2. Si no existe .env propio y estamos dentro de la estructura de Moratalla-Murcia-2026, cargar su .env
 if (!$localEnvLoaded) {
-    veh_load_env(dirname(dirname(__DIR__)) . '/.env');
+    $localEnvLoaded = veh_load_env(dirname(dirname(__DIR__)) . '/.env');
+}
+if (!$localEnvLoaded) {
+    veh_load_env(dirname(dirname(__DIR__)) . '/moratalla/.env');
 }
 
 if (!function_exists('veh_env')) {
