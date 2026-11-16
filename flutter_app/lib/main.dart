@@ -288,6 +288,8 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   int _selectedVehiculoId = 0; // 0 = Todos (Resultado conjunto)
   List<Vehiculo> _vehiculos = [];
+  List<EstacionServicio> _estaciones = [];
+  Map<int, double> _ultimoKmPorVehiculo = {};
   List<Repostaje> _repostajes = [];
   ResumenEstadisticas? _resumen;
   bool _loading = true;
@@ -309,14 +311,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final vList = (res['vehiculos'] as List? ?? [])
             .map((e) => Vehiculo.fromJson(e as Map<String, dynamic>))
             .toList();
+        final estList = (res['estaciones'] as List? ?? [])
+            .map((e) => EstacionServicio.fromJson(e as Map<String, dynamic>))
+            .toList();
         final rList = (res['repostajes'] as List? ?? [])
             .map((e) => Repostaje.fromJson(e as Map<String, dynamic>))
             .toList();
+        final rawLastKm = res['ultimo_km_por_vehiculo'] as Map<String, dynamic>? ?? {};
+        final parsedLastKm = <int, double>{};
+        rawLastKm.forEach((k, v) {
+          final id = int.tryParse(k);
+          final km = double.tryParse(v.toString());
+          if (id != null && km != null) parsedLastKm[id] = km;
+        });
         final sumMap = res['resumen'] as Map<String, dynamic>? ?? {};
 
         if (mounted) {
           setState(() {
             _vehiculos = vList;
+            _estaciones = estList;
+            _ultimoKmPorVehiculo = parsedLastKm;
             _repostajes = rList;
             _resumen = ResumenEstadisticas.fromJson(sumMap);
           });
@@ -343,12 +357,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
       return;
     }
+    // Si hay más de un vehículo y es un nuevo repostaje, no preseleccionar ninguno
+    final int? defaultVehId = editItem != null
+        ? editItem.vehiculoId
+        : (_vehiculos.length == 1 ? _vehiculos.first.id : null);
+
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => RepostajeFormScreen(
           api: widget.api,
           vehiculos: _vehiculos,
-          initialVehiculoId: _selectedVehiculoId > 0 ? _selectedVehiculoId : _vehiculos.first.id,
+          estaciones: _estaciones,
+          ultimoKmPorVehiculo: _ultimoKmPorVehiculo,
+          initialVehiculoId: defaultVehId,
           editItem: editItem,
         ),
       ),
@@ -407,6 +428,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Estaciones de Servicio',
+            icon: const Icon(Icons.storefront),
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => EstacionesScreen(api: widget.api, estaciones: _estaciones),
+                ),
+              );
+              _loadData();
+            },
+          ),
           IconButton(
             tooltip: 'Gestionar Vehículos',
             icon: const Icon(Icons.directions_car),
@@ -606,13 +639,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
 class RepostajeFormScreen extends StatefulWidget {
   final ApiService api;
   final List<Vehiculo> vehiculos;
-  final int initialVehiculoId;
+  final List<EstacionServicio> estaciones;
+  final Map<int, double> ultimoKmPorVehiculo;
+  final int? initialVehiculoId;
   final Repostaje? editItem;
 
   const RepostajeFormScreen({
     super.key,
     required this.api,
     required this.vehiculos,
+    required this.estaciones,
+    required this.ultimoKmPorVehiculo,
     required this.initialVehiculoId,
     this.editItem,
   });
@@ -623,7 +660,7 @@ class RepostajeFormScreen extends StatefulWidget {
 
 class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
   final OcrService _ocr = OcrService();
-  late int _vehiculoId;
+  int? _vehiculoId;
   late TextEditingController _fechaCtrl;
   late TextEditingController _kmCtrl;
   late TextEditingController _litrosCtrl;
@@ -646,6 +683,33 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
     _importeCtrl = TextEditingController(text: e != null ? e.importeTotal.toStringAsFixed(2) : '');
     _estacionCtrl = TextEditingController(text: e?.estacionServicio ?? '');
     _notasCtrl = TextEditingController(text: e?.notas ?? '');
+  }
+
+  double? _getPreviousKm() {
+    if (_vehiculoId == null) return null;
+    if (widget.editItem != null && widget.editItem!.vehiculoId == _vehiculoId && widget.editItem!.difKm > 0) {
+      return widget.editItem!.kmOdometro - widget.editItem!.difKm;
+    }
+    return widget.ultimoKmPorVehiculo[_vehiculoId!];
+  }
+
+  String _getParcialMessage() {
+    if (_vehiculoId == null) {
+      return 'Selecciona un vehículo para ver su lectura anterior.';
+    }
+    final prevKm = _getPreviousKm();
+    if (prevKm == null) {
+      return 'Primer repostaje registrado para este vehículo.';
+    }
+    final currentKm = double.tryParse(_kmCtrl.text.replaceAll(',', '.'));
+    if (currentKm == null || currentKm <= 0) {
+      return 'Lectura anterior: ${prevKm.toStringAsFixed(0)} km';
+    }
+    final parcial = currentKm - prevKm;
+    if (parcial < 0) {
+      return '⚠️ Menor que la lectura anterior (${prevKm.toStringAsFixed(0)} km): ${parcial.toStringAsFixed(0)} km';
+    }
+    return '✓ Lectura anterior: ${prevKm.toStringAsFixed(0)} km → Parcial calculado: +${parcial.toStringAsFixed(1)} km';
   }
 
   void _recalcFromLitrosOrPrecio() {
@@ -686,6 +750,12 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
   }
 
   Future<void> _save() async {
+    if (_vehiculoId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Debes seleccionar un vehículo antes de guardar.')),
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
       final res = await widget.api.post('save_repostaje', {
@@ -753,12 +823,16 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
           const SizedBox(height: 16),
           DropdownButtonFormField<int>(
             value: _vehiculoId,
-            decoration: const InputDecoration(labelText: 'Vehículo', border: OutlineInputBorder()),
+            hint: const Text('-- Selecciona un vehículo --'),
+            decoration: const InputDecoration(
+              labelText: 'Vehículo * (Permite reasignar al editar)',
+              border: OutlineInputBorder(),
+            ),
             items: widget.vehiculos
                 .map((v) => DropdownMenuItem(value: v.id, child: Text(v.nombre)))
                 .toList(),
             onChanged: (v) {
-              if (v != null) setState(() => _vehiculoId = v);
+              setState(() => _vehiculoId = v);
             },
           ),
           const SizedBox(height: 12),
@@ -773,9 +847,19 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
           TextField(
             controller: _kmCtrl,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (_) => setState(() {}),
             decoration: const InputDecoration(
               labelText: 'Kilómetros en cuentakilómetros (KM.)',
               border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _getParcialMessage(),
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: _getParcialMessage().startsWith('⚠️') ? Colors.red.shade700 : const Color(0xFF0F766E),
             ),
           ),
           const SizedBox(height: 12),
@@ -811,6 +895,21 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
             controller: _estacionCtrl,
             decoration: const InputDecoration(labelText: 'Estación de Servicio (opcional)', border: OutlineInputBorder()),
           ),
+          if (widget.estaciones.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: widget.estaciones.map((est) {
+                return ActionChip(
+                  label: Text(est.nombre, style: const TextStyle(fontSize: 12)),
+                  onPressed: () {
+                    setState(() => _estacionCtrl.text = est.nombre);
+                  },
+                );
+              }).toList(),
+            ),
+          ],
           const SizedBox(height: 12),
           TextField(
             controller: _notasCtrl,
@@ -911,6 +1010,122 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
             onPressed: _saveVehiculo,
             icon: const Icon(Icons.save),
             label: const Text('Guardar Vehículo'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class EstacionesScreen extends StatefulWidget {
+  final ApiService api;
+  final List<EstacionServicio> estaciones;
+
+  const EstacionesScreen({super.key, required this.api, required this.estaciones});
+
+  @override
+  State<EstacionesScreen> createState() => _EstacionesScreenState();
+}
+
+class _EstacionesScreenState extends State<EstacionesScreen> {
+  final _nombreCtrl = TextEditingController();
+  final _marcaCtrl = TextEditingController();
+  final _localidadCtrl = TextEditingController();
+  final _direccionCtrl = TextEditingController();
+  final _notasCtrl = TextEditingController();
+  int _editingId = 0;
+
+  Future<void> _saveEstacion() async {
+    if (_nombreCtrl.text.trim().isEmpty) return;
+    await widget.api.post('save_estacion', {
+      'id': _editingId,
+      'nombre': _nombreCtrl.text.trim(),
+      'marca': _marcaCtrl.text.trim(),
+      'localidad': _localidadCtrl.text.trim(),
+      'direccion': _direccionCtrl.text.trim(),
+      'notas': _notasCtrl.text.trim(),
+    });
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _deactivateEstacion(int id) async {
+    await widget.api.post('deactivate_estacion', {'id': id});
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Estaciones de Servicio')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          ...widget.estaciones.map(
+            (e) => Card(
+              child: ListTile(
+                leading: const Icon(Icons.storefront, color: Color(0xFFF59E0B)),
+                title: Text(e.nombre, style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text('${e.marca} ${e.localidad.isNotEmpty ? "· ${e.localidad}" : ""}'),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit),
+                      onPressed: () {
+                        setState(() {
+                          _editingId = e.id;
+                          _nombreCtrl.text = e.nombre;
+                          _marcaCtrl.text = e.marca;
+                          _localidadCtrl.text = e.localidad;
+                          _direccionCtrl.text = e.direccion;
+                          _notasCtrl.text = e.notas;
+                        });
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () => _deactivateEstacion(e.id),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const Divider(height: 32),
+          Text(
+            _editingId == 0 ? 'Añadir Estación de Servicio' : 'Editar Estación',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _nombreCtrl,
+            decoration: const InputDecoration(labelText: 'Nombre de la estación *', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _marcaCtrl,
+            decoration: const InputDecoration(labelText: 'Marca (Repsol, Cepsa, etc.)', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _localidadCtrl,
+            decoration: const InputDecoration(labelText: 'Localidad', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _direccionCtrl,
+            decoration: const InputDecoration(labelText: 'Dirección', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _notasCtrl,
+            decoration: const InputDecoration(labelText: 'Notas', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: _saveEstacion,
+            icon: const Icon(Icons.save),
+            label: const Text('Guardar Estación'),
           ),
         ],
       ),

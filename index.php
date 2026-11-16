@@ -460,6 +460,9 @@
                 <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openImportModal()">
                     <i class="fa-solid fa-file-import" style="color:var(--primary)"></i> Importar Excel/CSV
                 </button>
+                <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openEstacionesModal()">
+                    <i class="fa-solid fa-shop" style="color:var(--accent)"></i> Estaciones
+                </button>
                 <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openVehiclesModal()">
                     <i class="fa-solid fa-car"></i> Vehículos
                 </button>
@@ -602,7 +605,7 @@
             <div class="grid-2">
                 <div class="form-group">
                     <label>Vehículo *</label>
-                    <select id="rep-vehiculo" class="form-control" required></select>
+                    <select id="rep-vehiculo" class="form-control" required onchange="updateParcialKmPreview()"></select>
                 </div>
                 <div class="form-group">
                     <label id="label-fecha-form">Fecha *</label>
@@ -612,7 +615,8 @@
             <div class="grid-2">
                 <div class="form-group">
                     <label>Kilómetros (Odómetro) *</label>
-                    <input type="number" step="0.01" id="rep-km" class="form-control" placeholder="Ej: 183200" required>
+                    <input type="number" step="0.01" id="rep-km" class="form-control" placeholder="Ej: 183200" required oninput="updateParcialKmPreview()">
+                    <div id="km-parcial-preview" style="font-size:0.76rem; margin-top:0.3rem; font-weight:600; color:var(--primary-dark);"></div>
                 </div>
                 <div class="form-group">
                     <label>Litros Repostados *</label>
@@ -632,7 +636,13 @@
             <div class="grid-2">
                 <div class="form-group">
                     <label>Estación de Servicio</label>
-                    <input type="text" id="rep-estacion" class="form-control" placeholder="Opcional">
+                    <div style="display:flex; gap:0.35rem;">
+                        <input type="text" id="rep-estacion" list="estaciones-datalist" class="form-control" placeholder="Elige o escribe estación">
+                        <datalist id="estaciones-datalist"></datalist>
+                        <button type="button" class="btn btn-outline" style="padding:0.45rem 0.65rem;" onclick="openEstacionesModal()" title="Gestionar Estaciones">
+                            <i class="fa-solid fa-gear"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label>Notas / Mantenimiento</label>
@@ -688,6 +698,50 @@
             <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
                 <button type="button" class="btn btn-outline" onclick="resetVehicleForm()">Limpiar</button>
                 <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Guardar Vehículo</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL GESTIÓN (SCRUB) DE ESTACIONES DE SERVICIO -->
+<div class="modal-backdrop" id="estaciones-modal">
+    <div class="modal-content">
+        <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-shop" style="color:var(--accent)"></i> Estaciones de Servicio</div>
+            <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closeEstacionesModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="estaciones-list" style="margin-bottom:1.1rem; max-height:220px; overflow-y:auto;"></div>
+        <hr style="border:none; border-top:1px solid var(--border); margin:0.9rem 0;">
+        <h4 style="font-size:0.92rem; margin-bottom:0.75rem;" id="est-form-title">Añadir / Editar Estación de Servicio</h4>
+        <form id="estacion-form">
+            <input type="hidden" id="est-id" value="0">
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Nombre Estación *</label>
+                    <input type="text" id="est-nombre" class="form-control" placeholder="Ej: Repsol Moratalla" required>
+                </div>
+                <div class="form-group">
+                    <label>Marca / Bandera</label>
+                    <input type="text" id="est-marca" class="form-control" placeholder="Ej: Repsol, Cepsa, Ballenoil">
+                </div>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Localidad</label>
+                    <input type="text" id="est-localidad" class="form-control" placeholder="Ej: Moratalla">
+                </div>
+                <div class="form-group">
+                    <label>Dirección</label>
+                    <input type="text" id="est-direccion" class="form-control" placeholder="Opcional">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Notas</label>
+                <input type="text" id="est-notas" class="form-control" placeholder="Ej: Descuento tarjeta, horario 24h...">
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button type="button" class="btn btn-outline" onclick="resetEstacionForm()">Limpiar</button>
+                <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Guardar Estación</button>
             </div>
         </form>
     </div>
@@ -901,10 +955,16 @@ async function loadDashboard() {
         document.getElementById('brand-icon-box').style.border = 'none';
     }
 
-    // Poblar selector de vehículos manteniendo selección
+    // Poblar selector de vehículos manteniendo selección en el dashboard
     sel.innerHTML = '<option value="0">📊 Todos los vehículos (Resultado Conjunto)</option>';
     const formVeh = document.getElementById('rep-vehiculo');
     formVeh.innerHTML = '';
+    if (res.vehiculos.length > 1) {
+        const emptyOpt = document.createElement('option');
+        emptyOpt.value = '';
+        emptyOpt.textContent = '-- Selecciona un vehículo --';
+        formVeh.appendChild(emptyOpt);
+    }
     res.vehiculos.forEach(v => {
         const mat = v.matricula ? ` (${v.matricula})` : '';
         const opt = document.createElement('option');
@@ -916,9 +976,19 @@ async function loadDashboard() {
         const opt2 = document.createElement('option');
         opt2.value = v.id;
         opt2.textContent = `${v.nombre}${mat}`;
-        if (parseInt(v.id, 10) === vehiculoId) opt2.selected = true;
         formVeh.appendChild(opt2);
     });
+
+    // Poblar datalist de estaciones de servicio
+    const estListEl = document.getElementById('estaciones-datalist');
+    if (estListEl) {
+        estListEl.innerHTML = '';
+        (res.estaciones || []).forEach(est => {
+            const o = document.createElement('option');
+            o.value = est.nombre + (est.localidad ? ` (${est.localidad})` : '');
+            estListEl.appendChild(o);
+        });
+    }
 
     // Actualizar KPIs
     const s = res.resumen || {};
@@ -1083,8 +1153,72 @@ function autoCalcForm(changedField) {
     }
 }
 
+let editingPrevKm = null;
+
+function getPreviousKmForVehicle(vehId, editingId = 0) {
+    if (!vehId) return null;
+    if (editingId > 0) {
+        const list = (currentData.repostajes || [])
+            .filter(r => parseInt(r.vehiculo_id, 10) === parseInt(vehId, 10) && parseInt(r.id, 10) !== parseInt(editingId, 10));
+        const currentKm = parseFloat(document.getElementById('rep-km').value || '0');
+        const prevs = list.filter(r => parseFloat(r.km_odometro) < currentKm);
+        if (prevs.length > 0) {
+            return Math.max(...prevs.map(r => parseFloat(r.km_odometro)));
+        }
+        return null;
+    }
+    const map = currentData.ultimo_km_por_vehiculo || {};
+    if (map[vehId] !== undefined) return parseFloat(map[vehId]);
+    const vehReps = (currentData.repostajes || []).filter(r => parseInt(r.vehiculo_id, 10) === parseInt(vehId, 10));
+    if (vehReps.length > 0) return Math.max(...vehReps.map(r => parseFloat(r.km_odometro)));
+    return null;
+}
+
+function updateParcialKmPreview() {
+    const previewEl = document.getElementById('km-parcial-preview');
+    if (!previewEl) return;
+    const vehId = parseInt(document.getElementById('rep-vehiculo').value || '0', 10);
+    const editId = parseInt(document.getElementById('rep-id').value || '0', 10);
+    const kmVal = parseFloat(document.getElementById('rep-km').value);
+
+    if (!vehId) {
+        previewEl.textContent = 'Selecciona un vehículo para ver su lectura anterior.';
+        previewEl.style.color = 'var(--muted)';
+        return;
+    }
+    const prevKm = (editId > 0 && editingPrevKm !== null) ? editingPrevKm : getPreviousKmForVehicle(vehId, editId);
+    if (prevKm === null || isNaN(prevKm)) {
+        previewEl.textContent = 'Primer repostaje registrado para este vehículo.';
+        previewEl.style.color = 'var(--muted)';
+        return;
+    }
+    if (isNaN(kmVal) || kmVal <= 0) {
+        previewEl.textContent = `Lectura anterior: ${fmtNum(prevKm, 0)} km`;
+        previewEl.style.color = 'var(--muted)';
+        return;
+    }
+    const parcial = kmVal - prevKm;
+    if (parcial < 0) {
+        previewEl.textContent = `⚠️ Menor que la lectura anterior (${fmtNum(prevKm, 0)} km): ${fmtNum(parcial, 0)} km`;
+        previewEl.style.color = 'var(--danger)';
+    } else {
+        previewEl.textContent = `✓ Lectura anterior: ${fmtNum(prevKm, 0)} km → Parcial calculado: +${fmtNum(parcial, 1)} km`;
+        previewEl.style.color = 'var(--primary-dark)';
+    }
+}
+
 function openRepostajeModal() {
+    editingPrevKm = null;
     document.getElementById('rep-id').value = '0';
+    document.getElementById('rep-modal-title').innerHTML = '<i class="fa-solid fa-gas-pump" style="color:var(--primary)"></i> Registrar Repostaje';
+    const vehSel = document.getElementById('rep-vehiculo');
+    const vehs = currentData.vehiculos || [];
+    if (vehs.length === 1) {
+        vehSel.value = String(vehs[0].id);
+    } else {
+        // Si hay más de un vehículo, no poner ninguno por defecto
+        vehSel.value = '';
+    }
     document.getElementById('rep-fecha').value = new Date().toISOString().slice(0, 10);
     document.getElementById('rep-km').value = '';
     document.getElementById('rep-litros').value = '';
@@ -1092,11 +1226,14 @@ function openRepostajeModal() {
     document.getElementById('rep-importe').value = '';
     document.getElementById('rep-estacion').value = '';
     document.getElementById('rep-notas').value = '';
+    updateParcialKmPreview();
     document.getElementById('repostaje-modal').classList.add('active');
 }
 
 function editRepostaje(r) {
+    editingPrevKm = r.dif_km > 0 ? (parseFloat(r.km_odometro) - parseFloat(r.dif_km)) : null;
     document.getElementById('rep-id').value = r.id;
+    document.getElementById('rep-modal-title').innerHTML = '<i class="fa-solid fa-pen" style="color:var(--accent)"></i> Modificar / Reasignar Repostaje';
     document.getElementById('rep-vehiculo').value = r.vehiculo_id;
     document.getElementById('rep-fecha').value = r.fecha;
     document.getElementById('rep-km').value = r.km_odometro;
@@ -1105,6 +1242,7 @@ function editRepostaje(r) {
     document.getElementById('rep-importe').value = r.importe_total;
     document.getElementById('rep-estacion').value = r.estacion_servicio || '';
     document.getElementById('rep-notas').value = r.notas || '';
+    updateParcialKmPreview();
     document.getElementById('repostaje-modal').classList.add('active');
 }
 
@@ -1187,6 +1325,7 @@ async function scanOdometerOCR(input) {
         if (digits && digits.length > 0) {
             const bestKm = digits.sort((a, b) => b.length - a.length)[0];
             document.getElementById('rep-km').value = bestKm;
+            updateParcialKmPreview();
             status.textContent = `✅ Kilometraje detectado: ${bestKm} km`;
         } else {
             status.textContent = '⚠️ No se detectaron dígitos claros en el odómetro.';
@@ -1257,6 +1396,81 @@ async function deactivateVehicle(id) {
     if (res.success) {
         await loadDashboard();
         renderVehiclesList();
+    }
+}
+
+// GESTIÓN (SCRUB) DE ESTACIONES DE SERVICIO
+function openEstacionesModal() {
+    renderEstacionesList();
+    document.getElementById('estaciones-modal').classList.add('active');
+}
+function closeEstacionesModal() {
+    document.getElementById('estaciones-modal').classList.remove('active');
+}
+function renderEstacionesList() {
+    const container = document.getElementById('estaciones-list');
+    container.innerHTML = '';
+    const list = currentData.estaciones || [];
+    if (list.length === 0) {
+        container.innerHTML = '<div style="font-size:0.82rem; color:var(--muted); text-align:center; padding:0.75rem;">No hay estaciones de servicio registradas todavía.</div>';
+        return;
+    }
+    list.forEach(est => {
+        const div = document.createElement('div');
+        div.style = 'display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border:1px solid var(--border); border-radius:10px; margin-bottom:0.45rem;';
+        div.innerHTML = `
+            <div>
+                <div style="font-weight:700;">${est.nombre} ${est.marca ? `<span class="badge badge-amber">${est.marca}</span>` : ''}</div>
+                <div style="font-size:0.76rem; color:var(--muted);">${est.localidad || ''} ${est.direccion ? '· ' + est.direccion : ''}</div>
+            </div>
+            <div style="display:flex; gap:0.35rem;">
+                <button class="btn btn-outline" style="padding:0.28rem 0.55rem; font-size:0.76rem;" onclick='editEstacion(${JSON.stringify(est)})'><i class="fa-solid fa-pen"></i></button>
+                <button class="btn btn-danger" style="padding:0.28rem 0.55rem; font-size:0.76rem;" onclick="deactivateEstacion(${est.id})"><i class="fa-solid fa-trash"></i></button>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+function editEstacion(est) {
+    document.getElementById('est-id').value = est.id;
+    document.getElementById('est-nombre').value = est.nombre;
+    document.getElementById('est-marca').value = est.marca || '';
+    document.getElementById('est-localidad').value = est.localidad || '';
+    document.getElementById('est-direccion').value = est.direccion || '';
+    document.getElementById('est-notas').value = est.notas || '';
+}
+function resetEstacionForm() {
+    document.getElementById('est-id').value = '0';
+    document.getElementById('est-nombre').value = '';
+    document.getElementById('est-marca').value = '';
+    document.getElementById('est-localidad').value = '';
+    document.getElementById('est-direccion').value = '';
+    document.getElementById('est-notas').value = '';
+}
+document.getElementById('estacion-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const res = await apiCall('save_estacion', {
+        id: document.getElementById('est-id').value,
+        nombre: document.getElementById('est-nombre').value,
+        marca: document.getElementById('est-marca').value,
+        localidad: document.getElementById('est-localidad').value,
+        direccion: document.getElementById('est-direccion').value,
+        notas: document.getElementById('est-notas').value
+    });
+    if (res.success) {
+        resetEstacionForm();
+        await loadDashboard();
+        renderEstacionesList();
+    } else {
+        alert(res.error || 'Error guardando estación');
+    }
+});
+async function deactivateEstacion(id) {
+    if (!confirm('¿Dar de baja lógica esta estación de servicio? (activo = 0)')) return;
+    const res = await apiCall('deactivate_estacion', { id });
+    if (res.success) {
+        await loadDashboard();
+        renderEstacionesList();
     }
 }
 

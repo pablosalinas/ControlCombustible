@@ -147,6 +147,22 @@ function ensureAdditiveSchema(PDO $pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `veh_estaciones` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `usuario_id` INT NOT NULL,
+            `nombre` VARCHAR(150) NOT NULL,
+            `marca` VARCHAR(80) DEFAULT NULL,
+            `localidad` VARCHAR(120) DEFAULT NULL,
+            `direccion` VARCHAR(200) DEFAULT NULL,
+            `notas` VARCHAR(255) DEFAULT NULL,
+            `activo` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX `idx_est_usuario_activo` (`usuario_id`, `activo`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
     // Añadir de forma estrictamente aditiva las columnas de permiso en `users` si no existen
     try {
         $colAcceso = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'acceso_sistema'")->fetch();

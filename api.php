@@ -350,14 +350,57 @@ try {
                 }));
             }
 
+            // Obtener estaciones de servicio activas
+            if ($isAdmin) {
+                $stmtEst = $pdo->query("
+                    SELECT id, usuario_id, nombre, marca, localidad, direccion, notas
+                    FROM `veh_estaciones`
+                    WHERE activo = 1
+                    ORDER BY nombre ASC
+                ");
+            } else {
+                $stmtEst = $pdo->prepare("
+                    SELECT id, usuario_id, nombre, marca, localidad, direccion, notas
+                    FROM `veh_estaciones`
+                    WHERE usuario_id = ? AND activo = 1
+                    ORDER BY nombre ASC
+                ");
+                $stmtEst->execute(array($userId));
+            }
+            $estaciones = $stmtEst->fetchAll();
+
+            // Obtener último odómetro registrado por cada vehículo del usuario
+            if ($isAdmin) {
+                $stmtLastKm = $pdo->query("
+                    SELECT vehiculo_id, MAX(km_odometro) AS ultimo_km
+                    FROM `veh_repostajes`
+                    WHERE activo = 1
+                    GROUP BY vehiculo_id
+                ");
+            } else {
+                $stmtLastKm = $pdo->prepare("
+                    SELECT vehiculo_id, MAX(km_odometro) AS ultimo_km
+                    FROM `veh_repostajes`
+                    WHERE usuario_id = ? AND activo = 1
+                    GROUP BY vehiculo_id
+                ");
+                $stmtLastKm->execute(array($userId));
+            }
+            $ultimoKmPorVehiculo = array();
+            while ($lk = $stmtLastKm->fetch()) {
+                $ultimoKmPorVehiculo[(int)$lk['vehiculo_id']] = (float)$lk['ultimo_km'];
+            }
+
             echo json_encode(array(
-                'success'               => true,
-                'user'                  => $user,
-                'vehiculos'             => $vehiculos,
-                'vehiculo_seleccionado' => $vehiculoId,
-                'resumen'               => $resumen,
-                'resumen_por_vehiculo'  => $resumenPorVehiculo,
-                'repostajes'            => $repostajesCalculados,
+                'success'                  => true,
+                'user'                     => $user,
+                'vehiculos'                => $vehiculos,
+                'estaciones'               => $estaciones,
+                'ultimo_km_por_vehiculo'   => $ultimoKmPorVehiculo,
+                'vehiculo_seleccionado'    => $vehiculoId,
+                'resumen'                  => $resumen,
+                'resumen_por_vehiculo'     => $resumenPorVehiculo,
+                'repostajes'               => $repostajesCalculados,
             ));
             break;
 
@@ -409,10 +452,10 @@ try {
                 if ($isAdmin) {
                     $stmt = $pdo->prepare("
                         UPDATE `veh_repostajes`
-                        SET vehiculo_id = ?, fecha = ?, litros = ?, precio_litro = ?, importe_total = ?, km_odometro = ?, estacion_servicio = ?, notas = ?
+                        SET vehiculo_id = ?, usuario_id = ?, fecha = ?, litros = ?, precio_litro = ?, importe_total = ?, km_odometro = ?, estacion_servicio = ?, notas = ?
                         WHERE id = ? AND activo = 1
                     ");
-                    $stmt->execute(array($vehiculoId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $id));
+                    $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $id));
                 } else {
                     $stmt = $pdo->prepare("
                         UPDATE `veh_repostajes`
@@ -458,6 +501,96 @@ try {
             echo json_encode(array(
                 'success' => true,
                 'message' => 'Repostaje dado de baja lógicamente (activo = 0).',
+            ));
+            break;
+
+        case 'list_estaciones':
+            if ($isAdmin) {
+                $stmt = $pdo->query("
+                    SELECT id, usuario_id, nombre, marca, localidad, direccion, notas, created_at
+                    FROM `veh_estaciones`
+                    WHERE activo = 1
+                    ORDER BY nombre ASC
+                ");
+            } else {
+                $stmt = $pdo->prepare("
+                    SELECT id, usuario_id, nombre, marca, localidad, direccion, notas, created_at
+                    FROM `veh_estaciones`
+                    WHERE usuario_id = ? AND activo = 1
+                    ORDER BY nombre ASC
+                ");
+                $stmt->execute(array($userId));
+            }
+            echo json_encode(array(
+                'success'    => true,
+                'estaciones' => $stmt->fetchAll(),
+            ));
+            break;
+
+        case 'save_estacion':
+            $id        = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            $nombre    = trim((string)arr_get($jsonBody, 'nombre', isset($_POST['nombre']) ? $_POST['nombre'] : ''));
+            $marca     = trim((string)arr_get($jsonBody, 'marca', isset($_POST['marca']) ? $_POST['marca'] : ''));
+            $localidad = trim((string)arr_get($jsonBody, 'localidad', isset($_POST['localidad']) ? $_POST['localidad'] : ''));
+            $direccion = trim((string)arr_get($jsonBody, 'direccion', isset($_POST['direccion']) ? $_POST['direccion'] : ''));
+            $notas     = trim((string)arr_get($jsonBody, 'notas', isset($_POST['notas']) ? $_POST['notas'] : ''));
+
+            if ($nombre === '') {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'El nombre de la estación de servicio es obligatorio.'));
+                exit;
+            }
+
+            if ($id > 0) {
+                if ($isAdmin) {
+                    $stmt = $pdo->prepare("
+                        UPDATE `veh_estaciones`
+                        SET nombre = ?, marca = ?, localidad = ?, direccion = ?, notas = ?
+                        WHERE id = ? AND activo = 1
+                    ");
+                    $stmt->execute(array($nombre, $marca, $localidad, $direccion, $notas, $id));
+                } else {
+                    $stmt = $pdo->prepare("
+                        UPDATE `veh_estaciones`
+                        SET nombre = ?, marca = ?, localidad = ?, direccion = ?, notas = ?
+                        WHERE id = ? AND usuario_id = ? AND activo = 1
+                    ");
+                    $stmt->execute(array($nombre, $marca, $localidad, $direccion, $notas, $id, $userId));
+                }
+                $savedId = $id;
+            } else {
+                $stmt = $pdo->prepare("
+                    INSERT INTO `veh_estaciones` (usuario_id, nombre, marca, localidad, direccion, notas, activo)
+                    VALUES (?, ?, ?, ?, ?, ?, 1)
+                ");
+                $stmt->execute(array($userId, $nombre, $marca, $localidad, $direccion, $notas));
+                $savedId = (int)$pdo->lastInsertId();
+            }
+
+            echo json_encode(array(
+                'success'     => true,
+                'message'     => $id > 0 ? 'Estación actualizada correctamente.' : 'Estación dada de alta correctamente.',
+                'estacion_id' => $savedId,
+            ));
+            break;
+
+        case 'deactivate_estacion':
+            $id = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            if ($id <= 0) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'ID de estación inválido.'));
+                exit;
+            }
+            if ($isAdmin) {
+                $stmt = $pdo->prepare("UPDATE `veh_estaciones` SET activo = 0 WHERE id = ?");
+                $stmt->execute(array($id));
+            } else {
+                $stmt = $pdo->prepare("UPDATE `veh_estaciones` SET activo = 0 WHERE id = ? AND usuario_id = ?");
+                $stmt->execute(array($id, $userId));
+            }
+            echo json_encode(array(
+                'success' => true,
+                'message' => 'Estación dada de baja lógicamente (activo = 0).',
             ));
             break;
 

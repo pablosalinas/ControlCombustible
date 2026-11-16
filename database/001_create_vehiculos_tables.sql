@@ -41,3 +41,17 @@ CREATE TABLE IF NOT EXISTS `veh_repostajes` (
     INDEX `idx_rep_usuario_activo` (`usuario_id`, `activo`),
     CONSTRAINT `fk_rep_vehiculo` FOREIGN KEY (`vehiculo_id`) REFERENCES `veh_vehiculos`(`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `veh_estaciones` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `usuario_id` INT NOT NULL,
+    `nombre` VARCHAR(150) NOT NULL,
+    `marca` VARCHAR(80) DEFAULT NULL,
+    `localidad` VARCHAR(120) DEFAULT NULL,
+    `direccion` VARCHAR(200) DEFAULT NULL,
+    `notas` VARCHAR(255) DEFAULT NULL,
+    `activo` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '1 = Activo, 0 = Baja lógica (Soft Delete)',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX `idx_est_usuario_activo` (`usuario_id`, `activo`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
