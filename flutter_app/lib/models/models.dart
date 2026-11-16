@@ -36,38 +36,6 @@ class Vehiculo {
   }
 }
 
-class EstacionServicio {
-  final int id;
-  final int usuarioId;
-  final String nombre;
-  final String marca;
-  final String localidad;
-  final String direccion;
-  final String notas;
-
-  EstacionServicio({
-    required this.id,
-    required this.usuarioId,
-    required this.nombre,
-    required this.marca,
-    required this.localidad,
-    required this.direccion,
-    required this.notas,
-  });
-
-  factory EstacionServicio.fromJson(Map<String, dynamic> j) {
-    return EstacionServicio(
-      id: int.tryParse(j['id'].toString()) ?? 0,
-      usuarioId: int.tryParse(j['usuario_id'].toString()) ?? 0,
-      nombre: (j['nombre'] ?? '').toString(),
-      marca: (j['marca'] ?? '').toString(),
-      localidad: (j['localidad'] ?? '').toString(),
-      direccion: (j['direccion'] ?? '').toString(),
-      notas: (j['notas'] ?? '').toString(),
-    );
-  }
-}
-
 class Repostaje {
   final int id;
   final int vehiculoId;
