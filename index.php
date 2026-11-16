@@ -439,6 +439,11 @@
             <a href="https://github.com/pablosalinas/ControlCombustible/releases/latest/download/ControlCombustible.apk" target="_blank" class="btn btn-outline btn-block" style="margin-top: 0.65rem; text-decoration: none; font-size: 0.85rem;">
                 <i class="fa-brands fa-android" style="color:#16a34a; font-size:1.1rem;"></i> Descargar App Android (.APK)
             </a>
+            <div style="text-align: center; margin-top: 1rem;">
+                <a href="https://www.moratalla-murcia.com" target="_blank" style="color: var(--primary); text-decoration: none; font-size: 0.84rem; font-weight: 600;">
+                    <i class="fa-solid fa-globe"></i> Ir a moratalla-murcia.com
+                </a>
+            </div>
         </form>
     </div>
 </div>

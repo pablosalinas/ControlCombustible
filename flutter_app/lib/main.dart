@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'models/models.dart';
 import 'services/api_service.dart';
 import 'services/ocr_service.dart';
@@ -264,6 +265,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       icon: const Icon(Icons.login),
                       label: Text(_loading ? 'Verificando...' : 'Entrar'),
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextButton.icon(
+                    onPressed: () => launchUrl(
+                      Uri.parse('https://www.moratalla-murcia.com'),
+                      mode: LaunchMode.externalApplication,
+                    ),
+                    icon: const Icon(Icons.language, size: 18),
+                    label: const Text('Ir a moratalla-murcia.com'),
                   ),
                 ],
               ),
