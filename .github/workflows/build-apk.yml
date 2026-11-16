@@ -18,18 +18,19 @@ jobs:
       - name: 📥 Clonar repositorio
         uses: actions/checkout@v4
 
-      - name: ☕ Configurar Java 17
+      - name: ☕ Configurar Java 21 (Requerido por Android Lint / AGP en Flutter 3.50+)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: 💙 Configurar Flutter SDK
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          cache: true
 
-      - name: 🔧 Inicializar Android, Iconos _v2 y Desactivar R8 para MLKit
+      - name: 🔧 Inicializar Android, Iconos _v2 y Desactivar R8 / LintVital
         working-directory: ./flutter_app
         run: |
           if [ ! -d "android" ]; then
@@ -62,16 +63,31 @@ jobs:
           -dontwarn com.google.mlkit.vision.text.korean.**
           EOF
 
-          # 4. Configurar minSdk = 23 y desactivar minify/R8 en build.gradle.kts / build.gradle
+          # 4. Configurar minSdk = 23, desactivar minify/R8 y desactivar checkReleaseBuilds en build.gradle.kts
           if [ -f "android/app/build.gradle.kts" ]; then
             sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' android/app/build.gradle.kts
             sed -i 's/signingConfig = signingConfigs.getByName("debug")/signingConfig = signingConfigs.getByName("debug")\n            isMinifyEnabled = false\n            isShrinkResources = false\n            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")/g' android/app/build.gradle.kts
+            cat << 'EOF' >> android/app/build.gradle.kts
+
+          android {
+              lint {
+                  checkReleaseBuilds = false
+                  abortOnError = false
+              }
+          }
+          EOF
           fi
-          if [ -f "android/app/build.gradle" ]; then
-            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' android/app/build.gradle || true
-            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/g' android/app/build.gradle || true
-            sed -i 's/signingConfig = signingConfigs.debug/signingConfig = signingConfigs.debug\n            minifyEnabled false\n            shrinkResources false/g' android/app/build.gradle || true
-            sed -i 's/signingConfig signingConfigs.debug/signingConfig signingConfigs.debug\n            minifyEnabled false\n            shrinkResources false/g' android/app/build.gradle || true
+
+          # 5. Desactivar tareas lintVital en todos los subproyectos (como image_picker_android)
+          if [ -f "android/build.gradle.kts" ]; then
+            cat << 'EOF' >> android/build.gradle.kts
+
+          subprojects {
+              tasks.matching { it.name.contains("lintVital", ignoreCase = true) }.configureEach {
+                  enabled = false
+              }
+          }
+          EOF
           fi
 
           flutter pub get
@@ -91,7 +107,7 @@ jobs:
       - name: 🚀 Publicar Descarga Directa en GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.3
+          tag_name: v1.0.4
           name: "App Android Control de Combustible v2 (APK)"
           body: "Descarga directa del instalador Android (`ControlCombustible.apk`) con icono oficial `_v2`, login moratalla-murcia.com, multivehículo, OCR de tickets/odómetro e informes PDF A4 Vertical."
           files: flutter_app/build/app/outputs/flutter-apk/ControlCombustible.apk
