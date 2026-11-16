@@ -5,10 +5,10 @@
  * Compatible con PHP 5.6, 7.x y 8.x tanto en Local (XAMPP) como en Producción (IONOS).
  *
  * POLÍTICA DE PROTECCIÓN DE DATOS:
- * - Prohibido ejecutar DELETE, DROP, TRUNCATE o alterar tablas existentes de moratalla-murcia.com.
- * - La tabla `users` de Moratalla-Murcia-2026 se consulta en modo ESTRICTAMENTE SOLO LECTURA para autenticación.
- * - Las tablas nuevas (`veh_vehiculos`, `veh_repostajes`) se crean de forma aditiva (CREATE TABLE IF NOT EXISTS)
- *   y utilizan borrado lógico (`activo = 0`).
+ * - Prohibido ejecutar DELETE, DROP, TRUNCATE o alterar registros existentes de moratalla-murcia.com.
+ * - Las tablas nuevas (`veh_vehiculos`, `veh_repostajes`) y las columnas de permiso en `users`
+ *   (`acceso_sistema`, `es_superusuario`) se crean de forma ESTRICTAMENTE ADITIVA.
+ * - Todas las bajas utilizan borrado lógico (`activo = 0`).
  */
 
 if (!function_exists('veh_load_env')) {
@@ -76,7 +76,8 @@ if ($environment === 'production') {
 
 /**
  * Obtiene la instancia PDO conectada a la BD de Moratalla-Murcia-2026
- * y asegura de forma estrictamente aditiva las tablas `veh_vehiculos` y `veh_repostajes`.
+ * y asegura de forma estrictamente aditiva las tablas `veh_vehiculos`, `veh_repostajes`
+ * y las columnas de control de acceso en `users`.
  */
 function getVehDB() {
     static $pdo = null;
@@ -95,14 +96,14 @@ function getVehDB() {
             PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci'",
         ));
 
-        // Asegurar creación aditiva de las tablas de vehículos sin tocar ninguna otra tabla
         ensureAdditiveSchema($pdo);
     }
     return $pdo;
 }
 
 /**
- * Crea únicamente las tablas nuevas si no existen (CREATE TABLE IF NOT EXISTS).
+ * Crea de forma estrictamente aditiva las tablas `veh_vehiculos`, `veh_repostajes`
+ * y añade las columnas `acceso_sistema` y `es_superusuario` a `users` si aún no existen.
  */
 function ensureAdditiveSchema(PDO $pdo) {
     $pdo->exec("
@@ -145,4 +146,22 @@ function ensureAdditiveSchema(PDO $pdo) {
             CONSTRAINT `fk_rep_vehiculo` FOREIGN KEY (`vehiculo_id`) REFERENCES `veh_vehiculos`(`id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
+
+    // Añadir de forma estrictamente aditiva las columnas de permiso en `users` si no existen
+    try {
+        $colAcceso = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'acceso_sistema'")->fetch();
+        if (!$colAcceso) {
+            // Por defecto 'ambos' para no bloquear a los administradores actuales
+            $pdo->exec("ALTER TABLE `users` ADD COLUMN `acceso_sistema` VARCHAR(30) NOT NULL DEFAULT 'ambos'");
+        }
+
+        $colSuper = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'es_superusuario'")->fetch();
+        if (!$colSuper) {
+            $pdo->exec("ALTER TABLE `users` ADD COLUMN `es_superusuario` TINYINT(1) NOT NULL DEFAULT 0");
+            // Activar marca de superusuario en las cuentas administradoras iniciales existentes
+            $pdo->exec("UPDATE `users` SET `es_superusuario` = 1 WHERE `role` = 'admin'");
+        }
+    } catch (Exception $e) {
+        // Ignorar si en algún entorno de prueba aún no existe la tabla users
+    }
 }

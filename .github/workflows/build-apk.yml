@@ -1,10 +1,13 @@
-name: 📱 Compilar APK Android (Flutter)
+name: 📱 Compilar y Publicar APK Android (Flutter)
 
 on:
   push:
     branches:
       - main
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-android:
@@ -26,11 +29,24 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: 🔧 Inicializar plataforma Android (si falta carpeta android nativa)
+      - name: 🔧 Inicializar plataforma Android y permisos (Cámara + Internet + minSdk 23)
         working-directory: ./flutter_app
         run: |
           if [ ! -d "android" ]; then
             flutter create --platforms=android --org com.moratallamurcia.combustible .
+          fi
+          # Asegurar permisos de Internet y Cámara en AndroidManifest.xml
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if ! grep -q "android.permission.CAMERA" "$MANIFEST"; then
+            sed -i 's/<application/<uses-permission android:name="android.permission.INTERNET"\/><uses-permission android:name="android.permission.CAMERA"\/><application/' "$MANIFEST"
+          fi
+          # Asegurar minSdk 23 requerido por Google ML Kit OCR
+          if [ -f "android/app/build.gradle" ]; then
+            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' android/app/build.gradle || true
+            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/g' android/app/build.gradle || true
+          fi
+          if [ -f "android/app/build.gradle.kts" ]; then
+            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' android/app/build.gradle.kts || true
           fi
           flutter pub get
 
@@ -38,9 +54,19 @@ jobs:
         working-directory: ./flutter_app
         run: |
           flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/ControlCombustible.apk
 
-      - name: 📦 Publicar APK como Artefacto Descargable
+      - name: 📦 Subir APK como Artefacto de GitHub Actions
         uses: actions/upload-artifact@v4
         with:
-          name: ControlCombustible-Android-APK
-          path: flutter_app/build/app/outputs/flutter-apk/app-release.apk
+          name: ControlCombustible-APK
+          path: flutter_app/build/app/outputs/flutter-apk/ControlCombustible.apk
+
+      - name: 🚀 Publicar Descarga Directa en GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: "App Android Control de Combustible (APK)"
+          body: "Descarga directa del instalador Android (`ControlCombustible.apk`) con soporte para login moratalla-murcia.com, multivehículo, OCR de tickets/odómetro e informes PDF."
+          files: flutter_app/build/app/outputs/flutter-apk/ControlCombustible.apk
+          prerelease: false

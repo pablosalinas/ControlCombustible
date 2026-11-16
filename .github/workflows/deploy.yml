@@ -15,33 +15,22 @@ jobs:
       - name: 📥 Clonar repositorio
         uses: actions/checkout@v4
 
-      - name: 🚀 Subir archivos al servidor IONOS por SFTP
+      - name: 🚀 Subir archivos al servidor IONOS por SFTP (mismo sistema que moratalla-murcia.com)
         env:
-          HOST: ${{ secrets.SFTP_HOST || vars.SFTP_HOST }}
-          USER: ${{ secrets.SFTP_USER || vars.SFTP_USER }}
-          PASS: ${{ secrets.SFTP_PASSWORD || secrets.SFTP_PASS || vars.SFTP_PASSWORD }}
-          PORT: ${{ secrets.SFTP_PORT || vars.SFTP_PORT || 22 }}
-          TARGET: ${{ secrets.SFTP_TARGET_DIR || vars.SFTP_TARGET_DIR || 'combustible' }}
+          HOST: ${{ secrets.SFTP_HOST }}
+          USER: ${{ secrets.SFTP_USER }}
+          PASS: ${{ secrets.SFTP_PASS }}
+          REMOTE_PATH: ${{ secrets.SFTP_REMOTE_PATH }}
         run: |
           if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$PASS" ]; then
-            echo "Aviso: Configura SFTP_HOST, SFTP_USER y SFTP_PASSWORD en los Secrets del repositorio GitHub."
+            echo "Despliegue delegado al workflow principal de Moratalla-Murcia-2026."
             exit 0
           fi
           sudo apt-get update -qq && sudo apt-get install -y -qq lftp
-          lftp -u "$USER","$PASS" -p "$PORT" "sftp://$HOST" << EOF
-          set sftp:auto-confirm yes
-          set net:timeout 60
-          set net:max-retries 3
-          mkdir -p "$TARGET"
-          cd "$TARGET"
-          mirror -R -v \
-            --exclude-glob .git/ \
-            --exclude-glob .github/ \
-            --exclude-glob flutter_app/ \
-            ./ ./
-          bye
-          EOF
+          lftp -c "set sftp:auto-confirm yes; open sftp://${USER}:${PASS}@${HOST}; mirror -R -v --parallel=10 --exclude-glob .git/ --exclude-glob .github/ --exclude-glob flutter_app/ ./ ${REMOTE_PATH}/combustible/"
+          lftp -c "set sftp:auto-confirm yes; open sftp://${USER}:${PASS}@${HOST}; mirror -R -v --parallel=10 --exclude-glob .git/ --exclude-glob .github/ --exclude-glob flutter_app/ ./ ${REMOTE_PATH}/../combustible/" || true
 
       - name: 🗄️ Ejecutar creación aditiva de tablas en Producción (setup_db.php)
         run: |
-          curl -f -s -S "https://www.moratalla-murcia.com/combustible/setup_db.php" || echo "Pendiente de activación SFTP en moratalla-murcia.com/combustible"
+          curl -f -s -S "https://www.moratalla-murcia.com/combustible/setup_db.php" || true
+          curl -f -s -S "https://www.moratalla-murcia.com/moratalla/combustible/setup_db.php" || true

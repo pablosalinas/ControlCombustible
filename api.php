@@ -90,7 +90,7 @@ function authenticateMoratallaUser(PDO $pdo, array $jsonBody) {
         exit;
     }
 
-    $stmt = $pdo->prepare("SELECT id, username, password, role FROM `users` WHERE username = ? LIMIT 1");
+    $stmt = $pdo->prepare("SELECT id, username, password, role, acceso_sistema, es_superusuario FROM `users` WHERE username = ? LIMIT 1");
     $stmt->execute(array($username));
     $user = $stmt->fetch();
 
@@ -104,12 +104,25 @@ function authenticateMoratallaUser(PDO $pdo, array $jsonBody) {
     }
 
     $role = isset($user['role']) ? $user['role'] : 'editor';
+    $esSuper = !empty($user['es_superusuario']) || ($role === 'admin' && !isset($user['es_superusuario']));
+    $accesoSistema = isset($user['acceso_sistema']) && $user['acceso_sistema'] !== '' ? $user['acceso_sistema'] : 'ambos';
+
+    // Si no es superusuario y solo tiene asignado 'web', denegar acceso a la gestión de combustible
+    if (!$esSuper && $accesoSistema === 'web') {
+        http_response_code(403);
+        echo json_encode(array(
+            'success' => false,
+            'error'   => 'Tu usuario tiene asignado acceso exclusivo a moratalla-murcia.com. Solicita al superusuario la activación para Gestión de Combustible.'
+        ));
+        exit;
+    }
 
     return array(
-        'id'           => (int)$user['id'],
-        'username'     => $user['username'],
-        'role'         => $role,
-        'is_admin'     => ($role === 'admin'),
+        'id'              => (int)$user['id'],
+        'username'        => $user['username'],
+        'role'            => $role,
+        'acceso_sistema'  => $esSuper ? 'ambos' : $accesoSistema,
+        'is_admin'        => (bool)$esSuper,
     );
 }
 
