@@ -640,10 +640,11 @@
             </div>
             <div class="grid-2">
                 <div class="form-group">
-                    <label>Estación de Servicio</label>
+                    <label>Estación de Servicio (opcional)</label>
                     <div style="display:flex; gap:0.35rem;">
-                        <input type="text" id="rep-estacion" list="estaciones-datalist" class="form-control" placeholder="Elige o escribe estación">
-                        <datalist id="estaciones-datalist"></datalist>
+                        <select id="rep-estacion" class="form-control">
+                            <option value="">-- Sin especificar (Opcional) --</option>
+                        </select>
                         <button type="button" class="btn btn-outline" style="padding:0.45rem 0.65rem;" onclick="openEstacionesModal()" title="Gestionar Estaciones">
                             <i class="fa-solid fa-gear"></i>
                         </button>
@@ -1022,15 +1023,18 @@ async function loadDashboard() {
         formVeh.appendChild(opt2);
     });
 
-    // Poblar datalist de estaciones de servicio
-    const estListEl = document.getElementById('estaciones-datalist');
-    if (estListEl) {
-        estListEl.innerHTML = '';
+    // Poblar desplegable de estaciones de servicio
+    const estSelEl = document.getElementById('rep-estacion');
+    if (estSelEl) {
+        const prevEst = estSelEl.value;
+        estSelEl.innerHTML = '<option value="">-- Sin especificar (Opcional) --</option>';
         (res.estaciones || []).forEach(est => {
             const o = document.createElement('option');
-            o.value = est.nombre + (est.localidad ? ` (${est.localidad})` : '');
-            estListEl.appendChild(o);
+            o.value = est.nombre;
+            o.textContent = est.nombre + (est.localidad ? ` (${est.localidad})` : '');
+            estSelEl.appendChild(o);
         });
+        if (prevEst) estSelEl.value = prevEst;
     }
 
     // Actualizar KPIs
@@ -1283,7 +1287,15 @@ function editRepostaje(r) {
     document.getElementById('rep-litros').value = r.litros;
     document.getElementById('rep-precio').value = r.precio_litro;
     document.getElementById('rep-importe').value = r.importe_total;
-    document.getElementById('rep-estacion').value = r.estacion_servicio || '';
+    const estSel = document.getElementById('rep-estacion');
+    const estVal = r.estacion_servicio || '';
+    if (estVal && !Array.from(estSel.options).some(o => o.value === estVal)) {
+        const tmpOpt = document.createElement('option');
+        tmpOpt.value = estVal;
+        tmpOpt.textContent = estVal;
+        estSel.appendChild(tmpOpt);
+    }
+    estSel.value = estVal;
     document.getElementById('rep-notas').value = r.notas || '';
     updateParcialKmPreview();
     document.getElementById('repostaje-modal').classList.add('active');

@@ -809,7 +809,7 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
   late TextEditingController _litrosCtrl;
   late TextEditingController _precioCtrl;
   late TextEditingController _importeCtrl;
-  late TextEditingController _estacionCtrl;
+  String _selectedEstacion = '';
   late TextEditingController _notasCtrl;
   bool _saving = false;
   String? _ocrMessage;
@@ -824,7 +824,7 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
     _litrosCtrl = TextEditingController(text: e != null ? e.litros.toStringAsFixed(2) : '');
     _precioCtrl = TextEditingController(text: e != null ? e.precioLitro.toStringAsFixed(3) : '');
     _importeCtrl = TextEditingController(text: e != null ? e.importeTotal.toStringAsFixed(2) : '');
-    _estacionCtrl = TextEditingController(text: e?.estacionServicio ?? '');
+    _selectedEstacion = e?.estacionServicio ?? '';
     _notasCtrl = TextEditingController(text: e?.notas ?? '');
   }
 
@@ -909,7 +909,7 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
         'litros': _litrosCtrl.text.trim(),
         'precio_litro': _precioCtrl.text.trim(),
         'importe_total': _importeCtrl.text.trim(),
-        'estacion_servicio': _estacionCtrl.text.trim(),
+        'estacion_servicio': _selectedEstacion,
         'notas': _notasCtrl.text.trim(),
       });
       if (res['success'] == true && mounted) {
@@ -1034,25 +1034,42 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
             decoration: const InputDecoration(labelText: 'Importe Total (€)', border: OutlineInputBorder()),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _estacionCtrl,
-            decoration: const InputDecoration(labelText: 'Estación de Servicio (opcional)', border: OutlineInputBorder()),
+          Builder(
+            builder: (context) {
+              final seen = <String>{};
+              final stationItems = <DropdownMenuItem<String>>[
+                const DropdownMenuItem<String>(
+                  value: '',
+                  child: Text('-- Sin especificar (Opcional) --'),
+                ),
+              ];
+              for (final est in widget.estaciones) {
+                if (est.nombre.isNotEmpty && seen.add(est.nombre)) {
+                  final label = est.localidad.isNotEmpty ? '${est.nombre} (${est.localidad})' : est.nombre;
+                  stationItems.add(DropdownMenuItem<String>(
+                    value: est.nombre,
+                    child: Text(label, overflow: TextOverflow.ellipsis),
+                  ));
+                }
+              }
+              if (_selectedEstacion.isNotEmpty && seen.add(_selectedEstacion)) {
+                stationItems.add(DropdownMenuItem<String>(
+                  value: _selectedEstacion,
+                  child: Text(_selectedEstacion, overflow: TextOverflow.ellipsis),
+                ));
+              }
+              return DropdownButtonFormField<String>(
+                value: _selectedEstacion,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Estación de Servicio (opcional)',
+                  border: OutlineInputBorder(),
+                ),
+                items: stationItems,
+                onChanged: (val) => setState(() => _selectedEstacion = val ?? ''),
+              );
+            },
           ),
-          if (widget.estaciones.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: widget.estaciones.map((est) {
-                return ActionChip(
-                  label: Text(est.nombre, style: const TextStyle(fontSize: 12)),
-                  onPressed: () {
-                    setState(() => _estacionCtrl.text = est.nombre);
-                  },
-                );
-              }).toList(),
-            ),
-          ],
           const SizedBox(height: 12),
           TextField(
             controller: _notasCtrl,
