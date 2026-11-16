@@ -735,10 +735,10 @@ try {
                     return (float)$s;
                 };
 
-                $litros  = $cleanNum(arr_get($r, 'litros', 0));
-                $precio  = $cleanNum(arr_get($r, 'precio_litro', 0));
-                $importe = $cleanNum(arr_get($r, 'importe_total', 0));
-                $km      = $cleanNum(arr_get($r, 'km_odometro', 0));
+                $litros  = round($cleanNum(arr_get($r, 'litros', 0)), 3);
+                $precio  = round($cleanNum(arr_get($r, 'precio_litro', 0)), 4);
+                $importe = round($cleanNum(arr_get($r, 'importe_total', 0)), 2);
+                $km      = round($cleanNum(arr_get($r, 'km_odometro', 0)), 2);
                 $estacion = trim((string)arr_get($r, 'estacion_servicio', ''));
                 $notas    = trim((string)arr_get($r, 'notas', ''));
 

@@ -1631,6 +1631,24 @@ function reparseImportSheet() {
     renderImportPreview();
 }
 
+function parseImportNum(val) {
+    if (val === null || val === undefined || val === '') return 0;
+    if (typeof val === 'number') return isFinite(val) ? val : 0;
+    let s = String(val).replace(/[^0-9,.\-]/g, '');
+    if (!s) return 0;
+    if (s.includes(',') && s.includes('.')) {
+        if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+            s = s.replace(/\./g, '').replace(',', '.');
+        } else {
+            s = s.replace(/,/g, '');
+        }
+    } else {
+        s = s.replace(',', '.');
+    }
+    const n = parseFloat(s);
+    return isFinite(n) ? n : 0;
+}
+
 function getMappedImportRows() {
     const hasHeader = document.getElementById('import-has-header').checked;
     const cFecha = parseInt(document.getElementById('map-fecha').value, 10);
@@ -1650,11 +1668,17 @@ function getMappedImportRows() {
         if (!fVal) continue;
         const rawNote = cNotas >= 0 ? String(r[cNotas] ?? '').trim() : '';
         const cleanNote = (rawNote && isNaN(Number(rawNote)) && !rawNote.includes('PRECIO') && !rawNote.includes('MINIMO')) ? rawNote : '';
+        const lNum = cLitros >= 0 ? parseImportNum(r[cLitros]) : 0;
+        const pNum = cPrecio >= 0 ? parseImportNum(r[cPrecio]) : 0;
+        let iNum = cImporte >= 0 ? parseImportNum(r[cImporte]) : 0;
+        if (iNum <= 0 && lNum > 0 && pNum > 0) {
+            iNum = Math.round(lNum * pNum * 100) / 100;
+        }
         mapped.push({
             fecha: fVal,
-            litros: cLitros >= 0 ? r[cLitros] : '',
-            precio_litro: cPrecio >= 0 ? r[cPrecio] : '',
-            importe_total: cImporte >= 0 ? r[cImporte] : '',
+            litros: lNum > 0 ? lNum.toFixed(3) : '',
+            precio_litro: pNum > 0 ? pNum.toFixed(4) : '',
+            importe_total: iNum > 0 ? iNum.toFixed(2) : '0.00',
             km_odometro: cKm >= 0 ? r[cKm] : '',
             notas: cleanNote,
             estacion_servicio: cEst >= 0 ? String(r[cEst] ?? '').trim() : ''
@@ -1671,11 +1695,14 @@ function renderImportPreview() {
     tbody.innerHTML = '';
     mapped.slice(0, 6).forEach(m => {
         const tr = document.createElement('tr');
+        const lVal = parseImportNum(m.litros);
+        const pVal = parseImportNum(m.precio_litro);
+        const iVal = parseImportNum(m.importe_total);
         tr.innerHTML = `
             <td>${m.fecha}</td>
-            <td>${m.litros}</td>
-            <td>${m.precio_litro}</td>
-            <td>${m.importe_total}</td>
+            <td>${lVal > 0 ? fmtNum(lVal, 2) : '-'}</td>
+            <td>${pVal > 0 ? fmtNum(pVal, 3) : '-'}</td>
+            <td style="font-weight:700;">${fmtNum(iVal, 2)} €</td>
             <td>${m.km_odometro}</td>
             <td>${m.notas || ''}</td>
         `;
