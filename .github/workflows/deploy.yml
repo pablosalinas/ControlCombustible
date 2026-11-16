@@ -1,0 +1,47 @@
+name: 🚀 Despliegue a Producción (moratalla-murcia.com/combustible)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Subir API y Crear Tablas Aditivas en Producción
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: 🚀 Subir archivos al servidor IONOS por SFTP
+        env:
+          HOST: ${{ secrets.SFTP_HOST || vars.SFTP_HOST }}
+          USER: ${{ secrets.SFTP_USER || vars.SFTP_USER }}
+          PASS: ${{ secrets.SFTP_PASSWORD || secrets.SFTP_PASS || vars.SFTP_PASSWORD }}
+          PORT: ${{ secrets.SFTP_PORT || vars.SFTP_PORT || 22 }}
+          TARGET: ${{ secrets.SFTP_TARGET_DIR || vars.SFTP_TARGET_DIR || 'combustible' }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$PASS" ]; then
+            echo "Aviso: Configura SFTP_HOST, SFTP_USER y SFTP_PASSWORD en los Secrets del repositorio GitHub."
+            exit 0
+          fi
+          sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+          lftp -u "$USER","$PASS" -p "$PORT" "sftp://$HOST" << EOF
+          set sftp:auto-confirm yes
+          set net:timeout 60
+          set net:max-retries 3
+          mkdir -p "$TARGET"
+          cd "$TARGET"
+          mirror -R -v \
+            --exclude-glob .git/ \
+            --exclude-glob .github/ \
+            --exclude-glob flutter_app/ \
+            ./ ./
+          bye
+          EOF
+
+      - name: 🗄️ Ejecutar creación aditiva de tablas en Producción (setup_db.php)
+        run: |
+          curl -f -s -S "https://www.moratalla-murcia.com/combustible/setup_db.php" || echo "Pendiente de activación SFTP en moratalla-murcia.com/combustible"
