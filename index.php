@@ -2479,6 +2479,15 @@ document.getElementById('user-email-form').addEventListener('submit', async (e) 
     }
 });
 
+function pdfCleanText(str) {
+    return String(str || '')
+        .replace(/≤/g, '<=')
+        .replace(/≥/g, '>=')
+        .replace(/[^\x20-\x7E\xA0-\xFF]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 function exportTareasPDF() {
     const list = getFilteredVehiculoTareas();
     if (list.length === 0) {
@@ -2488,29 +2497,29 @@ function exportTareasPDF() {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const estadoSel = document.getElementById('tasks-filter-estado');
-    const estadoLabel = estadoSel.options[estadoSel.selectedIndex].textContent;
+    const estadoLabel = pdfCleanText(estadoSel.options[estadoSel.selectedIndex].textContent);
     const vehSel = document.getElementById('vehicle-selector');
-    const vehName = vehSel.options[vehSel.selectedIndex]?.textContent || 'Todos';
+    const vehName = pdfCleanText(vehSel.options[vehSel.selectedIndex]?.textContent || 'Todos');
 
     doc.setFillColor(15, 118, 110);
     doc.rect(0, 0, 210, 26, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(14);
-    doc.text('INFORME DE MANTENIMIENTO Y TAREAS PERIÓDICAS', 12, 11);
+    doc.text('INFORME DE MANTENIMIENTO Y TAREAS PERIODICAS', 12, 11);
     doc.setFontSize(9);
-    doc.text(`Ámbito: ${vehName} · Filtro: ${estadoLabel}`, 12, 18);
-    doc.text(`Generado: ${new Date().toLocaleDateString('es-ES')} · ${list.length} tareas`, 12, 23);
+    doc.text(pdfCleanText(`Ambito: ${vehName} · Filtro: ${estadoLabel}`), 12, 18);
+    doc.text(pdfCleanText(`Generado: ${new Date().toLocaleDateString('es-ES')} · ${list.length} tareas`), 12, 23);
 
     const body = list.map(t => {
         const estadoTxt = t.estado === 'finalizada'
             ? `Finalizada (${t.fecha_finalizacion || '-'})`
             : (t.en_alerta ? `AVISO: ${t.motivo_alerta}` : 'En plazo');
         return [
-            t.vehiculo_nombre || '',
-            t.descripcion || '',
+            pdfCleanText(t.vehiculo_nombre || ''),
+            pdfCleanText(t.descripcion || ''),
             t.proxima_fecha || '-',
             t.proximo_km !== null ? `${fmtNum(t.proximo_km, 0)} km` : '-',
-            estadoTxt
+            pdfCleanText(estadoTxt)
         ];
     });
 
