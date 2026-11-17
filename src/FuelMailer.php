@@ -9,18 +9,26 @@
 class FuelMailer
 {
     /**
-     * Localiza e incluye inc/mailer.php de moratalla-murcia-2026 si está disponible.
+     * Localiza e incluye inc/mailer.php de moratalla-murcia-2026 si está disponible;
+     * si no, carga la configuración directamente desde la tabla `settings`.
      */
     public static function loadWebMailer()
     {
         if (function_exists('getMailConfig') && function_exists('smtpSendRaw')) {
             return true;
         }
+        $docRoot = isset($_SERVER['DOCUMENT_ROOT']) ? rtrim($_SERVER['DOCUMENT_ROOT'], '/\\') : '';
         $candidates = array(
             dirname(dirname(__DIR__)) . '/inc/mailer.php',
+            dirname(dirname(dirname(__DIR__))) . '/inc/mailer.php',
             dirname(__DIR__) . '/../inc/mailer.php',
             'C:/xampp/htdocs/Moratalla-Murcia-2026/inc/mailer.php',
         );
+        if ($docRoot !== '') {
+            $candidates[] = $docRoot . '/inc/mailer.php';
+            $candidates[] = $docRoot . '/moratalla/inc/mailer.php';
+            $candidates[] = dirname($docRoot) . '/inc/mailer.php';
+        }
         foreach ($candidates as $path) {
             if (file_exists($path)) {
                 require_once $path;
@@ -30,6 +38,136 @@ class FuelMailer
             }
         }
         return false;
+    }
+
+    /**
+     * Desencripta valores ENCv1 de la tabla `settings` de moratalla-murcia-2026.
+     */
+    private static function decryptSetting($cipherText)
+    {
+        if (function_exists('decryptSecret')) {
+            return decryptSecret($cipherText);
+        }
+        if ($cipherText === null || $cipherText === '') return '';
+        if (strpos($cipherText, 'ENCv1:') !== 0) return $cipherText;
+        $raw = base64_decode(substr($cipherText, 6), true);
+        if ($raw === false || strlen($raw) <= 48) return '';
+        $secret = defined('MM_CRYPTO_SECRET') ? MM_CRYPTO_SECRET : 'MM2026_Moratalla_CryptoKey_#9821_SecureVault';
+        $key = hash('sha256', $secret, true);
+        $iv = substr($raw, 0, 16);
+        $mac = substr($raw, 16, 32);
+        $cipher = substr($raw, 48);
+        $calcMac = hash_hmac('sha256', $iv . $cipher, $key, true);
+        if (!hash_equals($mac, $calcMac)) return '';
+        $plain = openssl_decrypt($cipher, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
+        return ($plain !== false) ? $plain : '';
+    }
+
+    /**
+     * Obtiene la configuración SMTP desde inc/mailer.php o directamente de la tabla `settings`.
+     */
+    public static function getConfig($pdo)
+    {
+        if (self::loadWebMailer() && function_exists('getMailConfig')) {
+            return getMailConfig($pdo);
+        }
+        $settings = array();
+        try {
+            $stmt = $pdo->query("SELECT setting_key, setting_value FROM `settings`");
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $settings[$row['setting_key']] = $row['setting_value'];
+            }
+        } catch (Exception $e) {}
+
+        $defUserEnc = 'ENCv1:uUbSu/e83SQAXs6GOGscogvq22TPx8ZTkII0gYm8BhKIGT/NlcUv4xvpsISxCyTcPtK4O3Nc9zBkur0U3A4BNvI9QgsvpuMpYk+VyM8/UgI=';
+        $defPassEnc = 'ENCv1:YTXXzOvpW6mbCB/ur824nHy/8S9YDRoEMocyVivDSOEGdBMFabHCEzSkvCZepozRXBYPTZA5L7AJ/Bxdq1BE+RVuijqbaI7pCH74r/hrz80=';
+
+        $smtpUser = self::decryptSetting(!empty($settings['smtp_user_enc']) ? $settings['smtp_user_enc'] : $defUserEnc);
+        $smtpPass = self::decryptSetting(!empty($settings['smtp_pass_enc']) ? $settings['smtp_pass_enc'] : $defPassEnc);
+        $adminEmail = !empty($settings['admin_email']) ? trim($settings['admin_email']) : $smtpUser;
+
+        return array(
+            'smtp_host'       => !empty($settings['smtp_host']) ? $settings['smtp_host'] : 'smtp.ionos.es',
+            'smtp_port'       => !empty($settings['smtp_port']) ? (int)$settings['smtp_port'] : 587,
+            'smtp_encryption' => !empty($settings['smtp_encryption']) ? strtolower($settings['smtp_encryption']) : 'tls',
+            'smtp_user'       => $smtpUser,
+            'smtp_pass'       => $smtpPass,
+            'admin_email'     => $adminEmail,
+        );
+    }
+
+    private static function smtpFallbackRead($socket)
+    {
+        $response = '';
+        while ($line = fgets($socket, 515)) {
+            $response .= $line;
+            if (isset($line[3]) && $line[3] === ' ') break;
+        }
+        return $response;
+    }
+
+    private static function smtpFallbackCmd($socket, $cmd, $expected)
+    {
+        if ($cmd !== null) fwrite($socket, $cmd . "\r\n");
+        $resp = self::smtpFallbackRead($socket);
+        $code = (int)substr($resp, 0, 3);
+        if (!in_array($code, (array)$expected, true)) {
+            throw new Exception("Error SMTP ($code): " . trim($resp));
+        }
+        return $resp;
+    }
+
+    private static function smtpFallbackSend($host, $port, $enc, $user, $pass, $fromEmail, $fromName, $toEmail, $subject, $plainBody, $htmlBody)
+    {
+        $remote = ($enc === 'ssl' ? 'ssl://' : 'tcp://') . $host . ':' . $port;
+        $ctx = stream_context_create(array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true)));
+        $errno = 0; $errstr = '';
+        $socket = @stream_socket_client($remote, $errno, $errstr, 12, STREAM_CLIENT_CONNECT, $ctx);
+        if (!$socket) throw new Exception("No se pudo conectar a $remote ($errno: $errstr)");
+        stream_set_timeout($socket, 12);
+        try {
+            self::smtpFallbackCmd($socket, null, array(220));
+            $ehlo = !empty($_SERVER['HTTP_HOST']) ? preg_replace('/:\d+$/', '', $_SERVER['HTTP_HOST']) : 'moratalla-murcia.com';
+            self::smtpFallbackCmd($socket, "EHLO " . $ehlo, array(250));
+            if ($enc === 'tls') {
+                self::smtpFallbackCmd($socket, "STARTTLS", array(220));
+                $method = STREAM_CRYPTO_METHOD_TLS_CLIENT;
+                if (defined('STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT')) $method |= STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT;
+                if (!@stream_socket_enable_crypto($socket, true, $method)) {
+                    throw new Exception("No se pudo activar STARTTLS.");
+                }
+                self::smtpFallbackCmd($socket, "EHLO " . $ehlo, array(250));
+            }
+            self::smtpFallbackCmd($socket, "AUTH LOGIN", array(334));
+            self::smtpFallbackCmd($socket, base64_encode($user), array(334));
+            self::smtpFallbackCmd($socket, base64_encode($pass), array(235));
+            self::smtpFallbackCmd($socket, "MAIL FROM:<" . $fromEmail . ">", array(250));
+            $rcpts = array_unique(array_filter(array_map('trim', explode(',', $toEmail))));
+            foreach ($rcpts as $r) self::smtpFallbackCmd($socket, "RCPT TO:<" . $r . ">", array(250, 251));
+            self::smtpFallbackCmd($socket, "DATA", array(354));
+            $boundary = "=_MM_Fuel_" . md5(uniqid((string)mt_rand(), true));
+            $headers = array(
+                "Date: " . date('r'),
+                "From: =?UTF-8?B?" . base64_encode($fromName) . "?= <{$fromEmail}>",
+                "To: <" . implode('>, <', $rcpts) . ">",
+                "Subject: =?UTF-8?B?" . base64_encode($subject) . "?=",
+                "MIME-Version: 1.0",
+                "Content-Type: multipart/alternative; boundary=\"{$boundary}\"",
+            );
+            $msg = implode("\r\n", $headers) . "\r\n\r\n"
+                . "--{$boundary}\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+                . chunk_split(base64_encode($plainBody)) . "\r\n"
+                . "--{$boundary}\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+                . chunk_split(base64_encode($htmlBody)) . "\r\n--{$boundary}--\r\n";
+            $msg = str_replace("\r\n.", "\r\n..", $msg);
+            self::smtpFallbackCmd($socket, $msg . "\r\n.", array(250));
+            @fwrite($socket, "QUIT\r\n");
+            @fclose($socket);
+            return true;
+        } catch (Exception $e) {
+            @fclose($socket);
+            throw $e;
+        }
     }
 
     /**
@@ -57,11 +195,7 @@ class FuelMailer
      */
     public static function sendHtmlEmail($pdo, $toEmail, $subject, $plainBody, $htmlBody, &$errorDetail = null)
     {
-        if (!self::loadWebMailer()) {
-            $errorDetail = 'No se encontró inc/mailer.php de moratalla-murcia.com.';
-            return false;
-        }
-        $cfg = getMailConfig($pdo);
+        $cfg = self::getConfig($pdo);
         if (empty($toEmail)) {
             $errorDetail = 'No hay dirección de correo electrónico configurada para el usuario ni admin_email.';
             return false;
@@ -70,42 +204,39 @@ class FuelMailer
         $fromEmail = $cfg['smtp_user'];
         $fromName  = 'Control de Combustible - moratalla-murcia.com';
 
+        $useWebFn = function_exists('smtpSendRaw');
         try {
-            smtpSendRaw(
-                $cfg['smtp_host'],
-                $cfg['smtp_port'],
-                $cfg['smtp_encryption'],
-                $cfg['smtp_user'],
-                $cfg['smtp_pass'],
-                $fromEmail,
-                $fromName,
-                $toEmail,
-                $fromEmail,
-                $fromName,
-                $subject,
-                $plainBody,
-                $htmlBody
-            );
+            if ($useWebFn) {
+                smtpSendRaw(
+                    $cfg['smtp_host'], $cfg['smtp_port'], $cfg['smtp_encryption'],
+                    $cfg['smtp_user'], $cfg['smtp_pass'], $fromEmail, $fromName,
+                    $toEmail, $fromEmail, $fromName, $subject, $plainBody, $htmlBody
+                );
+            } else {
+                self::smtpFallbackSend(
+                    $cfg['smtp_host'], $cfg['smtp_port'], $cfg['smtp_encryption'],
+                    $cfg['smtp_user'], $cfg['smtp_pass'], $fromEmail, $fromName,
+                    $toEmail, $subject, $plainBody, $htmlBody
+                );
+            }
             return true;
         } catch (Exception $e1) {
             try {
                 $altPort = ($cfg['smtp_port'] === 465) ? 587 : 465;
                 $altEnc  = ($altPort === 465) ? 'ssl' : 'tls';
-                smtpSendRaw(
-                    $cfg['smtp_host'],
-                    $altPort,
-                    $altEnc,
-                    $cfg['smtp_user'],
-                    $cfg['smtp_pass'],
-                    $fromEmail,
-                    $fromName,
-                    $toEmail,
-                    $fromEmail,
-                    $fromName,
-                    $subject,
-                    $plainBody,
-                    $htmlBody
-                );
+                if ($useWebFn) {
+                    smtpSendRaw(
+                        $cfg['smtp_host'], $altPort, $altEnc,
+                        $cfg['smtp_user'], $cfg['smtp_pass'], $fromEmail, $fromName,
+                        $toEmail, $fromEmail, $fromName, $subject, $plainBody, $htmlBody
+                    );
+                } else {
+                    self::smtpFallbackSend(
+                        $cfg['smtp_host'], $altPort, $altEnc,
+                        $cfg['smtp_user'], $cfg['smtp_pass'], $fromEmail, $fromName,
+                        $toEmail, $subject, $plainBody, $htmlBody
+                    );
+                }
                 return true;
             } catch (Exception $e2) {
                 $errorDetail = $e1->getMessage() . ' | Respaldo: ' . $e2->getMessage();
@@ -119,11 +250,7 @@ class FuelMailer
      */
     public static function sendRefuelNotification($pdo, $userRow, $vehiculoNombre, $repData, $alertTasks, &$errorDetail = null)
     {
-        if (!self::loadWebMailer()) {
-            $errorDetail = 'Módulo mailer no disponible.';
-            return false;
-        }
-        $cfg = getMailConfig($pdo);
+        $cfg = self::getConfig($pdo);
         $toEmail = self::resolveRecipientEmail($pdo, $userRow, $cfg);
         if (empty($toEmail)) {
             $errorDetail = 'Usuario sin correo configurado.';
@@ -194,11 +321,7 @@ class FuelMailer
      */
     public static function sendTaskAlertsEmail($pdo, $userRow, $alertTasks, &$errorDetail = null)
     {
-        if (!self::loadWebMailer()) {
-            $errorDetail = 'Módulo mailer no disponible.';
-            return false;
-        }
-        $cfg = getMailConfig($pdo);
+        $cfg = self::getConfig($pdo);
         $toEmail = self::resolveRecipientEmail($pdo, $userRow, $cfg);
         if (empty($toEmail)) {
             $errorDetail = 'Usuario sin correo configurado.';
