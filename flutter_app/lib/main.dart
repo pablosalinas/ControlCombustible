@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -512,7 +513,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final toCtrl = TextEditingController();
     bool ascending = false;
 
-    final confirmed = await showDialog<bool>(
+    final actionChoice = await showDialog<String>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => AlertDialog(
@@ -568,18 +569,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Cancelar')),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.pop(ctx, 'email'),
+              icon: const Icon(Icons.email_outlined, size: 18),
+              label: const Text('Enviar Email'),
+            ),
             FilledButton.icon(
-              onPressed: () => Navigator.pop(ctx, true),
+              onPressed: () => Navigator.pop(ctx, 'pdf'),
               icon: const Icon(Icons.picture_as_pdf, size: 18),
-              label: const Text('Generar PDF'),
+              label: const Text('Ver / Imprimir'),
             ),
           ],
         ),
       ),
     );
 
-    if (confirmed != true) return;
+    if (actionChoice == null) return;
 
     final fromStr = fromCtrl.text.trim();
     final toStr = toCtrl.text.trim();
@@ -637,11 +643,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
 
     final orderLabel = ascending ? 'Ascendente' : 'Descendente';
-    await PdfReportService.generateAndSharePdf(
-      scopeTitle: '${_getScopeTitle()} ($orderLabel)',
+    final scopeTitle = '${_getScopeTitle()} ($orderLabel)';
+    final pdfBytes = await PdfReportService.generateAndSharePdf(
+      scopeTitle: scopeTitle,
       resumen: filteredResumen,
       repostajes: pdfRows,
+      sendOnly: actionChoice == 'email',
     );
+    if (actionChoice == 'email') {
+      final summary = 'Ámbito: $scopeTitle\nRepostajes: ${pdfRows.length}\nConsumo medio: ${cMed.toStringAsFixed(2)} L/100km\nTotal: ${totL.toStringAsFixed(2)} L (${totE.toStringAsFixed(2)} €)';
+      final res = await widget.api.post('send_report_email', {
+        'title': 'Informe de Combustible - ${_getScopeTitle()}',
+        'summary': summary,
+        'filename': 'Informe_Combustible_${DateTime.now().toIso8601String().substring(0, 10)}.pdf',
+        'pdf_base64': base64Encode(pdfBytes),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Operación completada').toString())),
+        );
+      }
+    }
   }
 
   @override
@@ -1885,7 +1907,7 @@ class _TareasScreenState extends State<TareasScreen> {
     }
   }
 
-  Future<void> _exportPdf() async {
+  Future<void> _exportPdf({bool sendEmail = false}) async {
     final list = _filtered;
     if (list.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1896,17 +1918,32 @@ class _TareasScreenState extends State<TareasScreen> {
     final labels = {
       'todas': 'Todas',
       'pendiente': 'Pendientes',
-      'proximas': 'Próximas / En Alerta (<1000 km o ≤15d)',
+      'proximas': 'Próximas / En Alerta (<1000 km o <=15d)',
       'finalizada': 'Finalizadas',
     };
     final vehName = _vehiculoId == 0
         ? 'Todos los vehículos'
         : widget.vehiculos.firstWhere((v) => v.id == _vehiculoId, orElse: () => widget.vehiculos.first).nombre;
-    await PdfReportService.generateAndShareTareasPdf(
+    final filterLabel = labels[_estadoFilter] ?? 'Todas';
+    final pdfBytes = await PdfReportService.generateAndShareTareasPdf(
       scopeTitle: vehName,
-      filterLabel: labels[_estadoFilter] ?? 'Todas',
+      filterLabel: filterLabel,
       tareas: list,
+      sendOnly: sendEmail,
     );
+    if (sendEmail) {
+      final res = await widget.api.post('send_report_email', {
+        'title': 'Informe de Mantenimiento - $vehName',
+        'summary': 'Ámbito: $vehName\nFiltro: $filterLabel\nTareas incluidas: ${list.length}',
+        'filename': 'Informe_Tareas_${DateTime.now().toIso8601String().substring(0, 10)}.pdf',
+        'pdf_base64': base64Encode(pdfBytes),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Operación completada').toString())),
+        );
+      }
+    }
   }
 
   Future<void> _sendEmailAlerts() async {
@@ -1943,9 +1980,14 @@ class _TareasScreenState extends State<TareasScreen> {
             onPressed: _sendEmailAlerts,
           ),
           IconButton(
+            tooltip: 'Enviar Informe Tareas por Email',
+            icon: const Icon(Icons.mark_email_read_outlined),
+            onPressed: () => _exportPdf(sendEmail: true),
+          ),
+          IconButton(
             tooltip: 'Informe PDF Tareas',
             icon: const Icon(Icons.picture_as_pdf),
-            onPressed: _exportPdf,
+            onPressed: () => _exportPdf(sendEmail: false),
           ),
         ],
       ),

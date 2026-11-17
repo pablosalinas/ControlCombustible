@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
@@ -6,10 +7,11 @@ import 'package:printing/printing.dart';
 import '../models/models.dart';
 
 class PdfReportService {
-  static Future<void> generateAndSharePdf({
+  static Future<Uint8List> generateAndSharePdf({
     required String scopeTitle,
     required ResumenEstadisticas resumen,
     required List<Repostaje> repostajes,
+    bool sendOnly = false,
   }) async {
     // Cargar fuente TrueType Unicode (Roboto) para soportar € y caracteres españoles sin Internet
     final fontData = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
@@ -148,16 +150,21 @@ class PdfReportService {
       ),
     );
 
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => doc.save(),
-      name: 'Informe_Combustible_A4_${DateTime.now().toIso8601String().substring(0, 10)}.pdf',
-    );
+    final bytes = await doc.save();
+    if (!sendOnly) {
+      await Printing.layoutPdf(
+        onLayout: (PdfPageFormat format) async => bytes,
+        name: 'Informe_Combustible_A4_${DateTime.now().toIso8601String().substring(0, 10)}.pdf',
+      );
+    }
+    return bytes;
   }
 
-  static Future<void> generateAndShareTareasPdf({
+  static Future<Uint8List> generateAndShareTareasPdf({
     required String scopeTitle,
     required String filterLabel,
     required List<VehiculoTarea> tareas,
+    bool sendOnly = false,
   }) async {
     final fontData = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
     final roboto = pw.Font.ttf(fontData);
@@ -216,10 +223,14 @@ class PdfReportService {
       ),
     );
 
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => doc.save(),
-      name: 'Informe_Tareas_${DateTime.now().toIso8601String().substring(0, 10)}.pdf',
-    );
+    final bytes = await doc.save();
+    if (!sendOnly) {
+      await Printing.layoutPdf(
+        onLayout: (PdfPageFormat format) async => bytes,
+        name: 'Informe_Tareas_${DateTime.now().toIso8601String().substring(0, 10)}.pdf',
+      );
+    }
+    return bytes;
   }
 
   static pw.Widget _kpiBox(String label, String value) {

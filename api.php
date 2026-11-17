@@ -1252,6 +1252,21 @@ try {
             ));
             break;
 
+        case 'send_report_email':
+            $reportTitle = trim((string)arr_get($jsonBody, 'title', isset($_POST['title']) ? $_POST['title'] : 'Informe Control de Combustible'));
+            $summaryText = trim((string)arr_get($jsonBody, 'summary', isset($_POST['summary']) ? $_POST['summary'] : ''));
+            $filename    = trim((string)arr_get($jsonBody, 'filename', isset($_POST['filename']) ? $_POST['filename'] : 'Informe.pdf'));
+            $pdfBase64   = (string)arr_get($jsonBody, 'pdf_base64', isset($_POST['pdf_base64']) ? $_POST['pdf_base64'] : '');
+
+            $mailErr = null;
+            $sent = FuelMailer::sendReportPdfEmail($pdo, $user, $reportTitle, $summaryText, $pdfBase64, $filename, $mailErr);
+            echo json_encode(array(
+                'success' => $sent,
+                'message' => $sent ? 'Informe PDF enviado correctamente por correo electrónico.' : ('No se pudo enviar el informe: ' . ($mailErr ? $mailErr : 'Error desconocido')),
+                'error'   => $sent ? null : $mailErr,
+            ));
+            break;
+
         default:
             http_response_code(400);
             echo json_encode(array(

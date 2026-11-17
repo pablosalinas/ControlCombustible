@@ -563,8 +563,11 @@
                     <button class="btn btn-outline" style="padding:0.42rem 0.7rem; font-size:0.8rem; border-color:#d97706; color:#b45309;" onclick="sendTaskAlertsEmailNow()" title="Enviar avisos por email">
                         <i class="fa-solid fa-paper-plane"></i> Enviar Avisos Email
                     </button>
-                    <button class="btn btn-accent" style="padding:0.42rem 0.7rem; font-size:0.8rem;" onclick="exportTareasPDF()">
+                    <button class="btn btn-accent" style="padding:0.42rem 0.7rem; font-size:0.8rem;" onclick="exportTareasPDF(false)">
                         <i class="fa-solid fa-file-pdf"></i> Informe Tareas
+                    </button>
+                    <button class="btn btn-outline" style="padding:0.42rem 0.7rem; font-size:0.8rem; border-color:#0284c7; color:#0369a1;" onclick="exportTareasPDF(true)" title="Enviar Informe de Tareas PDF por correo">
+                        <i class="fa-solid fa-envelope"></i> PDF Tareas Email
                     </button>
                     <button class="btn btn-primary" style="padding:0.44rem 0.8rem; font-size:0.82rem;" onclick="openVehiculoTareaModal()">
                         <i class="fa-solid fa-plus"></i> Asignar Tarea
@@ -838,9 +841,12 @@
             </select>
         </div>
         <div id="pdf-count-info" style="font-size:0.82rem; font-weight:600; color:var(--primary-dark); background:#f0fdfa; padding:0.55rem 0.75rem; border-radius:8px; margin-bottom:1rem;"></div>
-        <div style="display:flex; justify-content:flex-end; gap:0.6rem;">
+        <div style="display:flex; justify-content:flex-end; gap:0.6rem; flex-wrap:wrap;">
             <button type="button" class="btn btn-outline" onclick="closePdfOptionsModal()">Cancelar</button>
-            <button type="button" class="btn btn-accent" onclick="exportPDFReport()">
+            <button type="button" class="btn btn-outline" style="border-color:#0284c7; color:#0369a1;" onclick="exportPDFReport(true)">
+                <i class="fa-solid fa-envelope"></i> Enviar por Email
+            </button>
+            <button type="button" class="btn btn-accent" onclick="exportPDFReport(false)">
                 <i class="fa-solid fa-file-pdf"></i> Generar PDF
             </button>
         </div>
@@ -2034,7 +2040,18 @@ function updatePdfPreviewCount() {
         `Se incluirán ${list.length} repostaje(s) según los filtros seleccionados.`;
 }
 
-function exportPDFReport() {
+async function sendJsPdfByEmail(doc, title, summary, filename) {
+    const pdfBase64 = doc.output('datauristring');
+    const res = await apiCall('send_report_email', {
+        title,
+        summary,
+        filename,
+        pdf_base64: pdfBase64
+    });
+    alert(res.message || res.error || 'Operación completada');
+}
+
+async function exportPDFReport(sendByEmail = false) {
     const filteredList = getFilteredSortedRowsForPdf();
     if (filteredList.length === 0) {
         alert('No hay registros que coincidan con el filtro seleccionado.');
@@ -2153,7 +2170,13 @@ function exportPDFReport() {
     });
 
     closePdfOptionsModal();
-    doc.save(`Informe_Combustible_A4_${new Date().toISOString().slice(0,10)}.pdf`);
+    const fileName = `Informe_Combustible_A4_${new Date().toISOString().slice(0,10)}.pdf`;
+    if (sendByEmail) {
+        const summary = `Ámbito: ${selText}${rangeLabel}\nRepostajes: ${filteredList.length}\nConsumo medio: ${fmtNum(cMed, 2)} L/100km\nTotal: ${fmtNum(totalLitros, 2)} L (${fmtNum(totalEuros, 2)} €)`;
+        await sendJsPdfByEmail(doc, `Informe de Combustible - ${selText}`, summary, fileName);
+    } else {
+        doc.save(fileName);
+    }
 }
 
 // ============================================================================
@@ -2488,7 +2511,7 @@ function pdfCleanText(str) {
         .trim();
 }
 
-function exportTareasPDF() {
+async function exportTareasPDF(sendByEmail = false) {
     const list = getFilteredVehiculoTareas();
     if (list.length === 0) {
         alert('No hay tareas que coincidan con el filtro seleccionado.');
@@ -2532,7 +2555,13 @@ function exportTareasPDF() {
         styles: { fontSize: 8, cellPadding: 2 },
         headStyles: { fillColor: [15, 23, 42], textColor: 255 }
     });
-    doc.save(`Informe_Tareas_Mantenimiento_${new Date().toISOString().slice(0,10)}.pdf`);
+    const fileName = `Informe_Tareas_Mantenimiento_${new Date().toISOString().slice(0,10)}.pdf`;
+    if (sendByEmail) {
+        const summary = `Ámbito: ${vehName}\nFiltro: ${estadoLabel}\nTotal tareas incluidas: ${list.length}`;
+        await sendJsPdfByEmail(doc, `Informe de Mantenimiento - ${vehName}`, summary, fileName);
+    } else {
+        doc.save(fileName);
+    }
 }
 
 // Restaurar sesión (por sessionStorage o por sesión activa de moratalla-murcia.com/admin)

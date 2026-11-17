@@ -367,4 +367,148 @@ class FuelMailer
 
         return self::sendHtmlEmail($pdo, $toEmail, $subject, $plain, $html, $errorDetail);
     }
+
+    /**
+     * Envía un informe PDF adjunto por SMTP (TLS 587 con respaldo SSL 465).
+     */
+    private static function smtpSendWithAttachment($host, $port, $enc, $user, $pass, $fromEmail, $fromName, $toEmail, $subject, $plainBody, $htmlBody, $pdfBinary, $filename)
+    {
+        $remote = ($enc === 'ssl' ? 'ssl://' : 'tcp://') . $host . ':' . $port;
+        $ctx = stream_context_create(array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true)));
+        $errno = 0; $errstr = '';
+        $socket = @stream_socket_client($remote, $errno, $errstr, 15, STREAM_CLIENT_CONNECT, $ctx);
+        if (!$socket) throw new Exception("No se pudo conectar a $remote ($errno: $errstr)");
+        stream_set_timeout($socket, 15);
+        try {
+            self::smtpFallbackCmd($socket, null, array(220));
+            $ehlo = !empty($_SERVER['HTTP_HOST']) ? preg_replace('/:\d+$/', '', $_SERVER['HTTP_HOST']) : 'moratalla-murcia.com';
+            self::smtpFallbackCmd($socket, "EHLO " . $ehlo, array(250));
+            if ($enc === 'tls') {
+                self::smtpFallbackCmd($socket, "STARTTLS", array(220));
+                $method = STREAM_CRYPTO_METHOD_TLS_CLIENT;
+                if (defined('STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT')) $method |= STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT;
+                if (!@stream_socket_enable_crypto($socket, true, $method)) {
+                    throw new Exception("No se pudo activar STARTTLS.");
+                }
+                self::smtpFallbackCmd($socket, "EHLO " . $ehlo, array(250));
+            }
+            self::smtpFallbackCmd($socket, "AUTH LOGIN", array(334));
+            self::smtpFallbackCmd($socket, base64_encode($user), array(334));
+            self::smtpFallbackCmd($socket, base64_encode($pass), array(235));
+            self::smtpFallbackCmd($socket, "MAIL FROM:<" . $fromEmail . ">", array(250));
+            $rcpts = array_unique(array_filter(array_map('trim', explode(',', $toEmail))));
+            foreach ($rcpts as $r) self::smtpFallbackCmd($socket, "RCPT TO:<" . $r . ">", array(250, 251));
+            self::smtpFallbackCmd($socket, "DATA", array(354));
+
+            $mixedBoundary = "=_MM_Mix_" . md5(uniqid((string)mt_rand(), true));
+            $altBoundary   = "=_MM_Alt_" . md5(uniqid((string)mt_rand(), true));
+            $safeFile      = preg_replace('/[^A-Za-z0-9_\.\-]/', '_', $filename);
+            if ($safeFile === '') $safeFile = 'Informe.pdf';
+
+            $headers = array(
+                "Date: " . date('r'),
+                "From: =?UTF-8?B?" . base64_encode($fromName) . "?= <{$fromEmail}>",
+                "To: <" . implode('>, <', $rcpts) . ">",
+                "Subject: =?UTF-8?B?" . base64_encode($subject) . "?=",
+                "MIME-Version: 1.0",
+                "Content-Type: multipart/mixed; boundary=\"{$mixedBoundary}\"",
+            );
+
+            $msg = implode("\r\n", $headers) . "\r\n\r\n"
+                . "--{$mixedBoundary}\r\n"
+                . "Content-Type: multipart/alternative; boundary=\"{$altBoundary}\"\r\n\r\n"
+                . "--{$altBoundary}\r\n"
+                . "Content-Type: text/plain; charset=UTF-8\r\n"
+                . "Content-Transfer-Encoding: base64\r\n\r\n"
+                . chunk_split(base64_encode($plainBody)) . "\r\n"
+                . "--{$altBoundary}\r\n"
+                . "Content-Type: text/html; charset=UTF-8\r\n"
+                . "Content-Transfer-Encoding: base64\r\n\r\n"
+                . chunk_split(base64_encode($htmlBody)) . "\r\n"
+                . "--{$altBoundary}--\r\n\r\n"
+                . "--{$mixedBoundary}\r\n"
+                . "Content-Type: application/pdf; name=\"{$safeFile}\"\r\n"
+                . "Content-Transfer-Encoding: base64\r\n"
+                . "Content-Disposition: attachment; filename=\"{$safeFile}\"\r\n\r\n"
+                . chunk_split(base64_encode($pdfBinary)) . "\r\n"
+                . "--{$mixedBoundary}--\r\n";
+
+            $msg = str_replace("\r\n.", "\r\n..", $msg);
+            self::smtpFallbackCmd($socket, $msg . "\r\n.", array(250));
+            @fwrite($socket, "QUIT\r\n");
+            @fclose($socket);
+            return true;
+        } catch (Exception $e) {
+            @fclose($socket);
+            throw $e;
+        }
+    }
+
+    /**
+     * Envía cualquier informe PDF generado por el usuario adjunto por correo electrónico.
+     */
+    public static function sendReportPdfEmail($pdo, $userRow, $reportTitle, $summaryText, $pdfBase64, $filename, &$errorDetail = null)
+    {
+        $cfg = self::getConfig($pdo);
+        $toEmail = self::resolveRecipientEmail($pdo, $userRow, $cfg);
+        if (empty($toEmail)) {
+            $errorDetail = 'Usuario sin correo configurado ni admin_email.';
+            return false;
+        }
+
+        // Limpiar prefijo data:application/pdf;...base64, si viene de jsPDF
+        if (strpos($pdfBase64, 'base64,') !== false) {
+            $parts = explode('base64,', $pdfBase64, 2);
+            $pdfBase64 = $parts[1];
+        }
+        $pdfBinary = base64_decode($pdfBase64, true);
+        if ($pdfBinary === false || strlen($pdfBinary) < 50) {
+            $errorDetail = 'El archivo PDF adjunto no es válido.';
+            return false;
+        }
+
+        $username = isset($userRow['username']) ? $userRow['username'] : 'Usuario';
+        $subject  = $reportTitle !== '' ? $reportTitle : 'Informe Control de Combustible - moratalla-murcia.com';
+        $plain    = "Hola {$username},\r\n\r\nAdjunto encontrarás el informe solicitado: {$subject}.\r\n";
+        if ($summaryText !== '') {
+            $plain .= "\r\nResumen:\r\n{$summaryText}\r\n";
+        }
+
+        $safeSummary = nl2br(htmlspecialchars($summaryText, ENT_QUOTES, 'UTF-8'));
+        $html = "<!DOCTYPE html><html lang='es'><body style='font-family:Arial,sans-serif; background:#f4f6f5; padding:20px; color:#1e293b;'>"
+            . "<div style='max-width:600px; margin:0 auto; background:#ffffff; border-radius:12px; overflow:hidden; border:1px solid #cbd5e1;'>"
+            . "<div style='background:#0f766e; color:#ffffff; padding:16px 22px;'>"
+            . "<h2 style='margin:0; font-size:18px;'>📄 " . htmlspecialchars($subject) . "</h2></div>"
+            . "<div style='padding:20px;'>"
+            . "<p style='margin-top:0;'>Hola <strong>" . htmlspecialchars($username) . "</strong>, adjunto tienes el informe en PDF generado desde Control de Combustible.</p>"
+            . ($safeSummary !== '' ? "<div style='background:#f8fafc; border-left:4px solid #0f766e; padding:12px; border-radius:6px; font-size:13px;'>{$safeSummary}</div>" : '')
+            . "<p style='font-size:12px; color:#64748b; margin-top:18px; margin-bottom:0;'>Enviado desde moratalla-murcia.com</p>"
+            . "</div></div></body></html>";
+
+        $fromEmail = $cfg['smtp_user'];
+        $fromName  = 'Control de Combustible - moratalla-murcia.com';
+
+        try {
+            self::smtpSendWithAttachment(
+                $cfg['smtp_host'], $cfg['smtp_port'], $cfg['smtp_encryption'],
+                $cfg['smtp_user'], $cfg['smtp_pass'], $fromEmail, $fromName,
+                $toEmail, $subject, $plain, $html, $pdfBinary, $filename
+            );
+            return true;
+        } catch (Exception $e1) {
+            try {
+                $altPort = ($cfg['smtp_port'] === 465) ? 587 : 465;
+                $altEnc  = ($altPort === 465) ? 'ssl' : 'tls';
+                self::smtpSendWithAttachment(
+                    $cfg['smtp_host'], $altPort, $altEnc,
+                    $cfg['smtp_user'], $cfg['smtp_pass'], $fromEmail, $fromName,
+                    $toEmail, $subject, $plain, $html, $pdfBinary, $filename
+                );
+                return true;
+            } catch (Exception $e2) {
+                $errorDetail = $e1->getMessage() . ' | Respaldo: ' . $e2->getMessage();
+                return false;
+            }
+        }
+    }
 }
