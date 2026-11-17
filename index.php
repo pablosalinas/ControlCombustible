@@ -2158,10 +2158,11 @@ async function exportPDFReport(sendByEmail = false) {
         alternateRowStyles: { fillColor: [248, 250, 252] },
         didDrawPage: function (data) {
             const pageCount = doc.internal.getNumberOfPages();
+            const nowStr = new Date().toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
             doc.setFontSize(7.5);
             doc.setTextColor(120, 120, 120);
             doc.text(
-                `Página ${data.pageNumber} de ${pageCount} - Control de Combustible (A4 Vertical)`,
+                `Página ${data.pageNumber} de ${pageCount} · generado y enviado por www.moratalla-murcia.com (${nowStr})`,
                 105,
                 291,
                 { align: 'center' }
@@ -2553,7 +2554,19 @@ async function exportTareasPDF(sendByEmail = false) {
         body,
         theme: 'grid',
         styles: { fontSize: 8, cellPadding: 2 },
-        headStyles: { fillColor: [15, 23, 42], textColor: 255 }
+        headStyles: { fillColor: [15, 23, 42], textColor: 255 },
+        didDrawPage: function (data) {
+            const pageCount = doc.internal.getNumberOfPages();
+            const nowStr = new Date().toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+            doc.setFontSize(7.5);
+            doc.setTextColor(120, 120, 120);
+            doc.text(
+                `Página ${data.pageNumber} de ${pageCount} · generado y enviado por www.moratalla-murcia.com (${nowStr})`,
+                105,
+                291,
+                { align: 'center' }
+            );
+        }
     });
     const fileName = `Informe_Tareas_Mantenimiento_${new Date().toISOString().slice(0,10)}.pdf`;
     if (sendByEmail) {

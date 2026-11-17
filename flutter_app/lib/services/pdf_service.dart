@@ -26,15 +26,16 @@ class PdfReportService {
       ),
     );
 
+    final nowFooter = DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now());
     doc.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4, // A4 Vertical (Portrait) optimizado
         margin: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 20),
         footer: (context) => pw.Container(
-          alignment: pw.Alignment.centerRight,
+          alignment: pw.Alignment.center,
           margin: const pw.EdgeInsets.only(top: 6),
           child: pw.Text(
-            'Página ${context.pageNumber} de ${context.pagesCount}',
+            'Página ${context.pageNumber} de ${context.pagesCount} · generado y enviado por www.moratalla-murcia.com ($nowFooter)',
             style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600),
           ),
         ),
@@ -173,10 +174,19 @@ class PdfReportService {
     );
     final esInt = NumberFormat('#,##0', 'es_ES');
 
+    final nowFooter = DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now());
     doc.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(20),
+        footer: (ctx) => pw.Container(
+          alignment: pw.Alignment.center,
+          margin: const pw.EdgeInsets.only(top: 8),
+          child: pw.Text(
+            'Página ${ctx.pageNumber} de ${ctx.pagesCount} · generado y enviado por www.moratalla-murcia.com ($nowFooter)',
+            style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600),
+          ),
+        ),
         header: (ctx) => pw.Container(
           margin: const pw.EdgeInsets.only(bottom: 10),
           padding: const pw.EdgeInsets.all(10),

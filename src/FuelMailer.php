@@ -310,7 +310,7 @@ class FuelMailer
             . "<tr><td style='padding:8px 12px; font-weight:bold;'>Estación:</td><td style='padding:8px 12px;'>" . htmlspecialchars($estacion) . "</td></tr>"
             . "</table>"
             . $alertsHtml
-            . "<p style='font-size:12px; color:#64748b; margin-top:18px; margin-bottom:0;'>Enviado automáticamente desde moratalla-murcia.com</p>"
+            . "<p style='font-size:12px; color:#64748b; margin-top:18px; margin-bottom:0;'>generado y enviado por www.moratalla-murcia.com (" . date('d/m/Y H:i') . ")</p>"
             . "</div></div></body></html>";
 
         return self::sendHtmlEmail($pdo, $toEmail, $subject, $plain, $html, $errorDetail);
@@ -362,7 +362,7 @@ class FuelMailer
             . "<thead><tr style='background:#f8fafc; text-align:left;'>"
             . "<th style='padding:8px 10px;'>Vehículo</th><th style='padding:8px 10px;'>Tarea</th><th style='padding:8px 10px;'>Estado / Margen</th>"
             . "</tr></thead><tbody>{$rowsHtml}</tbody></table>"
-            . "<p style='font-size:12px; color:#64748b; margin-top:18px; margin-bottom:0;'>Enviado automáticamente desde moratalla-murcia.com</p>"
+            . "<p style='font-size:12px; color:#64748b; margin-top:18px; margin-bottom:0;'>generado y enviado por www.moratalla-murcia.com (" . date('d/m/Y H:i') . ")</p>"
             . "</div></div></body></html>";
 
         return self::sendHtmlEmail($pdo, $toEmail, $subject, $plain, $html, $errorDetail);
@@ -482,7 +482,7 @@ class FuelMailer
             . "<div style='padding:20px;'>"
             . "<p style='margin-top:0;'>Hola <strong>" . htmlspecialchars($username) . "</strong>, adjunto tienes el informe en PDF generado desde Control de Combustible.</p>"
             . ($safeSummary !== '' ? "<div style='background:#f8fafc; border-left:4px solid #0f766e; padding:12px; border-radius:6px; font-size:13px;'>{$safeSummary}</div>" : '')
-            . "<p style='font-size:12px; color:#64748b; margin-top:18px; margin-bottom:0;'>Enviado desde moratalla-murcia.com</p>"
+            . "<p style='font-size:12px; color:#64748b; margin-top:18px; margin-bottom:0;'>generado y enviado por www.moratalla-murcia.com (" . date('d/m/Y H:i') . ")</p>"
             . "</div></div></body></html>";
 
         $fromEmail = $cfg['smtp_user'];
