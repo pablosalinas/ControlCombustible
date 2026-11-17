@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'models/models.dart';
@@ -304,6 +305,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   ResumenEstadisticas? _resumen;
   bool _loading = true;
   String _searchQuery = '';
+  String _fechaDesde = '';
+  String _fechaHasta = '';
 
   @override
   void initState() {
@@ -316,6 +319,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final res = await widget.api.post('dashboard', {
         'vehiculo_id': _selectedVehiculoId,
+        if (_fechaDesde.isNotEmpty) 'fecha_desde': _fechaDesde,
+        if (_fechaHasta.isNotEmpty) 'fecha_hasta': _fechaHasta,
       });
       if (res['success'] == true) {
         final vList = (res['vehiculos'] as List? ?? [])
@@ -348,6 +353,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _pickDateFilter(bool isFrom) async {
+    final currentStr = isFrom ? _fechaDesde : _fechaHasta;
+    final initial = DateTime.tryParse(currentStr) ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) {
+      final formatted =
+          '${picked.year.toString().padLeft(4, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+      setState(() {
+        if (isFrom) {
+          _fechaDesde = formatted;
+        } else {
+          _fechaHasta = formatted;
+        }
+      });
+      _loadData();
     }
   }
 
@@ -650,9 +678,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                          ),
+                          onPressed: () => _pickDateFilter(true),
+                          icon: const Icon(Icons.date_range, size: 17),
+                          label: Text(
+                            _fechaDesde.isEmpty ? 'Desde: Todas' : 'Desde: $_fechaDesde',
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12.5),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                          ),
+                          onPressed: () => _pickDateFilter(false),
+                          icon: const Icon(Icons.event, size: 17),
+                          label: Text(
+                            _fechaHasta.isEmpty ? 'Hasta: Todas' : 'Hasta: $_fechaHasta',
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12.5),
+                          ),
+                        ),
+                      ),
+                      if (_fechaDesde.isNotEmpty || _fechaHasta.isNotEmpty)
+                        IconButton(
+                          tooltip: 'Limpiar fechas',
+                          icon: const Icon(Icons.clear, size: 20),
+                          onPressed: () {
+                            setState(() {
+                              _fechaDesde = '';
+                              _fechaHasta = '';
+                            });
+                            _loadData();
+                          },
+                        ),
+                    ],
+                  ),
                   const SizedBox(height: 8),
                   if (_resumen != null) _buildKpiGrid(_resumen!),
                   const SizedBox(height: 10),
+                  if (_repostajes.isNotEmpty) ...[
+                    _buildEvolutionChartCard(),
+                    const SizedBox(height: 10),
+                  ],
                   TextField(
                     decoration: InputDecoration(
                       hintText: 'Buscar por fecha, kilómetros, vehículo o nota...',
@@ -679,6 +759,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildKpiGrid(ResumenEstadisticas s) {
+    final latestOdometro = _repostajes.isNotEmpty ? _repostajes.first.kmOdometro : 0.0;
     return GridView.count(
       crossAxisCount: 2,
       shrinkWrap: true,
@@ -690,8 +771,239 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _kpiTile('Consumo Medio', '${s.consumoMedioL100.toStringAsFixed(2)} L/100', 'Coste: ${s.costeMedio100Km.toStringAsFixed(2)} €/100km'),
         _kpiTile('Consumo Máx / Mín', '${s.consumoMaximo.toStringAsFixed(2)} / ${s.consumoMinimo.toStringAsFixed(2)}', 'Dif: ${s.diferenciaConsumo.toStringAsFixed(2)} L/100'),
         _kpiTile('Precio Máx / Mín', '${s.precioMaximo.toStringAsFixed(3)} / ${s.precioMinimo.toStringAsFixed(3)} €', 'Dif: ${s.diferenciaPrecio.toStringAsFixed(3)} €/L'),
-        _kpiTile('Total Acumulado', '${s.totalEuros.toStringAsFixed(2)} €', '${s.totalLitros.toStringAsFixed(1)} L · ${s.totalKmRecorridos.toStringAsFixed(0)} km'),
+        _kpiTile('Total Combustible', '${s.totalLitros.toStringAsFixed(2)} L', '${s.numRepostajes} repostajes'),
+        _kpiTile('Gasto Acumulado', '${s.totalEuros.toStringAsFixed(2)} €', '${s.eurosPorKmMedio.toStringAsFixed(3)} €/km'),
+        _kpiTile('Km Recorridos', '${s.totalKmRecorridos.toStringAsFixed(0)} km', 'Odómetro: ${latestOdometro.toStringAsFixed(0)} km'),
       ],
+    );
+  }
+
+  Widget _buildEvolutionChartCard() {
+    final reversed = _repostajes.reversed.toList();
+    final chrono = reversed.length > 40 ? reversed.sublist(reversed.length - 40) : reversed;
+
+    final consSpots = <FlSpot>[];
+    final priceValues = <double>[];
+    final consValues = <double>[];
+
+    for (var i = 0; i < chrono.length; i++) {
+      final r = chrono[i];
+      if (r.litrosPor100 != null && r.litrosPor100! > 0) {
+        consSpots.add(FlSpot(i.toDouble(), r.litrosPor100!));
+        consValues.add(r.litrosPor100!);
+      }
+      if (r.precioLitro > 0) {
+        priceValues.add(r.precioLitro);
+      }
+    }
+
+    if (consSpots.isEmpty && priceValues.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    double minCons = consValues.isNotEmpty ? consValues.reduce(min) : 0.0;
+    double maxCons = consValues.isNotEmpty ? consValues.reduce(max) : 10.0;
+    if ((maxCons - minCons).abs() < 0.5) {
+      minCons = max(0.0, minCons - 1.0);
+      maxCons = maxCons + 1.0;
+    } else {
+      final pad = (maxCons - minCons) * 0.15;
+      minCons = max(0.0, minCons - pad);
+      maxCons = maxCons + pad;
+    }
+
+    double minPrice = priceValues.isNotEmpty ? priceValues.reduce(min) : 0.0;
+    double maxPrice = priceValues.isNotEmpty ? priceValues.reduce(max) : 2.0;
+    if ((maxPrice - minPrice).abs() < 0.05) {
+      minPrice = max(0.0, minPrice - 0.1);
+      maxPrice = maxPrice + 0.1;
+    } else {
+      final pad = (maxPrice - minPrice) * 0.15;
+      minPrice = max(0.0, minPrice - pad);
+      maxPrice = maxPrice + pad;
+    }
+
+    double normalizePrice(double price) {
+      if ((maxPrice - minPrice).abs() < 1e-6) return (minCons + maxCons) / 2;
+      return minCons + ((price - minPrice) / (maxPrice - minPrice)) * (maxCons - minCons);
+    }
+
+    double denormalizePrice(double y) {
+      if ((maxCons - minCons).abs() < 1e-6) return minPrice;
+      return minPrice + ((y - minCons) / (maxCons - minCons)) * (maxPrice - minPrice);
+    }
+
+    final priceSpots = <FlSpot>[];
+    for (var i = 0; i < chrono.length; i++) {
+      if (chrono[i].precioLitro > 0) {
+        priceSpots.add(FlSpot(i.toDouble(), normalizePrice(chrono[i].precioLitro)));
+      }
+    }
+
+    final xStep = max(1, (chrono.length / 4).ceil());
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.show_chart, color: Color(0xFF0F766E), size: 20),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Evolución de Consumo (L/100km) y Precio (€/L)',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.circle, size: 10, color: Color(0xFF0F766E)),
+                SizedBox(width: 4),
+                Text('Consumo (L/100km)', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                SizedBox(width: 14),
+                Icon(Icons.circle, size: 10, color: Color(0xFFF59E0B)),
+                SizedBox(width: 4),
+                Text('Precio (€/L)', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 210,
+              child: LineChart(
+                LineChartData(
+                  minX: 0,
+                  maxX: max(0, chrono.length - 1).toDouble(),
+                  minY: minCons,
+                  maxY: maxCons,
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                    getDrawingHorizontalLine: (_) => FlLine(
+                      color: Colors.grey.shade200,
+                      strokeWidth: 1,
+                    ),
+                  ),
+                  borderData: FlBorderData(
+                    show: true,
+                    border: Border(
+                      left: BorderSide(color: Colors.grey.shade300),
+                      right: BorderSide(color: Colors.grey.shade300),
+                      bottom: BorderSide(color: Colors.grey.shade300),
+                    ),
+                  ),
+                  titlesData: FlTitlesData(
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 38,
+                        getTitlesWidget: (value, meta) {
+                          if (value == meta.min || value == meta.max) return const SizedBox.shrink();
+                          return Text(
+                            value.toStringAsFixed(1),
+                            style: const TextStyle(fontSize: 10, color: Color(0xFF0F766E), fontWeight: FontWeight.w600),
+                          );
+                        },
+                      ),
+                    ),
+                    rightTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 42,
+                        getTitlesWidget: (value, meta) {
+                          if (value == meta.min || value == meta.max) return const SizedBox.shrink();
+                          final p = denormalizePrice(value);
+                          return Padding(
+                            padding: const EdgeInsets.only(left: 4),
+                            child: Text(
+                              p.toStringAsFixed(2),
+                              style: const TextStyle(fontSize: 10, color: Color(0xFFD97706), fontWeight: FontWeight.w600),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 22,
+                        interval: xStep.toDouble(),
+                        getTitlesWidget: (value, meta) {
+                          final idx = value.round();
+                          if (idx < 0 || idx >= chrono.length) return const SizedBox.shrink();
+                          final f = chrono[idx].fecha;
+                          final label = f.length >= 10 ? '${f.substring(8, 10)}/${f.substring(5, 7)}' : f;
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(label, style: const TextStyle(fontSize: 9.5, color: Colors.black54)),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  lineTouchData: LineTouchData(
+                    touchTooltipData: LineTouchTooltipData(
+                      getTooltipColor: (_) => const Color(0xFF0F172A).withOpacity(0.92),
+                      getTooltipItems: (touchedSpots) {
+                        return touchedSpots.map((spot) {
+                          final idx = spot.x.round().clamp(0, chrono.length - 1);
+                          final r = chrono[idx];
+                          if (spot.bar.color == const Color(0xFF0F766E)) {
+                            return LineTooltipItem(
+                              '${r.fecha}\nConsumo: ${r.litrosPor100?.toStringAsFixed(2) ?? "-"} L/100',
+                              const TextStyle(color: Color(0xFF5EEAD4), fontSize: 11.5, fontWeight: FontWeight.w600),
+                            );
+                          }
+                          return LineTooltipItem(
+                            'Precio: ${r.precioLitro.toStringAsFixed(3)} €/L',
+                            const TextStyle(color: Color(0xFFFCD34D), fontSize: 11.5, fontWeight: FontWeight.w600),
+                          );
+                        }).toList();
+                      },
+                    ),
+                  ),
+                  lineBarsData: [
+                    if (consSpots.isNotEmpty)
+                      LineChartBarData(
+                        spots: consSpots,
+                        isCurved: true,
+                        curveSmoothness: 0.3,
+                        color: const Color(0xFF0F766E),
+                        barWidth: 2.5,
+                        dotData: FlDotData(show: consSpots.length <= 20),
+                        belowBarData: BarAreaData(
+                          show: true,
+                          color: const Color(0xFF0F766E).withOpacity(0.10),
+                        ),
+                      ),
+                    if (priceSpots.isNotEmpty)
+                      LineChartBarData(
+                        spots: priceSpots,
+                        isCurved: true,
+                        curveSmoothness: 0.3,
+                        color: const Color(0xFFF59E0B),
+                        barWidth: 2.2,
+                        dotData: FlDotData(show: priceSpots.length <= 20),
+                        belowBarData: BarAreaData(
+                          show: true,
+                          color: const Color(0xFFF59E0B).withOpacity(0.08),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -742,12 +1054,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   runSpacing: 6,
                   children: [
                     Text('Vehículo: ${r.vehiculoNombre}'),
+                    if (r.estacionServicio.isNotEmpty) Text('Estación: ${r.estacionServicio}'),
                     Text('KM.x.LTS: ${r.kmPorLitro?.toStringAsFixed(2) ?? "-"}'),
                     Text('LTS.x.100: ${r.litrosPor100?.toStringAsFixed(2) ?? "-"}'),
                     Text('KM.x.EUR: ${r.kmPorEuro?.toStringAsFixed(2) ?? "-"}'),
                     Text('€ x 1KM.: ${r.eurosPorKm?.toStringAsFixed(4) ?? "-"} €'),
                     Text('T.Litros: ${r.totalLitrosAcum.toStringAsFixed(2)} L'),
                     Text('Total €: ${r.totalEurosAcum.toStringAsFixed(2)} €'),
+                    Text('Media €/100: ${r.costeMedio100Acum?.toStringAsFixed(2) ?? "-"} €'),
                   ],
                 ),
                 if (r.notas.isNotEmpty) ...[
