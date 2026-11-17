@@ -202,3 +202,121 @@ class ResumenEstadisticas {
     );
   }
 }
+
+class TareaMaestro {
+  final int id;
+  final int usuarioId;
+  final String nombre;
+  final String descripcion;
+  final String tipoPeriodicidad; // 'tiempo', 'kilometros', 'ambos'
+  final int? periodoDias;
+  final double? periodoKm;
+  final bool avisarPorTiempoSiNoKm;
+
+  TareaMaestro({
+    required this.id,
+    required this.usuarioId,
+    required this.nombre,
+    required this.descripcion,
+    required this.tipoPeriodicidad,
+    this.periodoDias,
+    this.periodoKm,
+    required this.avisarPorTiempoSiNoKm,
+  });
+
+  factory TareaMaestro.fromJson(Map<String, dynamic> j) {
+    return TareaMaestro(
+      id: int.tryParse((j['id'] ?? 0).toString()) ?? 0,
+      usuarioId: int.tryParse((j['usuario_id'] ?? 0).toString()) ?? 0,
+      nombre: (j['nombre'] ?? '').toString(),
+      descripcion: (j['descripcion'] ?? '').toString(),
+      tipoPeriodicidad: (j['tipo_periodicidad'] ?? 'ambos').toString(),
+      periodoDias: j['periodo_dias'] != null ? int.tryParse(j['periodo_dias'].toString()) : null,
+      periodoKm: j['periodo_km'] != null ? double.tryParse(j['periodo_km'].toString()) : null,
+      avisarPorTiempoSiNoKm: (j['avisar_por_tiempo_si_no_km'] ?? 1).toString() != '0',
+    );
+  }
+}
+
+class VehiculoTarea {
+  final int id;
+  final int vehiculoId;
+  final int? tareaMaestroId;
+  final String vehiculoNombre;
+  final String vehiculoMatricula;
+  final String descripcion;
+  final String tipoPeriodicidad;
+  final int? periodoDias;
+  final double? periodoKm;
+  final bool avisarPorTiempoSiNoKm;
+  final String ultimaFecha;
+  final double? ultimoKm;
+  final String proximaFecha;
+  final double? proximoKm;
+  final String estado; // 'pendiente' | 'finalizada'
+  final String fechaFinalizacion;
+  final double? kmFinalizacion;
+  final double kmActual;
+  final double? kmRestantes;
+  final int? diasRestantes;
+  final bool enAlerta;
+  final bool vencida;
+  final String motivoAlerta;
+  final String notas;
+
+  VehiculoTarea({
+    required this.id,
+    required this.vehiculoId,
+    this.tareaMaestroId,
+    required this.vehiculoNombre,
+    required this.vehiculoMatricula,
+    required this.descripcion,
+    required this.tipoPeriodicidad,
+    this.periodoDias,
+    this.periodoKm,
+    required this.avisarPorTiempoSiNoKm,
+    required this.ultimaFecha,
+    this.ultimoKm,
+    required this.proximaFecha,
+    this.proximoKm,
+    required this.estado,
+    required this.fechaFinalizacion,
+    this.kmFinalizacion,
+    required this.kmActual,
+    this.kmRestantes,
+    this.diasRestantes,
+    required this.enAlerta,
+    required this.vencida,
+    required this.motivoAlerta,
+    required this.notas,
+  });
+
+  factory VehiculoTarea.fromJson(Map<String, dynamic> j) {
+    return VehiculoTarea(
+      id: int.tryParse((j['id'] ?? 0).toString()) ?? 0,
+      vehiculoId: int.tryParse((j['vehiculo_id'] ?? 0).toString()) ?? 0,
+      tareaMaestroId: j['tarea_maestro_id'] != null ? int.tryParse(j['tarea_maestro_id'].toString()) : null,
+      vehiculoNombre: (j['vehiculo_nombre'] ?? '').toString(),
+      vehiculoMatricula: (j['vehiculo_matricula'] ?? '').toString(),
+      descripcion: (j['descripcion'] ?? '').toString(),
+      tipoPeriodicidad: (j['tipo_periodicidad'] ?? 'ambos').toString(),
+      periodoDias: j['periodo_dias'] != null ? int.tryParse(j['periodo_dias'].toString()) : null,
+      periodoKm: j['periodo_km'] != null ? double.tryParse(j['periodo_km'].toString()) : null,
+      avisarPorTiempoSiNoKm: (j['avisar_por_tiempo_si_no_km'] ?? 1).toString() != '0',
+      ultimaFecha: (j['ultima_fecha'] ?? '').toString(),
+      ultimoKm: j['ultimo_km'] != null ? double.tryParse(j['ultimo_km'].toString()) : null,
+      proximaFecha: (j['proxima_fecha'] ?? '').toString(),
+      proximoKm: j['proximo_km'] != null ? double.tryParse(j['proximo_km'].toString()) : null,
+      estado: (j['estado'] ?? 'pendiente').toString(),
+      fechaFinalizacion: (j['fecha_finalizacion'] ?? '').toString(),
+      kmFinalizacion: j['km_finalizacion'] != null ? double.tryParse(j['km_finalizacion'].toString()) : null,
+      kmActual: double.tryParse((j['km_actual'] ?? 0).toString()) ?? 0.0,
+      kmRestantes: j['km_restantes'] != null ? double.tryParse(j['km_restantes'].toString()) : null,
+      diasRestantes: j['dias_restantes'] != null ? int.tryParse(j['dias_restantes'].toString()) : null,
+      enAlerta: j['en_alerta'] == true || j['en_alerta'].toString() == '1',
+      vencida: j['vencida'] == true || j['vencida'].toString() == '1',
+      motivoAlerta: (j['motivo_alerta'] ?? '').toString(),
+      notas: (j['notas'] ?? '').toString(),
+    );
+  }
+}

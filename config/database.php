@@ -177,7 +177,79 @@ function ensureAdditiveSchema(PDO $pdo) {
             // Activar marca de superusuario en las cuentas administradoras iniciales existentes
             $pdo->exec("UPDATE `users` SET `es_superusuario` = 1 WHERE `role` = 'admin'");
         }
+
+        $colEmail = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'email'")->fetch();
+        if (!$colEmail) {
+            $pdo->exec("ALTER TABLE `users` ADD COLUMN `email` VARCHAR(190) DEFAULT NULL");
+        }
     } catch (Exception $e) {
         // Ignorar si en algún entorno de prueba aún no existe la tabla users
     }
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `veh_tareas_maestro` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `usuario_id` INT NOT NULL,
+            `nombre` VARCHAR(150) NOT NULL,
+            `descripcion` TEXT NULL,
+            `tipo_periodicidad` ENUM('tiempo','kilometros','ambos') NOT NULL DEFAULT 'ambos',
+            `periodo_dias` INT NULL DEFAULT NULL,
+            `periodo_km` DECIMAL(12, 2) NULL DEFAULT NULL,
+            `avisar_por_tiempo_si_no_km` TINYINT(1) NOT NULL DEFAULT 1,
+            `activo` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX `idx_tm_activo` (`activo`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `veh_vehiculo_tareas` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `vehiculo_id` INT NOT NULL,
+            `tarea_maestro_id` INT NULL DEFAULT NULL,
+            `usuario_id` INT NOT NULL,
+            `descripcion` VARCHAR(200) NOT NULL,
+            `tipo_periodicidad` ENUM('tiempo','kilometros','ambos') NOT NULL DEFAULT 'ambos',
+            `periodo_dias` INT NULL DEFAULT NULL,
+            `periodo_km` DECIMAL(12, 2) NULL DEFAULT NULL,
+            `avisar_por_tiempo_si_no_km` TINYINT(1) NOT NULL DEFAULT 1,
+            `ultima_fecha` DATE NULL DEFAULT NULL,
+            `ultimo_km` DECIMAL(12, 2) NULL DEFAULT NULL,
+            `proxima_fecha` DATE NULL DEFAULT NULL,
+            `proximo_km` DECIMAL(12, 2) NULL DEFAULT NULL,
+            `estado` ENUM('pendiente','finalizada') NOT NULL DEFAULT 'pendiente',
+            `fecha_finalizacion` DATE NULL DEFAULT NULL,
+            `km_finalizacion` DECIMAL(12, 2) NULL DEFAULT NULL,
+            `aviso_enviado` TINYINT(1) NOT NULL DEFAULT 0,
+            `notas` TEXT NULL,
+            `activo` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX `idx_vt_vehiculo` (`vehiculo_id`, `estado`, `activo`),
+            CONSTRAINT `fk_vt_vehiculo` FOREIGN KEY (`vehiculo_id`) REFERENCES `veh_vehiculos`(`id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    // Semilla inicial aditiva de tareas comunes si el maestro está vacío
+    try {
+        $cntTm = (int)$pdo->query("SELECT COUNT(*) FROM `veh_tareas_maestro`")->fetchColumn();
+        if ($cntTm === 0) {
+            $seedTasks = array(
+                array('Cambio de aceite', 'Sustitución de aceite motor y filtro de aceite', 'ambos', 365, 15000, 1),
+                array('Cambio filtro de aire', 'Revisión o sustitución del filtro de aire del motor', 'ambos', 365, 20000, 1),
+                array('Cambio de ruedas', 'Revisión de desgaste, rotación o sustitución de neumáticos', 'kilometros', null, 40000, 1),
+                array('Revisión ITV', 'Inspección Técnica de Vehículos periódica', 'tiempo', 365, null, 1),
+                array('Seguro del vehículo', 'Renovación de póliza de seguro obligatorio', 'tiempo', 365, null, 1),
+            );
+            $stmtSeed = $pdo->prepare("
+                INSERT INTO `veh_tareas_maestro`
+                (usuario_id, nombre, descripcion, tipo_periodicidad, periodo_dias, periodo_km, avisar_por_tiempo_si_no_km, activo)
+                VALUES (1, ?, ?, ?, ?, ?, ?, 1)
+            ");
+            foreach ($seedTasks as $st) {
+                $stmtSeed->execute($st);
+            }
+        }
+    } catch (Exception $e) {}
 }

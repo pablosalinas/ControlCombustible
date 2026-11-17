@@ -23,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/src/FuelCalculator.php';
+require_once __DIR__ . '/src/FuelMailer.php';
 
 try {
     $pdo = getVehDB();
@@ -86,7 +87,7 @@ function authenticateMoratallaUser(PDO $pdo, array $jsonBody) {
             @session_start();
         }
         if (!empty($_SESSION['admin_id'])) {
-            $stmtSess = $pdo->prepare("SELECT id, username, role, acceso_sistema, es_superusuario FROM `users` WHERE id = ? LIMIT 1");
+            $stmtSess = $pdo->prepare("SELECT id, username, email, role, acceso_sistema, es_superusuario FROM `users` WHERE id = ? LIMIT 1");
             $stmtSess->execute(array((int)$_SESSION['admin_id']));
             $uSess = $stmtSess->fetch();
             if ($uSess) {
@@ -104,6 +105,7 @@ function authenticateMoratallaUser(PDO $pdo, array $jsonBody) {
                 return array(
                     'id'             => (int)$uSess['id'],
                     'username'       => $uSess['username'],
+                    'email'          => isset($uSess['email']) ? $uSess['email'] : '',
                     'role'           => $roleSess,
                     'acceso_sistema' => $esSuperSess ? 'ambos' : $accSess,
                     'is_admin'       => (bool)$esSuperSess,
@@ -119,7 +121,7 @@ function authenticateMoratallaUser(PDO $pdo, array $jsonBody) {
         exit;
     }
 
-    $stmt = $pdo->prepare("SELECT id, username, password, role, acceso_sistema, es_superusuario FROM `users` WHERE username = ? LIMIT 1");
+    $stmt = $pdo->prepare("SELECT id, username, email, password, role, acceso_sistema, es_superusuario FROM `users` WHERE username = ? LIMIT 1");
     $stmt->execute(array($username));
     $user = $stmt->fetch();
 
@@ -149,10 +151,133 @@ function authenticateMoratallaUser(PDO $pdo, array $jsonBody) {
     return array(
         'id'              => (int)$user['id'],
         'username'        => $user['username'],
+        'email'           => isset($user['email']) ? $user['email'] : '',
         'role'            => $role,
         'acceso_sistema'  => $esSuper ? 'ambos' : $accesoSistema,
         'is_admin'        => (bool)$esSuper,
     );
+}
+
+function computeNextTaskTargets($tipo, $ultimaFecha, $ultimoKm, $periodoDias, $periodoKm)
+{
+    $proximaFecha = null;
+    $proximoKm    = null;
+
+    if (($tipo === 'tiempo' || $tipo === 'ambos') && $periodoDias > 0) {
+        $baseTs = !empty($ultimaFecha) ? strtotime($ultimaFecha) : time();
+        if ($baseTs !== false) {
+            $proximaFecha = date('Y-m-d', strtotime('+' . (int)$periodoDias . ' days', $baseTs));
+        }
+    }
+    if (($tipo === 'kilometros' || $tipo === 'ambos') && $periodoKm > 0) {
+        $baseKm = ($ultimoKm !== null && $ultimoKm !== '') ? (float)$ultimoKm : 0.0;
+        $proximoKm = round($baseKm + (float)$periodoKm, 2);
+    }
+
+    return array($proximaFecha, $proximoKm);
+}
+
+function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $estadoFilter = 'todas')
+{
+    $sql = "
+        SELECT vt.*, v.nombre AS vehiculo_nombre, v.matricula AS vehiculo_matricula,
+               COALESCE((SELECT MAX(r.km_odometro) FROM `veh_repostajes` r WHERE r.vehiculo_id = vt.vehiculo_id AND r.activo = 1), v.km_iniciales, 0) AS km_actual
+        FROM `veh_vehiculo_tareas` vt
+        INNER JOIN `veh_vehiculos` v ON v.id = vt.vehiculo_id AND v.activo = 1
+        WHERE vt.activo = 1
+    ";
+    $params = array();
+    if (!$isAdmin) {
+        $sql .= " AND v.usuario_id = ?";
+        $params[] = $userId;
+    }
+    if ($vehiculoId > 0) {
+        $sql .= " AND vt.vehiculo_id = ?";
+        $params[] = $vehiculoId;
+    }
+    if ($estadoFilter === 'pendiente' || $estadoFilter === 'finalizada') {
+        $sql .= " AND vt.estado = ?";
+        $params[] = $estadoFilter;
+    } elseif ($estadoFilter === 'proximas') {
+        $sql .= " AND vt.estado = 'pendiente'";
+    }
+    $sql .= " ORDER BY vt.estado ASC, COALESCE(vt.proxima_fecha, '9999-12-31') ASC, COALESCE(vt.proximo_km, 999999999) ASC, vt.id DESC";
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll();
+
+    $todayTs = strtotime(date('Y-m-d'));
+    $result = array();
+    foreach ($rows as $row) {
+        $kmActual = (float)$row['km_actual'];
+        $proximoKm = ($row['proximo_km'] !== null && $row['proximo_km'] !== '') ? (float)$row['proximo_km'] : null;
+        $proximaFecha = !empty($row['proxima_fecha']) ? $row['proxima_fecha'] : null;
+
+        $kmRestantes = ($proximoKm !== null) ? round($proximoKm - $kmActual, 2) : null;
+        $diasRestantes = ($proximaFecha !== null) ? (int)round((strtotime($proximaFecha) - $todayTs) / 86400) : null;
+
+        $tipo = $row['tipo_periodicidad'];
+        $avisarTiempoSinKm = !empty($row['avisar_por_tiempo_si_no_km']);
+        $enAlerta = false;
+        $vencida = false;
+        $motivos = array();
+
+        if ($row['estado'] === 'pendiente') {
+            $alertaKm = ($kmRestantes !== null && $kmRestantes <= 1000);
+            $vencidaKm = ($kmRestantes !== null && $kmRestantes <= 0);
+            $alertaTiempo = ($diasRestantes !== null && $diasRestantes <= 15);
+            $vencidaTiempo = ($diasRestantes !== null && $diasRestantes <= 0);
+
+            if ($tipo === 'kilometros') {
+                if ($alertaKm) {
+                    $enAlerta = true;
+                    $vencida = $vencidaKm;
+                    $motivos[] = $vencidaKm
+                        ? ('Vencida por km (' . number_format(abs($kmRestantes), 0, ',', '.') . ' km excedidos)')
+                        : ('Faltan ' . number_format($kmRestantes, 0, ',', '.') . ' km');
+                }
+            } elseif ($tipo === 'tiempo') {
+                if ($alertaTiempo) {
+                    $enAlerta = true;
+                    $vencida = $vencidaTiempo;
+                    $motivos[] = $vencidaTiempo
+                        ? ('Vencida por tiempo (' . abs($diasRestantes) . ' días)')
+                        : ('Faltan ' . $diasRestantes . ' días');
+                }
+            } else {
+                // 'ambos'
+                if ($alertaKm) {
+                    $enAlerta = true;
+                    if ($vencidaKm) $vencida = true;
+                    $motivos[] = $vencidaKm
+                        ? ('Vencida por km (' . number_format(abs($kmRestantes), 0, ',', '.') . ' km excedidos)')
+                        : ('Faltan ' . number_format($kmRestantes, 0, ',', '.') . ' km');
+                }
+                if ($alertaTiempo && ($avisarTiempoSinKm || $alertaKm)) {
+                    $enAlerta = true;
+                    if ($vencidaTiempo) $vencida = true;
+                    $suffix = (!$alertaKm && $avisarTiempoSinKm) ? ' (aviso por tiempo sin llegar al km)' : '';
+                    $motivos[] = $vencidaTiempo
+                        ? ('Vencida por tiempo (' . abs($diasRestantes) . ' días)' . $suffix)
+                        : ('Faltan ' . $diasRestantes . ' días' . $suffix);
+                }
+            }
+        }
+
+        if ($estadoFilter === 'proximas' && !$enAlerta) {
+            continue;
+        }
+
+        $row['km_actual']      = $kmActual;
+        $row['km_restantes']   = $kmRestantes;
+        $row['dias_restantes'] = $diasRestantes;
+        $row['en_alerta']      = $enAlerta;
+        $row['vencida']        = $vencida;
+        $row['motivo_alerta']  = implode(' · ', $motivos);
+        $result[] = $row;
+    }
+    return $result;
 }
 
 $user    = authenticateMoratallaUser($pdo, $jsonBody);
@@ -381,11 +506,22 @@ try {
                 $ultimoKmPorVehiculo[(int)$lk['vehiculo_id']] = (float)$lk['ultimo_km'];
             }
 
+            $tareasMaestro = $pdo->query("
+                SELECT id, usuario_id, nombre, descripcion, tipo_periodicidad, periodo_dias, periodo_km, avisar_por_tiempo_si_no_km
+                FROM `veh_tareas_maestro`
+                WHERE activo = 1
+                ORDER BY nombre ASC
+            ")->fetchAll();
+
+            $vehiculoTareas = getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId, 'todas');
+
             echo json_encode(array(
                 'success'                  => true,
                 'user'                     => $user,
                 'vehiculos'                => $vehiculos,
                 'estaciones'               => $estaciones,
+                'tareas_maestro'           => $tareasMaestro,
+                'vehiculo_tareas'          => $vehiculoTareas,
                 'ultimo_km_por_vehiculo'   => $ultimoKmPorVehiculo,
                 'vehiculo_seleccionado'    => $vehiculoId,
                 'resumen'                  => $resumen,
@@ -424,10 +560,10 @@ try {
             }
 
             if ($isAdmin) {
-                $stmtCheck = $pdo->prepare("SELECT id, usuario_id FROM `veh_vehiculos` WHERE id = ? AND activo = 1");
+                $stmtCheck = $pdo->prepare("SELECT id, usuario_id, nombre FROM `veh_vehiculos` WHERE id = ? AND activo = 1");
                 $stmtCheck->execute(array($vehiculoId));
             } else {
-                $stmtCheck = $pdo->prepare("SELECT id, usuario_id FROM `veh_vehiculos` WHERE id = ? AND usuario_id = ? AND activo = 1");
+                $stmtCheck = $pdo->prepare("SELECT id, usuario_id, nombre FROM `veh_vehiculos` WHERE id = ? AND usuario_id = ? AND activo = 1");
                 $stmtCheck->execute(array($vehiculoId, $userId));
             }
             $vehRow = $stmtCheck->fetch();
@@ -465,10 +601,41 @@ try {
                 $savedId = (int)$pdo->lastInsertId();
             }
 
+            $emailSent = false;
+            $emailError = null;
+            $alertTasks = array();
+            if ($id === 0) {
+                // Al registrar un nuevo repostaje, comprobar tareas en alerta (<1000 km o <=15 días) y enviar correo
+                try {
+                    $allProximas = getVehiculoTareasEnriched($pdo, $userId, $isAdmin, 0, 'proximas');
+                    $alertTasks = $allProximas;
+                    $repMailData = array(
+                        'fecha'             => $fecha,
+                        'km_odometro'       => $kmOdometro,
+                        'litros'            => $litros,
+                        'precio_litro'      => $precioLitro,
+                        'importe_total'     => $importeTotal,
+                        'estacion_servicio' => $estacionServicio,
+                    );
+                    $emailSent = FuelMailer::sendRefuelNotification($pdo, $user, $vehRow['nombre'], $repMailData, $alertTasks, $emailError);
+                    if ($emailSent && !empty($alertTasks)) {
+                        $stmtMark = $pdo->prepare("UPDATE `veh_vehiculo_tareas` SET aviso_enviado = 1 WHERE id = ?");
+                        foreach ($alertTasks as $at) {
+                            $stmtMark->execute(array((int)$at['id']));
+                        }
+                    }
+                } catch (Exception $mailEx) {
+                    $emailError = $mailEx->getMessage();
+                }
+            }
+
             echo json_encode(array(
-                'success'      => true,
-                'message'      => $id > 0 ? 'Repostaje actualizado correctamente.' : 'Repostaje registrado correctamente.',
-                'repostaje_id' => $savedId,
+                'success'       => true,
+                'message'       => $id > 0 ? 'Repostaje actualizado correctamente.' : 'Repostaje registrado correctamente.',
+                'repostaje_id'  => $savedId,
+                'email_sent'    => $emailSent,
+                'email_error'   => $emailError,
+                'alertas_count' => count($alertTasks),
             ));
             break;
 
@@ -782,6 +949,306 @@ try {
                 'insertados'  => $inserted,
                 'omitidos'    => $skipped,
                 'ignorados'   => $invalid,
+            ));
+            break;
+
+        case 'list_tareas_maestro':
+            $rows = $pdo->query("
+                SELECT id, usuario_id, nombre, descripcion, tipo_periodicidad, periodo_dias, periodo_km, avisar_por_tiempo_si_no_km
+                FROM `veh_tareas_maestro`
+                WHERE activo = 1
+                ORDER BY nombre ASC
+            ")->fetchAll();
+            echo json_encode(array('success' => true, 'tareas_maestro' => $rows));
+            break;
+
+        case 'save_tarea_maestro':
+            $id          = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            $nombre      = trim((string)arr_get($jsonBody, 'nombre', isset($_POST['nombre']) ? $_POST['nombre'] : ''));
+            $descripcion = trim((string)arr_get($jsonBody, 'descripcion', isset($_POST['descripcion']) ? $_POST['descripcion'] : ''));
+            $tipo        = trim((string)arr_get($jsonBody, 'tipo_periodicidad', isset($_POST['tipo_periodicidad']) ? $_POST['tipo_periodicidad'] : 'ambos'));
+            if (!in_array($tipo, array('tiempo', 'kilometros', 'ambos'), true)) {
+                $tipo = 'ambos';
+            }
+            $rawDias = arr_get($jsonBody, 'periodo_dias', isset($_POST['periodo_dias']) ? $_POST['periodo_dias'] : '');
+            $rawKm   = arr_get($jsonBody, 'periodo_km', isset($_POST['periodo_km']) ? $_POST['periodo_km'] : '');
+            $periodoDias = ($rawDias !== '' && $rawDias !== null && (int)$rawDias > 0) ? (int)$rawDias : null;
+            $periodoKm   = ($rawKm !== '' && $rawKm !== null && (float)str_replace(',', '.', (string)$rawKm) > 0)
+                ? round((float)str_replace(',', '.', (string)$rawKm), 2)
+                : null;
+            $avisarTiempo = (int)arr_get($jsonBody, 'avisar_por_tiempo_si_no_km', isset($_POST['avisar_por_tiempo_si_no_km']) ? $_POST['avisar_por_tiempo_si_no_km'] : 1) ? 1 : 0;
+
+            if ($nombre === '') {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'El nombre de la tarea es obligatorio.'));
+                exit;
+            }
+
+            if ($id > 0) {
+                $stmt = $pdo->prepare("
+                    UPDATE `veh_tareas_maestro`
+                    SET nombre = ?, descripcion = ?, tipo_periodicidad = ?, periodo_dias = ?, periodo_km = ?, avisar_por_tiempo_si_no_km = ?
+                    WHERE id = ? AND activo = 1
+                ");
+                $stmt->execute(array($nombre, $descripcion !== '' ? $descripcion : null, $tipo, $periodoDias, $periodoKm, $avisarTiempo, $id));
+                $savedId = $id;
+            } else {
+                $stmt = $pdo->prepare("
+                    INSERT INTO `veh_tareas_maestro`
+                    (usuario_id, nombre, descripcion, tipo_periodicidad, periodo_dias, periodo_km, avisar_por_tiempo_si_no_km, activo)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                ");
+                $stmt->execute(array($userId, $nombre, $descripcion !== '' ? $descripcion : null, $tipo, $periodoDias, $periodoKm, $avisarTiempo));
+                $savedId = (int)$pdo->lastInsertId();
+            }
+
+            echo json_encode(array(
+                'success' => true,
+                'message' => $id > 0 ? 'Tarea maestra actualizada.' : 'Tarea maestra creada.',
+                'id'      => $savedId,
+            ));
+            break;
+
+        case 'deactivate_tarea_maestro':
+            $id = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            if ($id <= 0) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'ID inválido.'));
+                exit;
+            }
+            $stmt = $pdo->prepare("UPDATE `veh_tareas_maestro` SET activo = 0 WHERE id = ?");
+            $stmt->execute(array($id));
+            echo json_encode(array('success' => true, 'message' => 'Tarea maestra dada de baja.'));
+            break;
+
+        case 'list_vehiculo_tareas':
+            $vehiculoId   = (int)arr_get($jsonBody, 'vehiculo_id', isset($_GET['vehiculo_id']) ? $_GET['vehiculo_id'] : 0);
+            $estadoFilter = trim((string)arr_get($jsonBody, 'estado', isset($_GET['estado']) ? $_GET['estado'] : 'todas'));
+            $list = getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId, $estadoFilter);
+            echo json_encode(array('success' => true, 'vehiculo_tareas' => $list));
+            break;
+
+        case 'save_vehiculo_tarea':
+            $id             = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            $vehiculoId     = (int)arr_get($jsonBody, 'vehiculo_id', isset($_POST['vehiculo_id']) ? $_POST['vehiculo_id'] : 0);
+            $tareaMaestroId = (int)arr_get($jsonBody, 'tarea_maestro_id', isset($_POST['tarea_maestro_id']) ? $_POST['tarea_maestro_id'] : 0);
+            $descripcion    = trim((string)arr_get($jsonBody, 'descripcion', isset($_POST['descripcion']) ? $_POST['descripcion'] : ''));
+            $tipo           = trim((string)arr_get($jsonBody, 'tipo_periodicidad', isset($_POST['tipo_periodicidad']) ? $_POST['tipo_periodicidad'] : 'ambos'));
+            if (!in_array($tipo, array('tiempo', 'kilometros', 'ambos'), true)) {
+                $tipo = 'ambos';
+            }
+            $rawDias = arr_get($jsonBody, 'periodo_dias', isset($_POST['periodo_dias']) ? $_POST['periodo_dias'] : '');
+            $rawKm   = arr_get($jsonBody, 'periodo_km', isset($_POST['periodo_km']) ? $_POST['periodo_km'] : '');
+            $periodoDias = ($rawDias !== '' && $rawDias !== null && (int)$rawDias > 0) ? (int)$rawDias : null;
+            $periodoKm   = ($rawKm !== '' && $rawKm !== null && (float)str_replace(',', '.', (string)$rawKm) > 0)
+                ? round((float)str_replace(',', '.', (string)$rawKm), 2)
+                : null;
+            $avisarTiempo = (int)arr_get($jsonBody, 'avisar_por_tiempo_si_no_km', isset($_POST['avisar_por_tiempo_si_no_km']) ? $_POST['avisar_por_tiempo_si_no_km'] : 1) ? 1 : 0;
+            $ultimaFecha  = trim((string)arr_get($jsonBody, 'ultima_fecha', isset($_POST['ultima_fecha']) ? $_POST['ultima_fecha'] : date('Y-m-d')));
+            $rawUltKm     = arr_get($jsonBody, 'ultimo_km', isset($_POST['ultimo_km']) ? $_POST['ultimo_km'] : '');
+            $ultimoKm     = ($rawUltKm !== '' && $rawUltKm !== null) ? round((float)str_replace(',', '.', (string)$rawUltKm), 2) : null;
+            $notas        = trim((string)arr_get($jsonBody, 'notas', isset($_POST['notas']) ? $_POST['notas'] : ''));
+
+            if ($vehiculoId <= 0 || $descripcion === '') {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'Vehículo y descripción de la tarea son obligatorios.'));
+                exit;
+            }
+
+            if ($isAdmin) {
+                $stmtV = $pdo->prepare("SELECT id, usuario_id FROM `veh_vehiculos` WHERE id = ? AND activo = 1");
+                $stmtV->execute(array($vehiculoId));
+            } else {
+                $stmtV = $pdo->prepare("SELECT id, usuario_id FROM `veh_vehiculos` WHERE id = ? AND usuario_id = ? AND activo = 1");
+                $stmtV->execute(array($vehiculoId, $userId));
+            }
+            $vehRow = $stmtV->fetch();
+            if (!$vehRow) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Vehículo no válido o sin permisos.'));
+                exit;
+            }
+
+            list($proximaFecha, $proximoKm) = computeNextTaskTargets($tipo, $ultimaFecha, $ultimoKm, $periodoDias, $periodoKm);
+            $ownerUserId = (int)$vehRow['usuario_id'];
+
+            if ($id > 0) {
+                $stmt = $pdo->prepare("
+                    UPDATE `veh_vehiculo_tareas`
+                    SET vehiculo_id = ?, tarea_maestro_id = ?, descripcion = ?, tipo_periodicidad = ?, periodo_dias = ?, periodo_km = ?,
+                        avisar_por_tiempo_si_no_km = ?, ultima_fecha = ?, ultimo_km = ?, proxima_fecha = ?, proximo_km = ?, notas = ?, aviso_enviado = 0
+                    WHERE id = ? AND activo = 1
+                ");
+                $stmt->execute(array(
+                    $vehiculoId, $tareaMaestroId > 0 ? $tareaMaestroId : null, $descripcion, $tipo, $periodoDias, $periodoKm,
+                    $avisarTiempo, $ultimaFecha !== '' ? $ultimaFecha : null, $ultimoKm, $proximaFecha, $proximoKm,
+                    $notas !== '' ? $notas : null, $id
+                ));
+                $savedId = $id;
+            } else {
+                $stmt = $pdo->prepare("
+                    INSERT INTO `veh_vehiculo_tareas`
+                    (vehiculo_id, tarea_maestro_id, usuario_id, descripcion, tipo_periodicidad, periodo_dias, periodo_km,
+                     avisar_por_tiempo_si_no_km, ultima_fecha, ultimo_km, proxima_fecha, proximo_km, estado, notas, activo)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', ?, 1)
+                ");
+                $stmt->execute(array(
+                    $vehiculoId, $tareaMaestroId > 0 ? $tareaMaestroId : null, $ownerUserId, $descripcion, $tipo, $periodoDias, $periodoKm,
+                    $avisarTiempo, $ultimaFecha !== '' ? $ultimaFecha : null, $ultimoKm, $proximaFecha, $proximoKm,
+                    $notas !== '' ? $notas : null
+                ));
+                $savedId = (int)$pdo->lastInsertId();
+            }
+
+            echo json_encode(array(
+                'success' => true,
+                'message' => $id > 0 ? 'Tarea de vehículo actualizada.' : 'Tarea asignada al vehículo.',
+                'id'      => $savedId,
+            ));
+            break;
+
+        case 'complete_vehiculo_tarea':
+            $id           = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            $fechaFin     = trim((string)arr_get($jsonBody, 'fecha_finalizacion', isset($_POST['fecha_finalizacion']) ? $_POST['fecha_finalizacion'] : date('Y-m-d')));
+            $rawKmFin     = arr_get($jsonBody, 'km_finalizacion', isset($_POST['km_finalizacion']) ? $_POST['km_finalizacion'] : '');
+            $kmFin        = ($rawKmFin !== '' && $rawKmFin !== null) ? round((float)str_replace(',', '.', (string)$rawKmFin), 2) : null;
+            $notasFin     = trim((string)arr_get($jsonBody, 'notas', isset($_POST['notas']) ? $_POST['notas'] : ''));
+            $crearSig     = (int)arr_get($jsonBody, 'crear_siguiente', isset($_POST['crear_siguiente']) ? $_POST['crear_siguiente'] : 1);
+
+            if ($id <= 0) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'ID de tarea inválido.'));
+                exit;
+            }
+
+            $stmtGet = $pdo->prepare("
+                SELECT vt.*, v.usuario_id AS veh_owner
+                FROM `veh_vehiculo_tareas` vt
+                INNER JOIN `veh_vehiculos` v ON v.id = vt.vehiculo_id
+                WHERE vt.id = ? AND vt.activo = 1
+            ");
+            $stmtGet->execute(array($id));
+            $task = $stmtGet->fetch();
+            if (!$task || (!$isAdmin && (int)$task['veh_owner'] !== $userId)) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Tarea no encontrada o sin permisos.'));
+                exit;
+            }
+
+            $stmtUpd = $pdo->prepare("
+                UPDATE `veh_vehiculo_tareas`
+                SET estado = 'finalizada', fecha_finalizacion = ?, km_finalizacion = ?,
+                    notas = COALESCE(NULLIF(?, ''), notas)
+                WHERE id = ?
+            ");
+            $stmtUpd->execute(array($fechaFin, $kmFin, $notasFin, $id));
+
+            $nextCreated = false;
+            if ($crearSig && (($task['periodo_dias'] !== null && (int)$task['periodo_dias'] > 0) || ($task['periodo_km'] !== null && (float)$task['periodo_km'] > 0))) {
+                list($nextFecha, $nextKm) = computeNextTaskTargets(
+                    $task['tipo_periodicidad'],
+                    $fechaFin,
+                    $kmFin,
+                    $task['periodo_dias'],
+                    $task['periodo_km']
+                );
+                $stmtIns = $pdo->prepare("
+                    INSERT INTO `veh_vehiculo_tareas`
+                    (vehiculo_id, tarea_maestro_id, usuario_id, descripcion, tipo_periodicidad, periodo_dias, periodo_km,
+                     avisar_por_tiempo_si_no_km, ultima_fecha, ultimo_km, proxima_fecha, proximo_km, estado, notas, activo)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', ?, 1)
+                ");
+                $stmtIns->execute(array(
+                    (int)$task['vehiculo_id'],
+                    $task['tarea_maestro_id'] ? (int)$task['tarea_maestro_id'] : null,
+                    (int)$task['usuario_id'],
+                    $task['descripcion'],
+                    $task['tipo_periodicidad'],
+                    $task['periodo_dias'],
+                    $task['periodo_km'],
+                    (int)$task['avisar_por_tiempo_si_no_km'],
+                    $fechaFin,
+                    $kmFin,
+                    $nextFecha,
+                    $nextKm,
+                    $task['notas']
+                ));
+                $nextCreated = true;
+            }
+
+            echo json_encode(array(
+                'success'      => true,
+                'message'      => $nextCreated ? 'Tarea finalizada y programada la siguiente repetición.' : 'Tarea marcada como finalizada.',
+                'next_created' => $nextCreated,
+            ));
+            break;
+
+        case 'deactivate_vehiculo_tarea':
+            $id = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            if ($id <= 0) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'ID inválido.'));
+                exit;
+            }
+            if ($isAdmin) {
+                $stmt = $pdo->prepare("UPDATE `veh_vehiculo_tareas` SET activo = 0 WHERE id = ?");
+                $stmt->execute(array($id));
+            } else {
+                $stmt = $pdo->prepare("
+                    UPDATE `veh_vehiculo_tareas` vt
+                    INNER JOIN `veh_vehiculos` v ON v.id = vt.vehiculo_id
+                    SET vt.activo = 0
+                    WHERE vt.id = ? AND v.usuario_id = ?
+                ");
+                $stmt->execute(array($id, $userId));
+            }
+            echo json_encode(array('success' => true, 'message' => 'Tarea dada de baja.'));
+            break;
+
+        case 'send_task_alerts_email':
+            $vehiculoId = (int)arr_get($jsonBody, 'vehiculo_id', isset($_POST['vehiculo_id']) ? $_POST['vehiculo_id'] : 0);
+            $alertTasks = getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId, 'proximas');
+            if (empty($alertTasks)) {
+                echo json_encode(array(
+                    'success'       => true,
+                    'email_sent'    => false,
+                    'alertas_count' => 0,
+                    'message'       => 'No hay tareas pendientes a menos de 1.000 km o 15 días.',
+                ));
+                break;
+            }
+            $mailErr = null;
+            $sent = FuelMailer::sendTaskAlertsEmail($pdo, $user, $alertTasks, $mailErr);
+            if ($sent) {
+                $stmtMark = $pdo->prepare("UPDATE `veh_vehiculo_tareas` SET aviso_enviado = 1 WHERE id = ?");
+                foreach ($alertTasks as $at) {
+                    $stmtMark->execute(array((int)$at['id']));
+                }
+            }
+            echo json_encode(array(
+                'success'       => $sent,
+                'email_sent'    => $sent,
+                'alertas_count' => count($alertTasks),
+                'message'       => $sent
+                    ? ('Correo enviado con ' . count($alertTasks) . ' aviso(s) de mantenimiento.')
+                    : ('No se pudo enviar el correo: ' . ($mailErr ? $mailErr : 'Error desconocido')),
+                'error'         => $sent ? null : $mailErr,
+            ));
+            break;
+
+        case 'update_user_email':
+            $newEmail = trim((string)arr_get($jsonBody, 'email', isset($_POST['email']) ? $_POST['email'] : ''));
+            if ($newEmail !== '' && !filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'El correo electrónico no es válido.'));
+                exit;
+            }
+            $stmtUpdEmail = $pdo->prepare("UPDATE `users` SET email = ? WHERE id = ?");
+            $stmtUpdEmail->execute(array($newEmail !== '' ? $newEmail : null, $userId));
+            echo json_encode(array(
+                'success' => true,
+                'email'   => $newEmail,
+                'message' => 'Correo electrónico actualizado correctamente.',
             ));
             break;
 

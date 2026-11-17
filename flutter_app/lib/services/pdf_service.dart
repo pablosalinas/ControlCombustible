@@ -153,6 +153,74 @@ class PdfReportService {
     );
   }
 
+  static Future<void> generateAndShareTareasPdf({
+    required String scopeTitle,
+    required String filterLabel,
+    required List<VehiculoTarea> tareas,
+  }) async {
+    final fontData = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
+    final roboto = pw.Font.ttf(fontData);
+    final doc = pw.Document(
+      theme: pw.ThemeData.withFont(base: roboto, bold: roboto, italic: roboto, boldItalic: roboto),
+    );
+    final esInt = NumberFormat('#,##0', 'es_ES');
+
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(20),
+        header: (ctx) => pw.Container(
+          margin: const pw.EdgeInsets.only(bottom: 10),
+          padding: const pw.EdgeInsets.all(10),
+          decoration: pw.BoxDecoration(
+            color: PdfColors.teal700,
+            borderRadius: pw.BorderRadius.circular(6),
+          ),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'INFORME DE MANTENIMIENTO Y TAREAS PERIÓDICAS',
+                style: pw.TextStyle(color: PdfColors.white, fontSize: 13, fontWeight: pw.FontWeight.bold),
+              ),
+              pw.SizedBox(height: 3),
+              pw.Text(
+                'Ámbito: $scopeTitle · Filtro: $filterLabel · ${tareas.length} tareas',
+                style: const pw.TextStyle(color: PdfColors.white, fontSize: 8.5),
+              ),
+            ],
+          ),
+        ),
+        build: (ctx) => [
+          pw.TableHelper.fromTextArray(
+            headers: ['Vehículo', 'Tarea / Control', 'Próx. Fecha', 'Próx. Km', 'Estado / Margen'],
+            data: tareas.map((t) {
+              final estadoTxt = t.estado == 'finalizada'
+                  ? 'Finalizada (${t.fechaFinalizacion})'
+                  : (t.enAlerta ? 'AVISO: ${t.motivoAlerta}' : 'En plazo');
+              return [
+                t.vehiculoNombre,
+                t.descripcion,
+                t.proximaFecha.isNotEmpty ? t.proximaFecha : '-',
+                t.proximoKm != null ? '${esInt.format(t.proximoKm)} km' : '-',
+                estadoTxt,
+              ];
+            }).toList(),
+            headerStyle: pw.TextStyle(color: PdfColors.white, fontSize: 8, fontWeight: pw.FontWeight.bold),
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey900),
+            cellStyle: const pw.TextStyle(fontSize: 7.8),
+            cellPadding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+          ),
+        ],
+      ),
+    );
+
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => doc.save(),
+      name: 'Informe_Tareas_${DateTime.now().toIso8601String().substring(0, 10)}.pdf',
+    );
+  }
+
   static pw.Widget _kpiBox(String label, String value) {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,

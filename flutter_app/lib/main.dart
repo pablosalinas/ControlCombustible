@@ -300,9 +300,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _selectedVehiculoId = 0; // 0 = Todos (Resultado conjunto)
   List<Vehiculo> _vehiculos = [];
   List<EstacionServicio> _estaciones = [];
+  List<TareaMaestro> _tareasMaestro = [];
+  List<VehiculoTarea> _vehiculoTareas = [];
   Map<int, double> _ultimoKmPorVehiculo = {};
   List<Repostaje> _repostajes = [];
   ResumenEstadisticas? _resumen;
+  String _userEmail = '';
   bool _loading = true;
   String _searchQuery = '';
   String _fechaDesde = '';
@@ -329,6 +332,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final estList = (res['estaciones'] as List? ?? [])
             .map((e) => EstacionServicio.fromJson(e as Map<String, dynamic>))
             .toList();
+        final tmList = (res['tareas_maestro'] as List? ?? [])
+            .map((e) => TareaMaestro.fromJson(e as Map<String, dynamic>))
+            .toList();
+        final vtList = (res['vehiculo_tareas'] as List? ?? [])
+            .map((e) => VehiculoTarea.fromJson(e as Map<String, dynamic>))
+            .toList();
+        final userMap = res['user'] as Map<String, dynamic>? ?? {};
         final rList = (res['repostajes'] as List? ?? [])
             .map((e) => Repostaje.fromJson(e as Map<String, dynamic>))
             .toList();
@@ -345,6 +355,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           setState(() {
             _vehiculos = vList;
             _estaciones = estList;
+            _tareasMaestro = tmList;
+            _vehiculoTareas = vtList;
+            _userEmail = (userMap['email'] ?? '').toString();
             _ultimoKmPorVehiculo = parsedLastKm;
             _repostajes = rList;
             _resumen = ResumenEstadisticas.fromJson(sumMap);
@@ -376,6 +389,65 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
       });
       _loadData();
+    }
+  }
+
+  Future<void> _openTareasScreen() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TareasScreen(
+          api: widget.api,
+          vehiculos: _vehiculos,
+          tareasMaestro: _tareasMaestro,
+          vehiculoTareas: _vehiculoTareas,
+          ultimoKmPorVehiculo: _ultimoKmPorVehiculo,
+          initialVehiculoId: _selectedVehiculoId,
+        ),
+      ),
+    );
+    _loadData();
+  }
+
+  Future<void> _showUserEmailDialog() async {
+    final ctrl = TextEditingController(text: _userEmail);
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Correo para Avisos'),
+        content: TextField(
+          controller: ctrl,
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(
+            labelText: 'Correo electrónico',
+            hintText: 'usuario@ejemplo.com',
+            border: OutlineInputBorder(),
+            helperText: 'Se enviarán avisos de repostaje y tareas (<1000 km o ≤15 días).',
+            helperMaxLines: 2,
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Guardar')),
+        ],
+      ),
+    );
+    if (saved == true) {
+      final res = await widget.api.post('update_user_email', {'email': ctrl.text.trim()});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Actualizado').toString())),
+        );
+        if (res['success'] == true) _loadData();
+      }
+    }
+  }
+
+  Future<void> _sendTaskAlertsEmail() async {
+    final res = await widget.api.post('send_task_alerts_email', {'vehiculo_id': _selectedVehiculoId});
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Operación completada').toString())),
+      );
     }
   }
 
@@ -603,6 +675,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
         actions: [
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              IconButton(
+                tooltip: 'Mantenimiento y Tareas',
+                icon: const Icon(Icons.build_circle_outlined),
+                onPressed: _openTareasScreen,
+              ),
+              if (_vehiculoTareas.any((t) => t.enAlerta))
+                Positioned(
+                  right: 6,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                    child: Text(
+                      '${_vehiculoTareas.where((t) => t.enAlerta).length}',
+                      style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          IconButton(
+            tooltip: 'Correo de Avisos',
+            icon: const Icon(Icons.email_outlined),
+            onPressed: _showUserEmailDialog,
+          ),
           IconButton(
             tooltip: 'Estaciones de Servicio',
             icon: const Icon(Icons.storefront),
@@ -727,6 +827,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
+                  if (_vehiculoTareas.any((t) => t.enAlerta)) ...[
+                    Card(
+                      color: Colors.amber.shade50,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(color: Colors.amber.shade400),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.warning_amber_rounded, color: Color(0xFFD97706)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '${_vehiculoTareas.where((t) => t.enAlerta).length} tarea(s) de mantenimiento próxima(s) o vencida(s) (<1000 km / ≤15 días)',
+                                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF92400E)),
+                              ),
+                            ),
+                            TextButton(onPressed: _openTareasScreen, child: const Text('Ver')),
+                            IconButton(
+                              tooltip: 'Enviar aviso por correo',
+                              icon: const Icon(Icons.send, size: 18, color: Color(0xFFB45309)),
+                              onPressed: _sendTaskAlertsEmail,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   if (_resumen != null) _buildKpiGrid(_resumen!),
                   const SizedBox(height: 10),
                   if (_repostajes.isNotEmpty) ...[
@@ -1227,6 +1358,13 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
         'notas': _notasCtrl.text.trim(),
       });
       if (res['success'] == true && mounted) {
+        if (res['email_sent'] == true) {
+          final alertsCnt = int.tryParse((res['alertas_count'] ?? 0).toString()) ?? 0;
+          final msg = alertsCnt > 0
+              ? 'Repostaje guardado y correo enviado (incluye $alertsCnt aviso(s) de mantenimiento).'
+              : 'Repostaje guardado y correo enviado.';
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        }
         Navigator.of(context).pop(true);
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1601,6 +1739,721 @@ class _EstacionesScreenState extends State<EstacionesScreen> {
             icon: const Icon(Icons.save),
             label: const Text('Guardar Estación'),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class TareasScreen extends StatefulWidget {
+  final ApiService api;
+  final List<Vehiculo> vehiculos;
+  final List<TareaMaestro> tareasMaestro;
+  final List<VehiculoTarea> vehiculoTareas;
+  final Map<int, double> ultimoKmPorVehiculo;
+  final int initialVehiculoId;
+
+  const TareasScreen({
+    super.key,
+    required this.api,
+    required this.vehiculos,
+    required this.tareasMaestro,
+    required this.vehiculoTareas,
+    required this.ultimoKmPorVehiculo,
+    required this.initialVehiculoId,
+  });
+
+  @override
+  State<TareasScreen> createState() => _TareasScreenState();
+}
+
+class _TareasScreenState extends State<TareasScreen> {
+  late int _vehiculoId;
+  String _estadoFilter = 'todas'; // 'todas', 'pendiente', 'proximas', 'finalizada'
+  String _search = '';
+  late List<TareaMaestro> _maestro;
+  late List<VehiculoTarea> _tareas;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _vehiculoId = widget.initialVehiculoId;
+    _maestro = widget.tareasMaestro;
+    _tareas = widget.vehiculoTareas;
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    setState(() => _loading = true);
+    try {
+      final res = await widget.api.post('dashboard', {'vehiculo_id': _vehiculoId});
+      if (res['success'] == true && mounted) {
+        setState(() {
+          _maestro = (res['tareas_maestro'] as List? ?? [])
+              .map((e) => TareaMaestro.fromJson(e as Map<String, dynamic>))
+              .toList();
+          _tareas = (res['vehiculo_tareas'] as List? ?? [])
+              .map((e) => VehiculoTarea.fromJson(e as Map<String, dynamic>))
+              .toList();
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  List<VehiculoTarea> get _filtered {
+    return _tareas.where((t) {
+      if (_vehiculoId > 0 && t.vehiculoId != _vehiculoId) return false;
+      if (_estadoFilter == 'pendiente' && t.estado != 'pendiente') return false;
+      if (_estadoFilter == 'finalizada' && t.estado != 'finalizada') return false;
+      if (_estadoFilter == 'proximas' && !(t.estado == 'pendiente' && t.enAlerta)) return false;
+      if (_search.isNotEmpty) {
+        final q = _search.toLowerCase();
+        final txt = '${t.vehiculoNombre} ${t.descripcion} ${t.notas} ${t.motivoAlerta}'.toLowerCase();
+        if (!txt.contains(q)) return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  Future<void> _completeTask(VehiculoTarea t) async {
+    final fechaCtrl = TextEditingController(text: DateTime.now().toIso8601String().substring(0, 10));
+    final kmCtrl = TextEditingController(text: t.kmActual > 0 ? t.kmActual.toStringAsFixed(0) : '');
+    final notasCtrl = TextEditingController();
+    bool crearSiguiente = true;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          title: const Text('Finalizar Tarea'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${t.vehiculoNombre}: ${t.descripcion}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: fechaCtrl,
+                  decoration: const InputDecoration(labelText: 'Fecha de realización (YYYY-MM-DD)', border: OutlineInputBorder(), isDense: true),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: kmCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Km al realizarla', border: OutlineInputBorder(), isDense: true),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: notasCtrl,
+                  decoration: const InputDecoration(labelText: 'Notas (taller, observaciones...)', border: OutlineInputBorder(), isDense: true),
+                ),
+                const SizedBox(height: 6),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: crearSiguiente,
+                  onChanged: (v) => setDlg(() => crearSiguiente = v ?? true),
+                  title: const Text('Programar siguiente repetición automática', style: TextStyle(fontSize: 13)),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Confirmar')),
+          ],
+        ),
+      ),
+    );
+    if (ok == true) {
+      final res = await widget.api.post('complete_vehiculo_tarea', {
+        'id': t.id,
+        'fecha_finalizacion': fechaCtrl.text.trim(),
+        'km_finalizacion': kmCtrl.text.trim(),
+        'notas': notasCtrl.text.trim(),
+        'crear_siguiente': crearSiguiente ? 1 : 0,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Actualizado').toString())),
+        );
+        _reload();
+      }
+    }
+  }
+
+  Future<void> _exportPdf() async {
+    final list = _filtered;
+    if (list.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No hay tareas que coincidan con el filtro.')),
+      );
+      return;
+    }
+    final labels = {
+      'todas': 'Todas',
+      'pendiente': 'Pendientes',
+      'proximas': 'Próximas / En Alerta (<1000 km o ≤15d)',
+      'finalizada': 'Finalizadas',
+    };
+    final vehName = _vehiculoId == 0
+        ? 'Todos los vehículos'
+        : widget.vehiculos.firstWhere((v) => v.id == _vehiculoId, orElse: () => widget.vehiculos.first).nombre;
+    await PdfReportService.generateAndShareTareasPdf(
+      scopeTitle: vehName,
+      filterLabel: labels[_estadoFilter] ?? 'Todas',
+      tareas: list,
+    );
+  }
+
+  Future<void> _sendEmailAlerts() async {
+    final res = await widget.api.post('send_task_alerts_email', {'vehiculo_id': _vehiculoId});
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Operación completada').toString())),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final list = _filtered;
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF0F172A),
+        foregroundColor: Colors.white,
+        title: const Text('Mantenimiento y Tareas'),
+        actions: [
+          IconButton(
+            tooltip: 'Maestro de Tareas (SCRUB)',
+            icon: const Icon(Icons.list_alt),
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => TareasMaestroScreen(api: widget.api, initialList: _maestro)),
+              );
+              _reload();
+            },
+          ),
+          IconButton(
+            tooltip: 'Enviar Avisos por Correo',
+            icon: const Icon(Icons.send),
+            onPressed: _sendEmailAlerts,
+          ),
+          IconButton(
+            tooltip: 'Informe PDF Tareas',
+            icon: const Icon(Icons.picture_as_pdf),
+            onPressed: _exportPdf,
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+            child: Column(
+              children: [
+                DropdownButtonFormField<int>(
+                  value: _vehiculoId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Vehículo',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: [
+                    const DropdownMenuItem(value: 0, child: Text('Todos los vehículos')),
+                    ...widget.vehiculos.map((v) => DropdownMenuItem(value: v.id, child: Text(v.nombre))),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) {
+                      setState(() => _vehiculoId = v);
+                      _reload();
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final entry in const {
+                        'todas': 'Todas',
+                        'pendiente': 'Pendientes',
+                        'proximas': 'Próximas / Alerta',
+                        'finalizada': 'Finalizadas',
+                      }.entries)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: ChoiceChip(
+                            label: Text(entry.value, style: const TextStyle(fontSize: 12)),
+                            selected: _estadoFilter == entry.key,
+                            onSelected: (_) => setState(() => _estadoFilter = entry.key),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  decoration: const InputDecoration(
+                    hintText: 'Buscar tarea, vehículo o nota...',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  onChanged: (v) => setState(() => _search = v),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : list.isEmpty
+                    ? const Center(child: Text('No hay tareas con este filtro.'))
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 80),
+                        itemCount: list.length,
+                        itemBuilder: (_, i) {
+                          final t = list[i];
+                          Color badgeBg = Colors.green.shade50;
+                          Color badgeFg = Colors.green.shade800;
+                          String badgeText = 'En plazo';
+                          if (t.estado == 'finalizada') {
+                            badgeBg = Colors.grey.shade200;
+                            badgeFg = Colors.grey.shade800;
+                            badgeText = 'Finalizada (${t.fechaFinalizacion})';
+                          } else if (t.vencida) {
+                            badgeBg = Colors.red.shade50;
+                            badgeFg = Colors.red.shade800;
+                            badgeText = 'VENCIDA: ${t.motivoAlerta}';
+                          } else if (t.enAlerta) {
+                            badgeBg = Colors.amber.shade50;
+                            badgeFg = Colors.amber.shade900;
+                            badgeText = 'PRÓXIMA: ${t.motivoAlerta}';
+                          } else {
+                            final parts = <String>[];
+                            if (t.diasRestantes != null) parts.add('${t.diasRestantes} d');
+                            if (t.kmRestantes != null) parts.add('${t.kmRestantes!.toStringAsFixed(0)} km');
+                            if (parts.isNotEmpty) badgeText = 'En plazo (${parts.join(" / ")})';
+                          }
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '${t.vehiculoNombre} · ${t.descripcion}',
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(color: badgeBg, borderRadius: BorderRadius.circular(6)),
+                                    child: Text(badgeText, style: TextStyle(color: badgeFg, fontWeight: FontWeight.w700, fontSize: 11.5)),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Próx. Fecha: ${t.proximaFecha.isNotEmpty ? t.proximaFecha : "-"} · Próx. Km: ${t.proximoKm != null ? "${t.proximoKm!.toStringAsFixed(0)} km" : "-"}',
+                                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+                                  ),
+                                  if (t.notas.isNotEmpty)
+                                    Text('Notas: ${t.notas}', style: const TextStyle(fontSize: 11.5, fontStyle: FontStyle.italic)),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      if (t.estado == 'pendiente') ...[
+                                        TextButton.icon(
+                                          onPressed: () => _completeTask(t),
+                                          icon: const Icon(Icons.check_circle_outline, size: 18, color: Colors.green),
+                                          label: const Text('Finalizar', style: TextStyle(color: Colors.green)),
+                                        ),
+                                        TextButton.icon(
+                                          onPressed: () async {
+                                            final saved = await Navigator.of(context).push<bool>(
+                                              MaterialPageRoute(
+                                                builder: (_) => VehiculoTareaFormScreen(
+                                                  api: widget.api,
+                                                  vehiculos: widget.vehiculos,
+                                                  maestro: _maestro,
+                                                  ultimoKmPorVehiculo: widget.ultimoKmPorVehiculo,
+                                                  editItem: t,
+                                                ),
+                                              ),
+                                            );
+                                            if (saved == true) _reload();
+                                          },
+                                          icon: const Icon(Icons.edit, size: 18),
+                                          label: const Text('Editar'),
+                                        ),
+                                      ],
+                                      TextButton.icon(
+                                        onPressed: () async {
+                                          await widget.api.post('deactivate_vehiculo_tarea', {'id': t.id});
+                                          _reload();
+                                        },
+                                        icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                                        label: const Text('Baja', style: TextStyle(color: Colors.red)),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () async {
+          if (widget.vehiculos.isEmpty) return;
+          final saved = await Navigator.of(context).push<bool>(
+            MaterialPageRoute(
+              builder: (_) => VehiculoTareaFormScreen(
+                api: widget.api,
+                vehiculos: widget.vehiculos,
+                maestro: _maestro,
+                ultimoKmPorVehiculo: widget.ultimoKmPorVehiculo,
+                initialVehiculoId: _vehiculoId > 0 ? _vehiculoId : widget.vehiculos.first.id,
+              ),
+            ),
+          );
+          if (saved == true) _reload();
+        },
+        icon: const Icon(Icons.add),
+        label: const Text('Asignar Tarea'),
+      ),
+    );
+  }
+}
+
+class VehiculoTareaFormScreen extends StatefulWidget {
+  final ApiService api;
+  final List<Vehiculo> vehiculos;
+  final List<TareaMaestro> maestro;
+  final Map<int, double> ultimoKmPorVehiculo;
+  final int? initialVehiculoId;
+  final VehiculoTarea? editItem;
+
+  const VehiculoTareaFormScreen({
+    super.key,
+    required this.api,
+    required this.vehiculos,
+    required this.maestro,
+    required this.ultimoKmPorVehiculo,
+    this.initialVehiculoId,
+    this.editItem,
+  });
+
+  @override
+  State<VehiculoTareaFormScreen> createState() => _VehiculoTareaFormScreenState();
+}
+
+class _VehiculoTareaFormScreenState extends State<VehiculoTareaFormScreen> {
+  late int _vehiculoId;
+  int _maestroId = 0;
+  String _tipo = 'ambos';
+  bool _avisarTiempoSinKm = true;
+  late TextEditingController _descCtrl;
+  late TextEditingController _diasCtrl;
+  late TextEditingController _kmCtrl;
+  late TextEditingController _ultFechaCtrl;
+  late TextEditingController _ultKmCtrl;
+  late TextEditingController _notasCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.editItem;
+    _vehiculoId = e?.vehiculoId ?? widget.initialVehiculoId ?? widget.vehiculos.first.id;
+    _maestroId = e?.tareaMaestroId ?? 0;
+    _tipo = e?.tipoPeriodicidad ?? 'ambos';
+    _avisarTiempoSinKm = e?.avisarPorTiempoSiNoKm ?? true;
+    _descCtrl = TextEditingController(text: e?.descripcion ?? '');
+    _diasCtrl = TextEditingController(text: e?.periodoDias?.toString() ?? '365');
+    _kmCtrl = TextEditingController(text: e?.periodoKm?.toStringAsFixed(0) ?? '15000');
+    _ultFechaCtrl = TextEditingController(text: e?.ultimaFecha.isNotEmpty == true ? e!.ultimaFecha : DateTime.now().toIso8601String().substring(0, 10));
+    final defKm = e?.ultimoKm ?? widget.ultimoKmPorVehiculo[_vehiculoId];
+    _ultKmCtrl = TextEditingController(text: defKm != null ? defKm.toStringAsFixed(0) : '');
+    _notasCtrl = TextEditingController(text: e?.notas ?? '');
+  }
+
+  Future<void> _save() async {
+    final res = await widget.api.post('save_vehiculo_tarea', {
+      'id': widget.editItem?.id ?? 0,
+      'vehiculo_id': _vehiculoId,
+      'tarea_maestro_id': _maestroId,
+      'descripcion': _descCtrl.text.trim(),
+      'tipo_periodicidad': _tipo,
+      'periodo_dias': _diasCtrl.text.trim(),
+      'periodo_km': _kmCtrl.text.trim(),
+      'ultima_fecha': _ultFechaCtrl.text.trim(),
+      'ultimo_km': _ultKmCtrl.text.trim(),
+      'avisar_por_tiempo_si_no_km': _avisarTiempoSinKm ? 1 : 0,
+      'notas': _notasCtrl.text.trim(),
+    });
+    if (res['success'] == true && mounted) {
+      Navigator.of(context).pop(true);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['error'] ?? 'Error al guardar').toString())),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.editItem == null ? 'Asignar Tarea' : 'Editar Tarea')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          DropdownButtonFormField<int>(
+            value: _vehiculoId,
+            decoration: const InputDecoration(labelText: 'Vehículo *', border: OutlineInputBorder()),
+            items: widget.vehiculos.map((v) => DropdownMenuItem(value: v.id, child: Text(v.nombre))).toList(),
+            onChanged: (v) {
+              if (v != null) setState(() => _vehiculoId = v);
+            },
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int>(
+            value: _maestroId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Plantilla del Maestro (Opcional)', border: OutlineInputBorder()),
+            items: [
+              const DropdownMenuItem(value: 0, child: Text('-- Personalizada --')),
+              ...widget.maestro.map((m) => DropdownMenuItem(value: m.id, child: Text(m.nombre))),
+            ],
+            onChanged: (v) {
+              if (v == null) return;
+              setState(() {
+                _maestroId = v;
+                if (v > 0) {
+                  final tm = widget.maestro.firstWhere((x) => x.id == v);
+                  _descCtrl.text = tm.descripcion.isNotEmpty ? '${tm.nombre} - ${tm.descripcion}' : tm.nombre;
+                  _tipo = tm.tipoPeriodicidad;
+                  _diasCtrl.text = tm.periodoDias?.toString() ?? '';
+                  _kmCtrl.text = tm.periodoKm?.toStringAsFixed(0) ?? '';
+                  _avisarTiempoSinKm = tm.avisarPorTiempoSiNoKm;
+                }
+              });
+            },
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _descCtrl,
+            decoration: const InputDecoration(labelText: 'Descripción de la tarea *', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: _tipo,
+            decoration: const InputDecoration(labelText: 'Periodicidad', border: OutlineInputBorder()),
+            items: const [
+              DropdownMenuItem(value: 'ambos', child: Text('Tiempo y Kilómetros (Ambos)')),
+              DropdownMenuItem(value: 'kilometros', child: Text('Solo Kilómetros')),
+              DropdownMenuItem(value: 'tiempo', child: Text('Solo Tiempo (Días)')),
+            ],
+            onChanged: (v) {
+              if (v != null) setState(() => _tipo = v);
+            },
+          ),
+          const SizedBox(height: 12),
+          if (_tipo != 'kilometros') ...[
+            TextField(
+              controller: _diasCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Periodo en días (ej: 365)', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (_tipo != 'tiempo') ...[
+            TextField(
+              controller: _kmCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Periodo en kilómetros (ej: 15000)', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+          ],
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Avisar por tiempo aunque no llegue al kilometraje'),
+            value: _avisarTiempoSinKm,
+            onChanged: (v) => setState(() => _avisarTiempoSinKm = v),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _ultFechaCtrl,
+            decoration: const InputDecoration(labelText: 'Última realización / inicio (YYYY-MM-DD)', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _ultKmCtrl,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Km última realización / inicio', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _notasCtrl,
+            decoration: const InputDecoration(labelText: 'Notas', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            height: 48,
+            child: FilledButton.icon(onPressed: _save, icon: const Icon(Icons.save), label: const Text('Guardar Tarea')),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class TareasMaestroScreen extends StatefulWidget {
+  final ApiService api;
+  final List<TareaMaestro> initialList;
+
+  const TareasMaestroScreen({super.key, required this.api, required this.initialList});
+
+  @override
+  State<TareasMaestroScreen> createState() => _TareasMaestroScreenState();
+}
+
+class _TareasMaestroScreenState extends State<TareasMaestroScreen> {
+  late List<TareaMaestro> _list;
+  int _editId = 0;
+  String _tipo = 'ambos';
+  bool _avisarTiempo = true;
+  final _nombreCtrl = TextEditingController();
+  final _descCtrl = TextEditingController();
+  final _diasCtrl = TextEditingController();
+  final _kmCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _list = List<TareaMaestro>.from(widget.initialList);
+  }
+
+  Future<void> _refresh() async {
+    final res = await widget.api.post('list_tareas_maestro', {});
+    if (res['success'] == true && mounted) {
+      setState(() {
+        _list = (res['tareas_maestro'] as List? ?? [])
+            .map((e) => TareaMaestro.fromJson(e as Map<String, dynamic>))
+            .toList();
+      });
+    }
+  }
+
+  Future<void> _save() async {
+    if (_nombreCtrl.text.trim().isEmpty) return;
+    final res = await widget.api.post('save_tarea_maestro', {
+      'id': _editId,
+      'nombre': _nombreCtrl.text.trim(),
+      'descripcion': _descCtrl.text.trim(),
+      'tipo_periodicidad': _tipo,
+      'periodo_dias': _diasCtrl.text.trim(),
+      'periodo_km': _kmCtrl.text.trim(),
+      'avisar_por_tiempo_si_no_km': _avisarTiempo ? 1 : 0,
+    });
+    if (res['success'] == true && mounted) {
+      setState(() {
+        _editId = 0;
+        _nombreCtrl.clear();
+        _descCtrl.clear();
+        _diasCtrl.clear();
+        _kmCtrl.clear();
+      });
+      await _refresh();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Maestro de Tareas Periódicas')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          ..._list.map((t) => Card(
+                child: ListTile(
+                  title: Text(t.nombre, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text('${t.tipoPeriodicidad}${t.periodoDias != null ? " · ${t.periodoDias} días" : ""}${t.periodoKm != null ? " · ${t.periodoKm!.toStringAsFixed(0)} km" : ""}'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit),
+                        onPressed: () => setState(() {
+                          _editId = t.id;
+                          _nombreCtrl.text = t.nombre;
+                          _descCtrl.text = t.descripcion;
+                          _tipo = t.tipoPeriodicidad;
+                          _diasCtrl.text = t.periodoDias?.toString() ?? '';
+                          _kmCtrl.text = t.periodoKm?.toStringAsFixed(0) ?? '';
+                          _avisarTiempo = t.avisarPorTiempoSiNoKm;
+                        }),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        onPressed: () async {
+                          await widget.api.post('deactivate_tarea_maestro', {'id': t.id});
+                          _refresh();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              )),
+          const Divider(height: 28),
+          Text(_editId == 0 ? 'Nueva Tarea Maestra' : 'Editar Tarea Maestra', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          TextField(controller: _nombreCtrl, decoration: const InputDecoration(labelText: 'Nombre *', border: OutlineInputBorder())),
+          const SizedBox(height: 10),
+          TextField(controller: _descCtrl, decoration: const InputDecoration(labelText: 'Descripción', border: OutlineInputBorder())),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
+            value: _tipo,
+            decoration: const InputDecoration(labelText: 'Periodicidad', border: OutlineInputBorder()),
+            items: const [
+              DropdownMenuItem(value: 'ambos', child: Text('Tiempo y Kilómetros')),
+              DropdownMenuItem(value: 'kilometros', child: Text('Solo Kilómetros')),
+              DropdownMenuItem(value: 'tiempo', child: Text('Solo Tiempo (Días)')),
+            ],
+            onChanged: (v) {
+              if (v != null) setState(() => _tipo = v);
+            },
+          ),
+          const SizedBox(height: 10),
+          if (_tipo != 'kilometros') ...[
+            TextField(controller: _diasCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Periodo días', border: OutlineInputBorder())),
+            const SizedBox(height: 10),
+          ],
+          if (_tipo != 'tiempo') ...[
+            TextField(controller: _kmCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Periodo km', border: OutlineInputBorder())),
+            const SizedBox(height: 10),
+          ],
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Avisar por tiempo si no llega al km'),
+            value: _avisarTiempo,
+            onChanged: (v) => setState(() => _avisarTiempo = v),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(onPressed: _save, icon: const Icon(Icons.save), label: const Text('Guardar en Maestro')),
         ],
       ),
     );
