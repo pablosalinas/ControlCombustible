@@ -30,6 +30,23 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: 📅 Calcular versión Vx.aammdd
+        run: |
+          AAMMDD=$(date +%y%m%d)
+          BUILD_NUM=$(date +%y%m%d%H)
+          echo "AAMMDD=$AAMMDD" >> $GITHUB_ENV
+          echo "APP_VERSION_NAME=V1.${AAMMDD}" >> $GITHUB_ENV
+          echo "APP_BUILD_NUMBER=${BUILD_NUM}" >> $GITHUB_ENV
+
+      - name: 🔐 Preparar Keystore de Firma Persistente
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > /tmp/release.jks
+            echo "ANDROID_KEYSTORE_PATH=/tmp/release.jks" >> $GITHUB_ENV
+          else
+            echo "ANDROID_KEYSTORE_PATH=$GITHUB_WORKSPACE/flutter_app/signing/release.jks" >> $GITHUB_ENV
+          fi
+
       - name: 🔧 Inicializar Android, Iconos _v2 y Desactivar R8 / LintVital
         working-directory: ./flutter_app
         run: |
@@ -63,13 +80,28 @@ jobs:
           -dontwarn com.google.mlkit.vision.text.korean.**
           EOF
 
-          # 4. Configurar minSdk = 23, desactivar minify/R8 y desactivar checkReleaseBuilds en build.gradle.kts
+          # 4. Configurar minSdk = 23, firma persistente release, desactivar minify/R8 y lintVital
           if [ -f "android/app/build.gradle.kts" ]; then
             sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' android/app/build.gradle.kts
-            sed -i 's/signingConfig = signingConfigs.getByName("debug")/signingConfig = signingConfigs.getByName("debug")\n            isMinifyEnabled = false\n            isShrinkResources = false\n            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")/g' android/app/build.gradle.kts
             cat << 'EOF' >> android/app/build.gradle.kts
 
           android {
+              signingConfigs {
+                  create("release") {
+                      storeFile = file(System.getenv("ANDROID_KEYSTORE_PATH"))
+                      storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "MoratallaCombustible2026"
+                      keyAlias = System.getenv("KEY_ALIAS") ?: "combustible"
+                      keyPassword = System.getenv("KEY_PASSWORD") ?: "MoratallaCombustible2026"
+                  }
+              }
+              buildTypes {
+                  getByName("release") {
+                      signingConfig = signingConfigs.getByName("release")
+                      isMinifyEnabled = false
+                      isShrinkResources = false
+                      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+                  }
+              }
               lint {
                   checkReleaseBuilds = false
                   abortOnError = false
@@ -94,8 +126,12 @@ jobs:
 
       - name: 🏗️ Compilar APK Release
         working-directory: ./flutter_app
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          flutter build apk --release
+          flutter build apk --release --build-name="${{ env.APP_VERSION_NAME }}" --build-number="${{ env.APP_BUILD_NUMBER }}" --dart-define=APP_VERSION="${{ env.APP_VERSION_NAME }}"
           cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/ControlCombustible.apk
 
       - name: 📦 Subir APK como Artefacto de GitHub Actions
@@ -107,8 +143,8 @@ jobs:
       - name: 🚀 Publicar Descarga Directa en GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.4
-          name: "App Android Control de Combustible v2 (APK)"
-          body: "Descarga directa del instalador Android (`ControlCombustible.apk`) con icono oficial `_v2`, login moratalla-murcia.com, multivehículo, OCR de tickets/odómetro e informes PDF A4 Vertical."
+          tag_name: ${{ env.APP_VERSION_NAME }}
+          name: "Control de Combustible ${{ env.APP_VERSION_NAME }} (APK)"
+          body: "Versión ${{ env.APP_VERSION_NAME }} — Descarga directa del instalador Android (`ControlCombustible.apk`). Incluye gestión SCRUB de vehículos, envío de PDFs por email/compartir, y firma persistente para actualizaciones directas sin desinstalar (nota: si actualizas desde una versión anterior a V1.261118, desinstala la app antigua una única vez antes de instalar esta)."
           files: flutter_app/build/app/outputs/flutter-apk/ControlCombustible.apk
           prerelease: false

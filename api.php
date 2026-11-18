@@ -1257,9 +1257,10 @@ try {
             $summaryText = trim((string)arr_get($jsonBody, 'summary', isset($_POST['summary']) ? $_POST['summary'] : ''));
             $filename    = trim((string)arr_get($jsonBody, 'filename', isset($_POST['filename']) ? $_POST['filename'] : 'Informe.pdf'));
             $pdfBase64   = (string)arr_get($jsonBody, 'pdf_base64', isset($_POST['pdf_base64']) ? $_POST['pdf_base64'] : '');
+            $toEmail     = trim((string)arr_get($jsonBody, 'to_email', isset($_POST['to_email']) ? $_POST['to_email'] : ''));
 
             $mailErr = null;
-            $sent = FuelMailer::sendReportPdfEmail($pdo, $user, $reportTitle, $summaryText, $pdfBase64, $filename, $mailErr);
+            $sent = FuelMailer::sendReportPdfEmail($pdo, $user, $reportTitle, $summaryText, $pdfBase64, $filename, $mailErr, $toEmail);
             echo json_encode(array(
                 'success' => $sent,
                 'message' => $sent ? 'Informe PDF enviado correctamente por correo electrónico.' : ('No se pudo enviar el informe: ' . ($mailErr ? $mailErr : 'Error desconocido')),

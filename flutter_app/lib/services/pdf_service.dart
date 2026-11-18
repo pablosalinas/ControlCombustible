@@ -243,6 +243,13 @@ class PdfReportService {
     return bytes;
   }
 
+  static Future<void> sharePdf({
+    required Uint8List bytes,
+    required String filename,
+  }) async {
+    await Printing.sharePdf(bytes: bytes, filename: filename);
+  }
+
   static pw.Widget _kpiBox(String label, String value) {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,

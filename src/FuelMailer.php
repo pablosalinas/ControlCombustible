@@ -447,10 +447,19 @@ class FuelMailer
     /**
      * Envía cualquier informe PDF generado por el usuario adjunto por correo electrónico.
      */
-    public static function sendReportPdfEmail($pdo, $userRow, $reportTitle, $summaryText, $pdfBase64, $filename, &$errorDetail = null)
+    public static function sendReportPdfEmail($pdo, $userRow, $reportTitle, $summaryText, $pdfBase64, $filename, &$errorDetail = null, $overrideToEmail = '')
     {
         $cfg = self::getConfig($pdo);
-        $toEmail = self::resolveRecipientEmail($pdo, $userRow, $cfg);
+        $overrideToEmail = trim((string)$overrideToEmail);
+        if ($overrideToEmail !== '') {
+            if (!filter_var($overrideToEmail, FILTER_VALIDATE_EMAIL)) {
+                $errorDetail = 'El correo de destino indicado no es válido.';
+                return false;
+            }
+            $toEmail = $overrideToEmail;
+        } else {
+            $toEmail = self::resolveRecipientEmail($pdo, $userRow, $cfg);
+        }
         if (empty($toEmail)) {
             $errorDetail = 'Usuario sin correo configurado ni admin_email.';
             return false;

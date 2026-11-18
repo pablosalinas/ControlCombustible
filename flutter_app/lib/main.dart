@@ -8,6 +8,9 @@ import 'services/api_service.dart';
 import 'services/ocr_service.dart';
 import 'services/pdf_service.dart';
 
+const String kAppVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'V1.261118');
+const String kApkDownloadUrl = 'https://github.com/pablosalinas/ControlCombustible/releases/latest/download/ControlCombustible.apk';
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const ControlCombustibleApp());
@@ -277,6 +280,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     icon: const Icon(Icons.language, size: 18),
                     label: const Text('Ir a moratalla-murcia.com'),
                   ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Versión $kAppVersion',
+                    style: const TextStyle(fontSize: 12, color: Colors.black45, fontWeight: FontWeight.w600),
+                  ),
                 ],
               ),
             ),
@@ -355,6 +363,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (mounted) {
           setState(() {
             _vehiculos = vList;
+            if (_selectedVehiculoId != 0 && !vList.any((v) => v.id == _selectedVehiculoId)) {
+              _selectedVehiculoId = 0;
+            }
             _estaciones = estList;
             _tareasMaestro = tmList;
             _vehiculoTareas = vtList;
@@ -511,6 +522,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _showPdfOptionsDialog(List<Repostaje> currentFiltered) async {
     final fromCtrl = TextEditingController();
     final toCtrl = TextEditingController();
+    final emailCtrl = TextEditingController(text: _userEmail);
     bool ascending = false;
 
     final actionChoice = await showDialog<String>(
@@ -547,6 +559,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     isDense: true,
                   ),
                 ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Email destino (para envío por servidor)',
+                    hintText: 'Opcional si ya tienes correo configurado',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
                 const SizedBox(height: 12),
                 const Text('Ordenar por fecha:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 RadioListTile<bool>(
@@ -570,6 +593,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Cancelar')),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.pop(ctx, 'share'),
+              icon: const Icon(Icons.share, size: 18),
+              label: const Text('Compartir / App Email'),
+            ),
             OutlinedButton.icon(
               onPressed: () => Navigator.pop(ctx, 'email'),
               icon: const Icon(Icons.email_outlined, size: 18),
@@ -644,19 +672,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final orderLabel = ascending ? 'Ascendente' : 'Descendente';
     final scopeTitle = '${_getScopeTitle()} ($orderLabel)';
+    final filename = 'Informe_Combustible_${DateTime.now().toIso8601String().substring(0, 10)}.pdf';
     final pdfBytes = await PdfReportService.generateAndSharePdf(
       scopeTitle: scopeTitle,
       resumen: filteredResumen,
       repostajes: pdfRows,
-      sendOnly: actionChoice == 'email',
+      sendOnly: actionChoice == 'email' || actionChoice == 'share',
     );
-    if (actionChoice == 'email') {
+    if (actionChoice == 'share') {
+      await PdfReportService.sharePdf(bytes: pdfBytes, filename: filename);
+    } else if (actionChoice == 'email') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Enviando informe PDF por correo...')),
+        );
+      }
       final summary = 'Ámbito: $scopeTitle\nRepostajes: ${pdfRows.length}\nConsumo medio: ${cMed.toStringAsFixed(2)} L/100km\nTotal: ${totL.toStringAsFixed(2)} L (${totE.toStringAsFixed(2)} €)';
       final res = await widget.api.post('send_report_email', {
         'title': 'Informe de Combustible - ${_getScopeTitle()}',
         'summary': summary,
-        'filename': 'Informe_Combustible_${DateTime.now().toIso8601String().substring(0, 10)}.pdf',
+        'filename': filename,
         'pdf_base64': base64Encode(pdfBytes),
+        if (emailCtrl.text.trim().isNotEmpty) 'to_email': emailCtrl.text.trim(),
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -664,6 +701,52 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       }
     }
+  }
+
+  void _showAppVersionDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.system_update, color: Color(0xFF0F766E)),
+            SizedBox(width: 8),
+            Text('Versión y Actualización'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Versión instalada: $kAppVersion', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber.shade300),
+              ),
+              child: const Text(
+                'Si Android rechaza instalar una actualización (por ejemplo, al actualizar desde versiones anteriores a V1.261118), desinstala primero la app del teléfono e instala el nuevo APK. Tus datos están seguros en el servidor.\n\nA partir de V1.261118, las actualizaciones se instalarán directamente sin necesidad de desinstalar.',
+                style: TextStyle(fontSize: 12.5, color: Colors.black87),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar')),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              launchUrl(Uri.parse(kApkDownloadUrl), mode: LaunchMode.externalApplication);
+            },
+            icon: const Icon(Icons.download),
+            label: const Text('Descargar último APK'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -681,20 +764,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF0F172A),
         foregroundColor: Colors.white,
-        title: Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.asset('assets/logo_v2.png', width: 32, height: 32),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                widget.api.isAdmin ? 'Control de Combustible.' : 'Control de Combustible',
-                overflow: TextOverflow.ellipsis,
+        title: InkWell(
+          onTap: _showAppVersionDialog,
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.asset('assets/logo_v2.png', width: 32, height: 32),
               ),
-            ),
-          ],
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      widget.api.isAdmin ? 'Control de Combustible.' : 'Control de Combustible',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                    const Text(
+                      kAppVersion,
+                      style: TextStyle(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.normal),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           Stack(
@@ -1578,24 +1675,87 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
   final _nombreCtrl = TextEditingController();
   final _matriculaCtrl = TextEditingController();
   final _modeloCtrl = TextEditingController();
+  String _tipoCombustible = 'Diésel';
   int _editingId = 0;
+
+  static const List<String> _fuelTypes = [
+    'Diésel',
+    'Gasolina 95',
+    'Gasolina 98',
+    'GLP',
+    'Híbrido',
+    'Eléctrico',
+  ];
+
+  void _clearForm() {
+    setState(() {
+      _editingId = 0;
+      _nombreCtrl.clear();
+      _matriculaCtrl.clear();
+      _modeloCtrl.clear();
+      _tipoCombustible = 'Diésel';
+    });
+  }
 
   Future<void> _saveVehiculo() async {
     if (_nombreCtrl.text.trim().isEmpty) return;
-    await widget.api.post('save_vehiculo', {
+    final res = await widget.api.post('save_vehiculo', {
       'id': _editingId,
       'nombre': _nombreCtrl.text.trim(),
       'matricula': _matriculaCtrl.text.trim(),
       'modelo': _modeloCtrl.text.trim(),
-      'tipo_combustible': 'Diésel',
+      'tipo_combustible': _tipoCombustible,
     });
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Vehículo guardado').toString())),
+      );
+      if (res['success'] == true) {
+        Navigator.of(context).pop();
+      }
+    }
+  }
+
+  Future<void> _confirmDeleteVehiculo(Vehiculo v) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar Vehículo'),
+        content: Text(
+          '¿Seguro que deseas dar de baja "${v.nombre}"${v.matricula.isNotEmpty ? " (${v.matricula})" : ""}?\n\n'
+          'Se aplicará borrado lógico (activo = 0): dejará de mostrarse en la lista activa, pero su historial permanece guardado en la base de datos.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Dar de baja'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    final res = await widget.api.post('deactivate_vehiculo', {'id': v.id});
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Vehículo dado de baja').toString())),
+      );
+      if (res['success'] == true) {
+        Navigator.of(context).pop();
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final fuelOptions = _fuelTypes.contains(_tipoCombustible)
+        ? _fuelTypes
+        : [_tipoCombustible, ..._fuelTypes];
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Mis Vehículos')),
+      appBar: AppBar(title: const Text('Mis Vehículos (SCRUB)')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -1604,25 +1764,48 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
               child: ListTile(
                 leading: const Icon(Icons.directions_car, color: Color(0xFF0F766E)),
                 title: Text(v.nombre, style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text('${v.matricula} · ${v.tipoCombustible}'),
-                trailing: IconButton(
-                  icon: const Icon(Icons.edit),
-                  onPressed: () {
-                    setState(() {
-                      _editingId = v.id;
-                      _nombreCtrl.text = v.nombre;
-                      _matriculaCtrl.text = v.matricula;
-                      _modeloCtrl.text = v.modelo;
-                    });
-                  },
+                subtitle: Text('${v.matricula.isNotEmpty ? v.matricula : "Sin matrícula"} · ${v.tipoCombustible}'),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Editar vehículo',
+                      icon: const Icon(Icons.edit),
+                      onPressed: () {
+                        setState(() {
+                          _editingId = v.id;
+                          _nombreCtrl.text = v.nombre;
+                          _matriculaCtrl.text = v.matricula;
+                          _modeloCtrl.text = v.modelo;
+                          _tipoCombustible = v.tipoCombustible.isNotEmpty ? v.tipoCombustible : 'Diésel';
+                        });
+                      },
+                    ),
+                    IconButton(
+                      tooltip: 'Borrar vehículo (baja lógica)',
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () => _confirmDeleteVehiculo(v),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
           const Divider(height: 32),
-          Text(
-            _editingId == 0 ? 'Añadir Nuevo Vehículo' : 'Editar Vehículo',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                _editingId == 0 ? 'Añadir Nuevo Vehículo' : 'Editar Vehículo',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              if (_editingId != 0)
+                TextButton.icon(
+                  onPressed: _clearForm,
+                  icon: const Icon(Icons.close, size: 18),
+                  label: const Text('Cancelar'),
+                ),
+            ],
           ),
           const SizedBox(height: 12),
           TextField(
@@ -1639,11 +1822,20 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
             controller: _modeloCtrl,
             decoration: const InputDecoration(labelText: 'Marca / Modelo', border: OutlineInputBorder()),
           ),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
+            value: _tipoCombustible,
+            decoration: const InputDecoration(labelText: 'Tipo de combustible', border: OutlineInputBorder()),
+            items: fuelOptions.map((f) => DropdownMenuItem(value: f, child: Text(f))).toList(),
+            onChanged: (v) {
+              if (v != null) setState(() => _tipoCombustible = v);
+            },
+          ),
           const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: _saveVehiculo,
             icon: const Icon(Icons.save),
-            label: const Text('Guardar Vehículo'),
+            label: Text(_editingId == 0 ? 'Guardar Vehículo' : 'Actualizar Vehículo'),
           ),
         ],
       ),
@@ -1915,6 +2107,56 @@ class _TareasScreenState extends State<TareasScreen> {
       );
       return;
     }
+
+    String mode = sendEmail ? 'email' : 'pdf';
+    String toEmail = '';
+    if (sendEmail) {
+      final emailCtrl = TextEditingController();
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Enviar Informe PDF de Tareas'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Puedes compartir el PDF directamente con tu app de correo (Gmail, Outlook, etc.) o enviarlo desde el servidor.',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Email destino (solo para envío por servidor)',
+                  hintText: 'Opcional si ya tienes correo configurado',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Cancelar')),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.pop(ctx, 'share'),
+              icon: const Icon(Icons.share, size: 18),
+              label: const Text('Compartir / App Email'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(ctx, 'email'),
+              icon: const Icon(Icons.email_outlined, size: 18),
+              label: const Text('Enviar Email'),
+            ),
+          ],
+        ),
+      );
+      if (choice == null) return;
+      mode = choice;
+      toEmail = emailCtrl.text.trim();
+    }
+
     final labels = {
       'todas': 'Todas',
       'pendiente': 'Pendientes',
@@ -1925,18 +2167,27 @@ class _TareasScreenState extends State<TareasScreen> {
         ? 'Todos los vehículos'
         : widget.vehiculos.firstWhere((v) => v.id == _vehiculoId, orElse: () => widget.vehiculos.first).nombre;
     final filterLabel = labels[_estadoFilter] ?? 'Todas';
+    final filename = 'Informe_Tareas_${DateTime.now().toIso8601String().substring(0, 10)}.pdf';
     final pdfBytes = await PdfReportService.generateAndShareTareasPdf(
       scopeTitle: vehName,
       filterLabel: filterLabel,
       tareas: list,
-      sendOnly: sendEmail,
+      sendOnly: mode != 'pdf',
     );
-    if (sendEmail) {
+    if (mode == 'share') {
+      await PdfReportService.sharePdf(bytes: pdfBytes, filename: filename);
+    } else if (mode == 'email') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Enviando informe PDF de tareas por correo...')),
+        );
+      }
       final res = await widget.api.post('send_report_email', {
         'title': 'Informe de Mantenimiento - $vehName',
         'summary': 'Ámbito: $vehName\nFiltro: $filterLabel\nTareas incluidas: ${list.length}',
-        'filename': 'Informe_Tareas_${DateTime.now().toIso8601String().substring(0, 10)}.pdf',
+        'filename': filename,
         'pdf_base64': base64Encode(pdfBytes),
+        if (toEmail.isNotEmpty) 'to_email': toEmail,
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
