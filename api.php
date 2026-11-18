@@ -54,6 +54,24 @@ function arr_get(array $arr, $key, $default = null) {
 }
 
 /**
+ * Asegura la existencia de la columna aditiva `validado` en `users`
+ * (1 = validado por defecto para usuarios existentes, 0 = pendiente, -1 = rechazado/baja).
+ */
+function ensureUsersValidationColumn(PDO $pdo) {
+    static $checked = false;
+    if ($checked) return;
+    $checked = true;
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'validado'");
+        if ($stmt && !$stmt->fetch()) {
+            $pdo->exec("ALTER TABLE `users` ADD COLUMN `validado` TINYINT(1) NOT NULL DEFAULT 1");
+        }
+    } catch (Exception $e) {
+        // Ignorar si no tiene permisos ALTER; los queries manejarán fallback
+    }
+}
+
+/**
  * Autenticación contra la tabla `users` de Moratalla-Murcia-2026 (SOLO LECTURA)
  * utilizando el sistema de roles (`admin` tiene visión global de todos los vehículos;
  * otros roles gestionan únicamente sus propios vehículos).
@@ -87,10 +105,22 @@ function authenticateMoratallaUser(PDO $pdo, array $jsonBody) {
             @session_start();
         }
         if (!empty($_SESSION['admin_id'])) {
-            $stmtSess = $pdo->prepare("SELECT id, username, email, role, acceso_sistema, es_superusuario FROM `users` WHERE id = ? LIMIT 1");
+            ensureUsersValidationColumn($pdo);
+            $stmtSess = $pdo->prepare("SELECT id, username, email, role, acceso_sistema, es_superusuario, validado FROM `users` WHERE id = ? LIMIT 1");
             $stmtSess->execute(array((int)$_SESSION['admin_id']));
             $uSess = $stmtSess->fetch();
             if ($uSess) {
+                $valSess = isset($uSess['validado']) ? (int)$uSess['validado'] : 1;
+                if ($valSess === 0) {
+                    http_response_code(403);
+                    echo json_encode(array('success' => false, 'error' => 'Tu solicitud de registro está pendiente de validación por parte del superusuario.'));
+                    exit;
+                }
+                if ($valSess < 0) {
+                    http_response_code(403);
+                    echo json_encode(array('success' => false, 'error' => 'Tu usuario no está autorizado o ha sido dado de baja.'));
+                    exit;
+                }
                 $roleSess = isset($uSess['role']) ? $uSess['role'] : 'editor';
                 $esSuperSess = !empty($uSess['es_superusuario']) || ($roleSess === 'admin' && !isset($uSess['es_superusuario']));
                 $accSess = isset($uSess['acceso_sistema']) && $uSess['acceso_sistema'] !== '' ? $uSess['acceso_sistema'] : 'ambos';
@@ -121,7 +151,8 @@ function authenticateMoratallaUser(PDO $pdo, array $jsonBody) {
         exit;
     }
 
-    $stmt = $pdo->prepare("SELECT id, username, email, password, role, acceso_sistema, es_superusuario FROM `users` WHERE username = ? LIMIT 1");
+    ensureUsersValidationColumn($pdo);
+    $stmt = $pdo->prepare("SELECT id, username, email, password, role, acceso_sistema, es_superusuario, validado FROM `users` WHERE username = ? LIMIT 1");
     $stmt->execute(array($username));
     $user = $stmt->fetch();
 
@@ -130,6 +161,24 @@ function authenticateMoratallaUser(PDO $pdo, array $jsonBody) {
         echo json_encode(array(
             'success' => false,
             'error'   => 'Usuario o contraseña de moratalla-murcia.com incorrectos.'
+        ));
+        exit;
+    }
+
+    $validado = isset($user['validado']) ? (int)$user['validado'] : 1;
+    if ($validado === 0) {
+        http_response_code(403);
+        echo json_encode(array(
+            'success' => false,
+            'error'   => 'Tu solicitud de registro está pendiente de validación por parte del superusuario.'
+        ));
+        exit;
+    }
+    if ($validado < 0) {
+        http_response_code(403);
+        echo json_encode(array(
+            'success' => false,
+            'error'   => 'Tu solicitud de acceso ha sido rechazada o desactivada por el superusuario.'
         ));
         exit;
     }
@@ -280,10 +329,61 @@ function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $es
     return $result;
 }
 
+$action  = isset($_GET['action']) ? $_GET['action'] : arr_get($jsonBody, 'action', isset($_POST['action']) ? $_POST['action'] : 'dashboard');
+
+if ($action === 'register') {
+    try {
+        ensureUsersValidationColumn($pdo);
+        $regUser  = trim((string)arr_get($jsonBody, 'username', isset($_POST['username']) ? $_POST['username'] : ''));
+        $regPass  = (string)arr_get($jsonBody, 'password', isset($_POST['password']) ? $_POST['password'] : '');
+        $regEmail = trim((string)arr_get($jsonBody, 'email', isset($_POST['email']) ? $_POST['email'] : ''));
+
+        if ($regUser === '' || strlen($regUser) < 3 || strlen($regUser) > 50 || !preg_match('/^[a-zA-Z0-9._-]+$/', $regUser)) {
+            http_response_code(400);
+            echo json_encode(array('success' => false, 'error' => 'El usuario debe tener entre 3 y 50 caracteres (letras, números, punto, guion o guion bajo).'));
+            exit;
+        }
+        if (strlen($regPass) < 6) {
+            http_response_code(400);
+            echo json_encode(array('success' => false, 'error' => 'La contraseña debe tener al menos 6 caracteres.'));
+            exit;
+        }
+        if (!filter_var($regEmail, FILTER_VALIDATE_EMAIL)) {
+            http_response_code(400);
+            echo json_encode(array('success' => false, 'error' => 'Introduce un correo electrónico válido para comunicaciones.'));
+            exit;
+        }
+
+        $stmtDup = $pdo->prepare("SELECT id FROM `users` WHERE username = ? OR email = ? LIMIT 1");
+        $stmtDup->execute(array($regUser, $regEmail));
+        if ($stmtDup->fetch()) {
+            http_response_code(409);
+            echo json_encode(array('success' => false, 'error' => 'Ya existe una cuenta o solicitud con ese usuario o correo electrónico.'));
+            exit;
+        }
+
+        $hash = password_hash($regPass, PASSWORD_DEFAULT);
+        $stmtIns = $pdo->prepare("
+            INSERT INTO `users` (username, email, password, role, acceso_sistema, es_superusuario, validado)
+            VALUES (?, ?, ?, 'editor', 'ambos', 0, 0)
+        ");
+        $stmtIns->execute(array($regUser, $regEmail, $hash));
+
+        echo json_encode(array(
+            'success' => true,
+            'message' => 'Solicitud de registro enviada correctamente. Queda pendiente de validación por parte del superusuario.',
+        ));
+        exit;
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(array('success' => false, 'error' => 'Error al registrar la solicitud: ' . $e->getMessage()));
+        exit;
+    }
+}
+
 $user    = authenticateMoratallaUser($pdo, $jsonBody);
 $userId  = (int)$user['id'];
 $isAdmin = (bool)$user['is_admin'];
-$action  = isset($_GET['action']) ? $_GET['action'] : arr_get($jsonBody, 'action', isset($_POST['action']) ? $_POST['action'] : 'dashboard');
 
 try {
     switch ($action) {
@@ -1266,6 +1366,58 @@ try {
                 'message' => $sent ? 'Informe PDF enviado correctamente por correo electrónico.' : ('No se pudo enviar el informe: ' . ($mailErr ? $mailErr : 'Error desconocido')),
                 'error'   => $sent ? null : $mailErr,
             ));
+            break;
+
+        case 'list_pending_users':
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede gestionar solicitudes de registro.'));
+                exit;
+            }
+            ensureUsersValidationColumn($pdo);
+            $stmtPending = $pdo->query("SELECT id, username, email, role, acceso_sistema, validado FROM `users` WHERE validado = 0 ORDER BY id DESC");
+            $pending = $stmtPending ? $stmtPending->fetchAll() : array();
+            echo json_encode(array('success' => true, 'pending_users' => $pending));
+            break;
+
+        case 'approve_user':
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede validar usuarios.'));
+                exit;
+            }
+            ensureUsersValidationColumn($pdo);
+            $targetId = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            $acceso   = trim((string)arr_get($jsonBody, 'acceso_sistema', isset($_POST['acceso_sistema']) ? $_POST['acceso_sistema'] : 'ambos'));
+            if (!in_array($acceso, array('ambos', 'combustible', 'web'), true)) {
+                $acceso = 'ambos';
+            }
+            if ($targetId <= 0) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'ID de usuario inválido.'));
+                exit;
+            }
+            $stmtApp = $pdo->prepare("UPDATE `users` SET validado = 1, acceso_sistema = ? WHERE id = ?");
+            $stmtApp->execute(array($acceso, $targetId));
+            echo json_encode(array('success' => true, 'message' => 'Usuario validado y activado correctamente.'));
+            break;
+
+        case 'reject_user':
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede rechazar solicitudes.'));
+                exit;
+            }
+            ensureUsersValidationColumn($pdo);
+            $targetId = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            if ($targetId <= 0) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'ID de usuario inválido.'));
+                exit;
+            }
+            $stmtRej = $pdo->prepare("UPDATE `users` SET validado = -1 WHERE id = ?");
+            $stmtRej->execute(array($targetId));
+            echo json_encode(array('success' => true, 'message' => 'Solicitud de usuario rechazada.'));
             break;
 
         default:

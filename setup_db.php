@@ -14,6 +14,16 @@ require_once __DIR__ . '/config/database.php';
 try {
     $pdo = getVehDB();
 
+    // 0. Asegurar columna aditiva `validado` en `users` para solicitudes de registro
+    try {
+        $colCheck = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'validado'");
+        if ($colCheck && !$colCheck->fetch()) {
+            $pdo->exec("ALTER TABLE `users` ADD COLUMN `validado` TINYINT(1) NOT NULL DEFAULT 1");
+        }
+    } catch (Exception $e) {
+        // Ignorar si la tabla users no existe en algún entorno aislado
+    }
+
     // 1. Obtener usuario administrador principal de la tabla `users` (SOLO LECTURA)
     $adminUserId = 1;
     $adminUsername = 'admin';

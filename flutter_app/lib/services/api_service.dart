@@ -11,6 +11,7 @@ class ApiService {
   String? _username;
   String? _password;
   bool isAdmin = false;
+  String? lastError;
   DateTime? _lastActivity;
   DateTime? _lastPersistedActivity;
 
@@ -89,6 +90,7 @@ class ApiService {
     _username = username;
     _password = password;
 
+    lastError = null;
     final res = await post('login', {});
     if (res['success'] == true) {
       final userMap = res['user'] as Map<String, dynamic>? ?? {};
@@ -99,7 +101,27 @@ class ApiService {
       await touchActivity(forcePersist: true);
       return true;
     }
+    lastError = res['error']?.toString();
     return false;
+  }
+
+  Future<Map<String, dynamic>> register({
+    required String username,
+    required String email,
+    required String password,
+  }) async {
+    final uri = Uri.parse('$_baseUrl?action=register');
+    final response = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'action': 'register',
+        'username': username,
+        'email': email,
+        'password': password,
+      }),
+    );
+    return jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }
 
   Future<void> logout() async {

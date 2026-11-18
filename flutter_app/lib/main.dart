@@ -182,7 +182,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (ok) {
         widget.onLoggedIn();
       } else {
-        setState(() => _error = 'Usuario o contraseña de moratalla-murcia.com incorrectos.');
+        setState(() => _error = widget.api.lastError ?? 'Usuario o contraseña de moratalla-murcia.com incorrectos.');
         _generateCaptcha();
       }
     } catch (e) {
@@ -191,6 +191,147 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _showRegisterDialog() async {
+    final userCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final passCtrl = TextEditingController();
+    final pass2Ctrl = TextEditingController();
+    String? dlgErr;
+    bool sending = false;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: const Text('Solicitar Registro'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Tu solicitud quedará pendiente de validación por parte del superusuario.',
+                  style: TextStyle(fontSize: 12.5, color: Colors.black54),
+                ),
+                const SizedBox(height: 12),
+                if (dlgErr != null) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(dlgErr!, style: TextStyle(color: Colors.red.shade800, fontSize: 12.5)),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                TextField(
+                  controller: userCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Usuario *',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Correo electrónico (comunicaciones) *',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: passCtrl,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Contraseña (mín. 6 caracteres) *',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: pass2Ctrl,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Repetir contraseña *',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: sending ? null : () => Navigator.pop(ctx), child: const Text('Cancelar')),
+            FilledButton.icon(
+              onPressed: sending
+                  ? null
+                  : () async {
+                      final u = userCtrl.text.trim();
+                      final em = emailCtrl.text.trim();
+                      final p1 = passCtrl.text;
+                      final p2 = pass2Ctrl.text;
+                      if (u.length < 3) {
+                        setDlgState(() => dlgErr = 'El usuario debe tener al menos 3 caracteres.');
+                        return;
+                      }
+                      if (!em.contains('@') || !em.contains('.')) {
+                        setDlgState(() => dlgErr = 'Introduce un correo electrónico válido.');
+                        return;
+                      }
+                      if (p1.length < 6) {
+                        setDlgState(() => dlgErr = 'La contraseña debe tener al menos 6 caracteres.');
+                        return;
+                      }
+                      if (p1 != p2) {
+                        setDlgState(() => dlgErr = 'Las contraseñas no coinciden.');
+                        return;
+                      }
+                      setDlgState(() {
+                        sending = true;
+                        dlgErr = null;
+                      });
+                      try {
+                        final res = await widget.api.register(username: u, email: em, password: p1);
+                        if (res['success'] == true) {
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  (res['message'] ?? 'Solicitud enviada. Pendiente de validación por el superusuario.').toString(),
+                                ),
+                                duration: const Duration(seconds: 5),
+                              ),
+                            );
+                          }
+                        } else {
+                          setDlgState(() {
+                            sending = false;
+                            dlgErr = (res['error'] ?? 'Error al registrar').toString();
+                          });
+                        }
+                      } catch (e) {
+                        setDlgState(() {
+                          sending = false;
+                          dlgErr = 'Error de conexión: $e';
+                        });
+                      }
+                    },
+              icon: const Icon(Icons.person_add, size: 18),
+              label: Text(sending ? 'Enviando...' : 'Enviar Solicitud'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -306,6 +447,16 @@ class _LoginScreenState extends State<LoginScreen> {
                       onPressed: _loading ? null : _submit,
                       icon: const Icon(Icons.login),
                       label: Text(_loading ? 'Verificando...' : 'Entrar'),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 44,
+                    child: OutlinedButton.icon(
+                      onPressed: _loading ? null : _showRegisterDialog,
+                      icon: const Icon(Icons.person_add_outlined, size: 18),
+                      label: const Text('Solicitar Registro de Usuario'),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -786,6 +937,102 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Future<void> _showPendingUsersDialog() async {
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        List<Map<String, dynamic>>? pending;
+        String? err;
+        bool loaded = false;
+
+        return StatefulBuilder(
+          builder: (ctx, setDlgState) {
+            if (!loaded) {
+              loaded = true;
+              widget.api.post('list_pending_users', {}).then((res) {
+                if (ctx.mounted) {
+                  setDlgState(() {
+                    if (res['success'] == true) {
+                      pending = (res['pending_users'] as List? ?? [])
+                          .map((e) => Map<String, dynamic>.from(e as Map))
+                          .toList();
+                    } else {
+                      err = (res['error'] ?? 'Error al cargar').toString();
+                    }
+                  });
+                }
+              }).catchError((e) {
+                if (ctx.mounted) {
+                  setDlgState(() => err = 'Error de conexión: $e');
+                }
+              });
+            }
+
+            return AlertDialog(
+              title: const Text('Solicitudes Pendientes'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: err != null
+                    ? Text(err!, style: const TextStyle(color: Colors.red))
+                    : pending == null
+                        ? const SizedBox(height: 80, child: Center(child: CircularProgressIndicator()))
+                        : pending!.isEmpty
+                            ? const Text('No hay solicitudes pendientes de validación.')
+                            : ListView.builder(
+                                shrinkWrap: true,
+                                itemCount: pending!.length,
+                                itemBuilder: (_, idx) {
+                                  final u = pending![idx];
+                                  final uid = int.tryParse(u['id'].toString()) ?? 0;
+                                  return Card(
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(10),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(u['username'].toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
+                                          Text(u['email']?.toString() ?? 'Sin correo', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                                          const SizedBox(height: 8),
+                                          Wrap(
+                                            spacing: 6,
+                                            children: [
+                                              FilledButton(
+                                                onPressed: () async {
+                                                  await widget.api.post('approve_user', {'id': uid, 'acceso_sistema': 'ambos'});
+                                                  setDlgState(() {
+                                                    pending!.removeAt(idx);
+                                                  });
+                                                },
+                                                child: const Text('Validar', style: TextStyle(fontSize: 12)),
+                                              ),
+                                              OutlinedButton(
+                                                onPressed: () async {
+                                                  await widget.api.post('reject_user', {'id': uid});
+                                                  setDlgState(() {
+                                                    pending!.removeAt(idx);
+                                                  });
+                                                },
+                                                child: const Text('Rechazar', style: TextStyle(fontSize: 12, color: Colors.red)),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar')),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = _repostajes.where((r) {
@@ -854,6 +1101,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
             ],
           ),
+          if (widget.api.isAdmin)
+            IconButton(
+              tooltip: 'Solicitudes de Registro',
+              icon: const Icon(Icons.how_to_reg),
+              onPressed: _showPendingUsersDialog,
+            ),
           IconButton(
             tooltip: 'Correo de Avisos',
             icon: const Icon(Icons.email_outlined),

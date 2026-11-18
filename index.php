@@ -409,6 +409,7 @@
             <p style="font-size: 0.85rem; color: var(--muted); margin-top: 0.3rem;">Acceso con tu cuenta de moratalla-murcia.com</p>
         </div>
         <div id="login-error" class="hidden" style="background:#fee2e2; color:#b91c1c; padding:0.75rem; border-radius:10px; font-size:0.85rem; margin-bottom:1rem; text-align:center;"></div>
+        <div id="login-success" class="hidden" style="background:#dcfce7; color:#166534; padding:0.75rem; border-radius:10px; font-size:0.85rem; margin-bottom:1rem; text-align:center;"></div>
         <form id="login-form">
             <div class="form-group">
                 <label>Usuario (moratalla-murcia.com)</label>
@@ -436,6 +437,9 @@
             <button type="submit" class="btn btn-primary btn-block" style="margin-top: 0.5rem; padding: 0.9rem;">
                 <i class="fa-solid fa-right-to-bracket"></i> Iniciar Sesión
             </button>
+            <button type="button" class="btn btn-outline btn-block" style="margin-top: 0.55rem;" onclick="toggleAuthMode(true)">
+                <i class="fa-solid fa-user-plus"></i> Solicitar Registro de Usuario
+            </button>
             <a href="https://github.com/pablosalinas/ControlCombustible/releases/latest/download/ControlCombustible.apk" target="_blank" class="btn btn-outline btn-block" style="margin-top: 0.65rem; text-decoration: none; font-size: 0.85rem;">
                 <i class="fa-brands fa-android" style="color:#16a34a; font-size:1.1rem;"></i> Descargar App Android (.APK)
             </a>
@@ -447,6 +451,33 @@
                     <i class="fa-solid fa-globe"></i> Ir a moratalla-murcia.com
                 </a>
             </div>
+        </form>
+        <form id="register-form" class="hidden">
+            <div class="form-group">
+                <label>Nuevo Usuario *</label>
+                <input type="text" id="reg-user" class="form-control" required minlength="3" maxlength="50" placeholder="Ej: juan.perez" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label>Correo Electrónico (para comunicaciones) *</label>
+                <input type="email" id="reg-email" class="form-control" required placeholder="tu@correo.com" autocomplete="email">
+            </div>
+            <div class="form-group">
+                <label>Contraseña (mínimo 6 caracteres) *</label>
+                <input type="password" id="reg-pass" class="form-control" required minlength="6" autocomplete="new-password">
+            </div>
+            <div class="form-group">
+                <label>Repetir Contraseña *</label>
+                <input type="password" id="reg-pass2" class="form-control" required minlength="6" autocomplete="new-password">
+            </div>
+            <p style="font-size:0.78rem; color:#64748b; margin-bottom:0.85rem;">
+                <i class="fa-solid fa-user-shield"></i> Tu solicitud quedará pendiente de validación por parte del superusuario.
+            </p>
+            <button type="submit" class="btn btn-primary btn-block" style="padding: 0.9rem;">
+                <i class="fa-solid fa-paper-plane"></i> Enviar Solicitud de Registro
+            </button>
+            <button type="button" class="btn btn-outline btn-block" style="margin-top: 0.55rem;" onclick="toggleAuthMode(false)">
+                <i class="fa-solid fa-arrow-left"></i> Volver a Iniciar Sesión
+            </button>
         </form>
     </div>
 </div>
@@ -470,6 +501,9 @@
                 </button>
                 <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openTareasMaestroModal()">
                     <i class="fa-solid fa-list-check" style="color:var(--primary)"></i> Maestro Tareas
+                </button>
+                <button class="btn btn-outline hidden" id="btn-pending-users" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openPendingUsersModal()" title="Validar solicitudes de registro">
+                    <i class="fa-solid fa-user-check" style="color:#d97706"></i> Solicitudes
                 </button>
                 <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openUserEmailModal()" title="Configurar correo para avisos">
                     <i class="fa-solid fa-envelope" style="color:#0284c7"></i> Correo
@@ -1019,6 +1053,17 @@
     </div>
 </div>
 
+<!-- MODAL SOLICITUDES DE REGISTRO PENDIENTES (SUPERUSUARIO) -->
+<div class="modal-backdrop" id="pending-users-modal">
+    <div class="modal-content" style="max-width:560px;">
+        <div class="card-header" style="margin-bottom:0.8rem;">
+            <div class="card-title"><i class="fa-solid fa-user-check" style="color:#d97706"></i> Solicitudes de Registro Pendientes</div>
+            <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closePendingUsersModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="pending-users-list" style="display:flex; flex-direction:column; gap:0.65rem; max-height:60vh; overflow-y:auto;"></div>
+    </div>
+</div>
+
 <!-- MODAL CORREO DE NOTIFICACIONES -->
 <div class="modal-backdrop" id="user-email-modal">
     <div class="modal-content" style="max-width:420px;">
@@ -1185,6 +1230,58 @@ async function apiCall(action, payload = {}, method = 'POST') {
     return await res.json();
 }
 
+function toggleAuthMode(showRegister) {
+    document.getElementById('login-error').classList.add('hidden');
+    document.getElementById('login-success').classList.add('hidden');
+    if (showRegister) {
+        document.getElementById('login-form').classList.add('hidden');
+        document.getElementById('register-form').classList.remove('hidden');
+    } else {
+        document.getElementById('register-form').classList.add('hidden');
+        document.getElementById('login-form').classList.remove('hidden');
+    }
+}
+
+document.getElementById('register-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = document.getElementById('login-error');
+    const okBox = document.getElementById('login-success');
+    err.classList.add('hidden');
+    okBox.classList.add('hidden');
+
+    const username = document.getElementById('reg-user').value.trim();
+    const email    = document.getElementById('reg-email').value.trim();
+    const password = document.getElementById('reg-pass').value;
+    const pass2    = document.getElementById('reg-pass2').value;
+
+    if (password !== pass2) {
+        err.textContent = 'Las contraseñas no coinciden.';
+        err.classList.remove('hidden');
+        return;
+    }
+
+    try {
+        const resp = await fetch(`${API_URL}?action=register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'register', username, email, password })
+        });
+        const res = await resp.json();
+        if (res.success) {
+            document.getElementById('register-form').reset();
+            toggleAuthMode(false);
+            okBox.textContent = res.message || 'Solicitud enviada. Pendiente de validación por el superusuario.';
+            okBox.classList.remove('hidden');
+        } else {
+            err.textContent = res.error || 'No se pudo completar la solicitud.';
+            err.classList.remove('hidden');
+        }
+    } catch (ex) {
+        err.textContent = 'Error de conexión con el servidor: ' + ex.message;
+        err.classList.remove('hidden');
+    }
+});
+
 document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const userCaptcha = parseInt(document.getElementById('login-captcha').value, 10);
@@ -1242,10 +1339,12 @@ async function loadDashboard() {
         document.getElementById('app-title-text').textContent = 'Control de Combustible.';
         document.getElementById('label-fecha-form').textContent = 'Fecha. *';
         document.getElementById('brand-icon-box').style.border = '1.5px solid #f59e0b';
+        document.getElementById('btn-pending-users').classList.remove('hidden');
     } else {
         document.getElementById('app-title-text').textContent = 'Control de Combustible';
         document.getElementById('label-fecha-form').textContent = 'Fecha *';
         document.getElementById('brand-icon-box').style.border = 'none';
+        document.getElementById('btn-pending-users').classList.add('hidden');
     }
 
     // Poblar selector de vehículos manteniendo selección en el dashboard
@@ -2507,6 +2606,49 @@ document.getElementById('user-email-form').addEventListener('submit', async (e) 
         alert(res.error || 'Error guardando correo');
     }
 });
+
+async function openPendingUsersModal() {
+    document.getElementById('pending-users-modal').classList.add('active');
+    const box = document.getElementById('pending-users-list');
+    box.innerHTML = '<div style="color:#64748b; font-size:0.85rem;">Cargando solicitudes...</div>';
+    const res = await apiCall('list_pending_users');
+    if (!res.success) {
+        box.innerHTML = `<div style="color:#b91c1c; font-size:0.85rem;">${res.error || 'Error cargando solicitudes'}</div>`;
+        return;
+    }
+    const list = res.pending_users || [];
+    if (list.length === 0) {
+        box.innerHTML = '<div style="color:#64748b; font-size:0.85rem; padding:0.75rem 0;">No hay solicitudes pendientes de validación.</div>';
+        return;
+    }
+    box.innerHTML = list.map(u => `
+        <div style="border:1px solid var(--border); border-radius:10px; padding:0.75rem; display:flex; justify-content:space-between; align-items:center; gap:0.65rem; flex-wrap:wrap;">
+            <div>
+                <div style="font-weight:700; font-size:0.9rem;">${u.username}</div>
+                <div style="font-size:0.8rem; color:#64748b;">${u.email || 'Sin correo'}</div>
+            </div>
+            <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+                <button class="btn btn-primary" style="padding:0.35rem 0.65rem; font-size:0.78rem;" onclick="approvePendingUser(${u.id}, 'ambos')">Validar (Ambos)</button>
+                <button class="btn btn-outline" style="padding:0.35rem 0.65rem; font-size:0.78rem;" onclick="approvePendingUser(${u.id}, 'combustible')">Solo Combustible</button>
+                <button class="btn btn-danger" style="padding:0.35rem 0.65rem; font-size:0.78rem;" onclick="rejectPendingUser(${u.id})">Rechazar</button>
+            </div>
+        </div>
+    `).join('');
+}
+function closePendingUsersModal() {
+    document.getElementById('pending-users-modal').classList.remove('active');
+}
+async function approvePendingUser(id, acceso) {
+    const res = await apiCall('approve_user', { id, acceso_sistema: acceso });
+    alert(res.message || res.error || 'Operación completada');
+    await openPendingUsersModal();
+}
+async function rejectPendingUser(id) {
+    if (!confirm('¿Rechazar esta solicitud de registro?')) return;
+    const res = await apiCall('reject_user', { id });
+    alert(res.message || res.error || 'Operación completada');
+    await openPendingUsersModal();
+}
 
 function pdfCleanText(str) {
     return String(str || '')
