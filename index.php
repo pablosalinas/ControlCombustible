@@ -1261,7 +1261,7 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
     }
 
     try {
-        const resp = await fetch(`${API_URL}?action=register`, {
+        const resp = await fetch('api.php?action=register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'register', username, email, password })
