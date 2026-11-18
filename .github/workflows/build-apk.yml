@@ -89,9 +89,9 @@ jobs:
               signingConfigs {
                   create("release") {
                       storeFile = file(System.getenv("ANDROID_KEYSTORE_PATH"))
-                      storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "MoratallaCombustible2026"
-                      keyAlias = System.getenv("KEY_ALIAS") ?: "combustible"
-                      keyPassword = System.getenv("KEY_PASSWORD") ?: "MoratallaCombustible2026"
+                      storePassword = System.getenv("KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() } ?: "MoratallaCombustible2026"
+                      keyAlias = System.getenv("KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "combustible"
+                      keyPassword = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotBlank() } ?: "MoratallaCombustible2026"
                   }
               }
               buildTypes {
