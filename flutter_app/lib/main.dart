@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:fl_chart/fl_chart.dart';
@@ -44,15 +45,47 @@ class RootScreen extends StatefulWidget {
   State<RootScreen> createState() => _RootScreenState();
 }
 
-class _RootScreenState extends State<RootScreen> {
+class _RootScreenState extends State<RootScreen> with WidgetsBindingObserver {
   final ApiService _api = ApiService();
   bool _checkingSession = true;
   bool _loggedIn = false;
+  Timer? _inactivityTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initSession();
+    _inactivityTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      _checkInactivityTimeout();
+    });
+  }
+
+  @override
+  void dispose() {
+    _inactivityTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkInactivityTimeout();
+    }
+  }
+
+  Future<void> _checkInactivityTimeout() async {
+    if (!_loggedIn) return;
+    if (_api.isSessionExpired) {
+      await _api.logout();
+      if (mounted) {
+        setState(() => _loggedIn = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Sesión cerrada tras 60 minutos sin uso.')),
+        );
+      }
+    }
   }
 
   Future<void> _initSession() async {
@@ -84,12 +117,16 @@ class _RootScreenState extends State<RootScreen> {
         onLoggedIn: () => setState(() => _loggedIn = true),
       );
     }
-    return DashboardScreen(
-      api: _api,
-      onLogout: () async {
-        await _api.logout();
-        setState(() => _loggedIn = false);
-      },
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) => _api.touchActivity(),
+      child: DashboardScreen(
+        api: _api,
+        onLogout: () async {
+          await _api.logout();
+          setState(() => _loggedIn = false);
+        },
+      ),
     );
   }
 }
