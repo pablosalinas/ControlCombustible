@@ -30,6 +30,37 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: 📦 Cachear Gradle y configurar espejo Maven Central
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('flutter_app/pubspec.yaml', 'flutter_app/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: 🌐 Configurar espejo Google Maven Central para evitar HTTP 429
+        run: |
+          mkdir -p ~/.gradle/init.d
+          cat << 'EOF' > ~/.gradle/init.d/mirror.gradle
+          gradle.settingsEvaluated { settings ->
+              settings.pluginManagement.repositories {
+                  maven { url "https://maven-central.storage-download.googleapis.com/maven2" }
+                  google()
+                  gradlePluginPortal()
+                  mavenCentral()
+              }
+          }
+          allprojects {
+              repositories {
+                  maven { url "https://maven-central.storage-download.googleapis.com/maven2" }
+                  google()
+                  mavenCentral()
+              }
+          }
+          EOF
+
       - name: 📅 Calcular versión Vx.aammdd
         run: |
           AAMMDD=$(date +%y%m%d)
@@ -131,7 +162,16 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          flutter build apk --release --build-name="${{ env.APP_VERSION_NAME }}" --build-number="${{ env.APP_BUILD_NUMBER }}" --dart-define=APP_VERSION="${{ env.APP_VERSION_NAME }}"
+          for i in 1 2 3; do
+            if flutter build apk --release --build-name="${{ env.APP_VERSION_NAME }}" --build-number="${{ env.APP_BUILD_NUMBER }}" --dart-define=APP_VERSION="${{ env.APP_VERSION_NAME }}"; then
+              break
+            fi
+            if [ "$i" -eq 3 ]; then
+              exit 1
+            fi
+            echo "Fallo en Gradle (posible 429 de red), reintentando en 15s (intento $i/3)..."
+            sleep 15
+          done
           cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/ControlCombustible.apk
 
       - name: 📦 Subir APK como Artefacto de GitHub Actions
