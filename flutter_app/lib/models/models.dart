@@ -153,6 +153,52 @@ class EstacionServicio {
   }
 }
 
+class Proveedor {
+  final int id;
+  final int usuarioId;
+  final String tipo; // 'taller', 'aseguradora', 'itv'
+  final String nombre;
+  final String telefono;
+  final String localidad;
+  final String direccion;
+  final String notas;
+
+  Proveedor({
+    required this.id,
+    required this.usuarioId,
+    required this.tipo,
+    required this.nombre,
+    required this.telefono,
+    required this.localidad,
+    required this.direccion,
+    required this.notas,
+  });
+
+  String get tipoLabel {
+    switch (tipo) {
+      case 'aseguradora':
+        return 'Aseguradora';
+      case 'itv':
+        return 'ITV';
+      default:
+        return 'Taller';
+    }
+  }
+
+  factory Proveedor.fromJson(Map<String, dynamic> j) {
+    return Proveedor(
+      id: int.tryParse((j['id'] ?? 0).toString()) ?? 0,
+      usuarioId: int.tryParse((j['usuario_id'] ?? 0).toString()) ?? 0,
+      tipo: (j['tipo'] ?? 'taller').toString(),
+      nombre: (j['nombre'] ?? '').toString(),
+      telefono: (j['telefono'] ?? '').toString(),
+      localidad: (j['localidad'] ?? '').toString(),
+      direccion: (j['direccion'] ?? '').toString(),
+      notas: (j['notas'] ?? '').toString(),
+    );
+  }
+}
+
 class ResumenEstadisticas {
   final int numRepostajes;
   final double totalLitros;
@@ -242,6 +288,9 @@ class VehiculoTarea {
   final int id;
   final int vehiculoId;
   final int? tareaMaestroId;
+  final int? proveedorId;
+  final String proveedorNombre;
+  final String proveedorTipo;
   final String vehiculoNombre;
   final String vehiculoMatricula;
   final String descripcion;
@@ -263,11 +312,19 @@ class VehiculoTarea {
   final bool vencida;
   final String motivoAlerta;
   final String notas;
+  final double? coste;
+  final double? costeAnterior;
+  final double? diferenciaCoste;
+  final double? porcentajeCoste;
+  final int relacionadasCount;
 
   VehiculoTarea({
     required this.id,
     required this.vehiculoId,
     this.tareaMaestroId,
+    this.proveedorId,
+    required this.proveedorNombre,
+    required this.proveedorTipo,
     required this.vehiculoNombre,
     required this.vehiculoMatricula,
     required this.descripcion,
@@ -289,6 +346,11 @@ class VehiculoTarea {
     required this.vencida,
     required this.motivoAlerta,
     required this.notas,
+    this.coste,
+    this.costeAnterior,
+    this.diferenciaCoste,
+    this.porcentajeCoste,
+    required this.relacionadasCount,
   });
 
   factory VehiculoTarea.fromJson(Map<String, dynamic> j) {
@@ -296,6 +358,9 @@ class VehiculoTarea {
       id: int.tryParse((j['id'] ?? 0).toString()) ?? 0,
       vehiculoId: int.tryParse((j['vehiculo_id'] ?? 0).toString()) ?? 0,
       tareaMaestroId: j['tarea_maestro_id'] != null ? int.tryParse(j['tarea_maestro_id'].toString()) : null,
+      proveedorId: j['proveedor_id'] != null ? int.tryParse(j['proveedor_id'].toString()) : null,
+      proveedorNombre: (j['proveedor_nombre'] ?? '').toString(),
+      proveedorTipo: (j['proveedor_tipo'] ?? '').toString(),
       vehiculoNombre: (j['vehiculo_nombre'] ?? '').toString(),
       vehiculoMatricula: (j['vehiculo_matricula'] ?? '').toString(),
       descripcion: (j['descripcion'] ?? '').toString(),
@@ -317,6 +382,11 @@ class VehiculoTarea {
       vencida: j['vencida'] == true || j['vencida'].toString() == '1',
       motivoAlerta: (j['motivo_alerta'] ?? '').toString(),
       notas: (j['notas'] ?? '').toString(),
+      coste: j['coste'] != null ? double.tryParse(j['coste'].toString()) : null,
+      costeAnterior: j['coste_anterior'] != null ? double.tryParse(j['coste_anterior'].toString()) : null,
+      diferenciaCoste: j['diferencia_coste'] != null ? double.tryParse(j['diferencia_coste'].toString()) : null,
+      porcentajeCoste: j['porcentaje_coste'] != null ? double.tryParse(j['porcentaje_coste'].toString()) : null,
+      relacionadasCount: int.tryParse((j['relacionadas_count'] ?? 0).toString()) ?? 0,
     );
   }
 }

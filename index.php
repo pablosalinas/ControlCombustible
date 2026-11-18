@@ -514,6 +514,9 @@
                 <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openEstacionesModal()">
                     <i class="fa-solid fa-shop" style="color:var(--accent)"></i> Estaciones
                 </button>
+                <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openProveedoresModal()">
+                    <i class="fa-solid fa-screwdriver-wrench" style="color:#0284c7"></i> Talleres/Seguros/ITV
+                </button>
                 <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openVehiclesModal()">
                     <i class="fa-solid fa-car"></i> Vehículos
                 </button>
@@ -597,6 +600,9 @@
                     <button class="btn btn-outline" style="padding:0.42rem 0.7rem; font-size:0.8rem;" onclick="openTareasMaestroModal()" title="SCRUB Maestro de Tareas">
                         <i class="fa-solid fa-list-check"></i> Maestro
                     </button>
+                    <button class="btn btn-outline" style="padding:0.42rem 0.7rem; font-size:0.8rem;" onclick="openProveedoresModal()" title="SCRUB Talleres, Aseguradoras e ITVs">
+                        <i class="fa-solid fa-screwdriver-wrench" style="color:#0284c7"></i> Proveedores
+                    </button>
                     <button class="btn btn-outline" style="padding:0.42rem 0.7rem; font-size:0.8rem; border-color:#d97706; color:#b45309;" onclick="sendTaskAlertsEmailNow()" title="Enviar avisos por email">
                         <i class="fa-solid fa-paper-plane"></i> Enviar Avisos Email
                     </button>
@@ -620,6 +626,7 @@
                             <th>Periodicidad</th>
                             <th>Última / Próx. Fecha</th>
                             <th>Último / Próx. Km</th>
+                            <th>Proveedor / Coste</th>
                             <th>Estado / Margen</th>
                             <th style="text-align:right">Acciones</th>
                         </tr>
@@ -997,6 +1004,23 @@
                     <input type="number" step="1" id="vt-ultimo-km" class="form-control" placeholder="Ej: 180000">
                 </div>
                 <div class="form-group">
+                    <label>Coste / Precio (€)</label>
+                    <input type="number" step="0.01" id="vt-coste" class="form-control" placeholder="Opcional, ej: 120.50">
+                </div>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Taller / Aseguradora / ITV</label>
+                    <div style="display:flex; gap:0.35rem;">
+                        <select id="vt-proveedor" class="form-control">
+                            <option value="0">-- Sin especificar --</option>
+                        </select>
+                        <button type="button" class="btn btn-outline" style="padding:0.45rem 0.65rem; flex-shrink:0;" onclick="openQuickProveedorModal('vt-proveedor')" title="Crear Taller, Aseguradora o ITV nuevo">
+                            <i class="fa-solid fa-plus"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="form-group">
                     <label>Notas</label>
                     <input type="text" id="vt-notas" class="form-control" placeholder="Opcional">
                 </div>
@@ -1035,9 +1059,26 @@
                     <input type="number" step="1" id="comp-km" class="form-control">
                 </div>
             </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Taller / Aseguradora / ITV</label>
+                    <div style="display:flex; gap:0.35rem;">
+                        <select id="comp-proveedor" class="form-control">
+                            <option value="0">-- Sin especificar --</option>
+                        </select>
+                        <button type="button" class="btn btn-outline" style="padding:0.45rem 0.65rem; flex-shrink:0;" onclick="openQuickProveedorModal('comp-proveedor')" title="Crear Taller, Aseguradora o ITV nuevo">
+                            <i class="fa-solid fa-plus"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Coste / Precio (€)</label>
+                    <input type="number" step="0.01" id="comp-coste" class="form-control" placeholder="Ej: 125.50">
+                </div>
+            </div>
             <div class="form-group">
                 <label>Notas de ejecución</label>
-                <input type="text" id="comp-notas" class="form-control" placeholder="Taller, coste, observaciones...">
+                <input type="text" id="comp-notas" class="form-control" placeholder="Observaciones...">
             </div>
             <div class="form-group">
                 <label style="display:flex; align-items:center; gap:0.5rem; font-weight:600; cursor:pointer;">
@@ -1050,6 +1091,137 @@
                 <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Confirmar Finalización</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- MODAL CRUD TALLERES, ASEGURADORAS E ITVS -->
+<div class="modal-backdrop" id="proveedores-modal">
+    <div class="modal-content" style="max-width:650px;">
+        <div class="card-header" style="margin-bottom:0.6rem;">
+            <div class="card-title"><i class="fa-solid fa-screwdriver-wrench" style="color:#0284c7"></i> Talleres, Aseguradoras e ITVs</div>
+            <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closeProveedoresModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div style="display:flex; gap:0.4rem; margin-bottom:0.85rem; flex-wrap:wrap;">
+            <button type="button" class="btn btn-primary" id="prov-tab-taller" style="padding:0.4rem 0.85rem; font-size:0.82rem;" onclick="switchProveedorTab('taller')">
+                <i class="fa-solid fa-wrench"></i> Talleres
+            </button>
+            <button type="button" class="btn btn-outline" id="prov-tab-aseguradora" style="padding:0.4rem 0.85rem; font-size:0.82rem;" onclick="switchProveedorTab('aseguradora')">
+                <i class="fa-solid fa-shield-halved"></i> Aseguradoras
+            </button>
+            <button type="button" class="btn btn-outline" id="prov-tab-itv" style="padding:0.4rem 0.85rem; font-size:0.82rem;" onclick="switchProveedorTab('itv')">
+                <i class="fa-solid fa-clipboard-check"></i> ITVs
+            </button>
+        </div>
+        <div id="proveedores-list" style="max-height:220px; overflow-y:auto; margin-bottom:0.9rem; border:1px solid var(--border); border-radius:10px;"></div>
+        <h4 style="font-size:0.9rem; margin-bottom:0.6rem;" id="prov-form-title">Añadir Taller</h4>
+        <form id="proveedor-form">
+            <input type="hidden" id="prov-id" value="0">
+            <input type="hidden" id="prov-tipo" value="taller">
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Nombre *</label>
+                    <input type="text" id="prov-nombre" class="form-control" required placeholder="Ej: Talleres Moratalla / Mapfre / ITV Caravaca">
+                </div>
+                <div class="form-group">
+                    <label>Teléfono</label>
+                    <input type="text" id="prov-telefono" class="form-control" placeholder="Ej: 968 000 000">
+                </div>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Localidad</label>
+                    <input type="text" id="prov-localidad" class="form-control" placeholder="Ej: Moratalla">
+                </div>
+                <div class="form-group">
+                    <label>Dirección</label>
+                    <input type="text" id="prov-direccion" class="form-control" placeholder="Opcional">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Notas</label>
+                <input type="text" id="prov-notas" class="form-control" placeholder="Horario, persona de contacto, nº póliza...">
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+                <button type="button" class="btn btn-outline" onclick="resetProveedorForm()">Limpiar</button>
+                <button type="submit" class="btn btn-primary"><i class="fa-solid fa-save"></i> Guardar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL CREACIÓN RÁPIDA DE PROVEEDOR DESDE TAREA -->
+<div class="modal-backdrop" id="quick-proveedor-modal" style="z-index:1100;">
+    <div class="modal-content" style="max-width:460px;">
+        <div class="card-header" style="margin-bottom:0.7rem;">
+            <div class="card-title"><i class="fa-solid fa-plus-circle" style="color:var(--primary)"></i> Nuevo Taller / Aseguradora / ITV</div>
+            <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closeQuickProveedorModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <form id="quick-proveedor-form">
+            <input type="hidden" id="qprov-target-select" value="vt-proveedor">
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Tipo *</label>
+                    <select id="qprov-tipo" class="form-control" required>
+                        <option value="taller">Taller</option>
+                        <option value="aseguradora">Aseguradora</option>
+                        <option value="itv">ITV</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Nombre *</label>
+                    <input type="text" id="qprov-nombre" class="form-control" required placeholder="Nombre...">
+                </div>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Teléfono</label>
+                    <input type="text" id="qprov-telefono" class="form-control" placeholder="Opcional">
+                </div>
+                <div class="form-group">
+                    <label>Localidad</label>
+                    <input type="text" id="qprov-localidad" class="form-control" placeholder="Opcional">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Dirección</label>
+                <input type="text" id="qprov-direccion" class="form-control" placeholder="Opcional">
+            </div>
+            <div class="form-group">
+                <label>Notas</label>
+                <input type="text" id="qprov-notas" class="form-control" placeholder="Opcional">
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+                <button type="button" class="btn btn-outline" onclick="closeQuickProveedorModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Crear y Seleccionar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL COMPARATIVA DE COSTES DE TAREAS RELACIONADAS -->
+<div class="modal-backdrop" id="comparativa-tarea-modal">
+    <div class="modal-content" style="max-width:680px;">
+        <div class="card-header" style="margin-bottom:0.7rem;">
+            <div class="card-title"><i class="fa-solid fa-chart-line" style="color:var(--primary)"></i> Comparativa de Costes (Tareas Relacionadas)</div>
+            <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closeComparativaTareaModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <p id="comp-tarea-subtitle" style="font-weight:700; color:var(--primary-dark); margin-bottom:0.75rem;"></p>
+        <div id="comp-tarea-summary" style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.9rem;"></div>
+        <div class="table-responsive" style="max-height:320px; overflow-y:auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Km</th>
+                        <th>Proveedor</th>
+                        <th style="text-align:right">Coste (€)</th>
+                        <th style="text-align:right">Dif. vs Anterior</th>
+                        <th>Estado / Notas</th>
+                    </tr>
+                </thead>
+                <tbody id="comp-tarea-tbody"></tbody>
+            </table>
+        </div>
     </div>
 </div>
 
@@ -2320,9 +2492,10 @@ function renderTareasTable() {
     const list = getFilteredVehiculoTareas();
     tbody.innerHTML = '';
     if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:1.5rem; color:var(--muted);">No hay tareas que coincidan con el filtro.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:1.5rem; color:var(--muted);">No hay tareas que coincidan con el filtro.</td></tr>';
         return;
     }
+    const provTypeLabels = { taller: 'Taller', aseguradora: 'Aseguradora', itv: 'ITV' };
     list.forEach(t => {
         const tr = document.createElement('tr');
         const perParts = [];
@@ -2344,11 +2517,33 @@ function renderTareasTable() {
             badgeHtml = `<span style="background:#dcfce7; color:#15803d; padding:0.2rem 0.5rem; border-radius:6px; font-size:0.75rem; font-weight:700;">✓ En plazo (${rem.join(' / ') || 'OK'})</span>`;
         }
 
+        let provCostHtml = '';
+        if (t.proveedor_nombre) {
+            const pLbl = provTypeLabels[t.proveedor_tipo] || 'Proveedor';
+            provCostHtml += `<span style="background:#e0f2fe; color:#0369a1; padding:0.12rem 0.4rem; border-radius:5px; font-size:0.72rem; font-weight:700;">${pLbl}</span> <strong>${t.proveedor_nombre}</strong>`;
+        }
+        if (t.coste !== null && t.coste !== undefined && t.coste !== '') {
+            const costeNum = Number(t.coste);
+            provCostHtml += `${provCostHtml ? '<br>' : ''}<strong>${fmtNum(costeNum, 2)} €</strong>`;
+            if (t.diferencia_coste !== null && t.diferencia_coste !== undefined) {
+                const diff = Number(t.diferencia_coste);
+                const sign = diff > 0 ? '+' : '';
+                const color = diff > 0 ? '#dc2626' : (diff < 0 ? '#16a34a' : 'var(--muted)');
+                const pctStr = (t.porcentaje_coste !== null && t.porcentaje_coste !== undefined) ? ` (${sign}${fmtNum(t.porcentaje_coste, 1)}%)` : '';
+                provCostHtml += ` <small style="color:${color}; font-weight:700;">${sign}${fmtNum(diff, 2)} €${pctStr}</small>`;
+            }
+        }
+        if (!provCostHtml) provCostHtml = '<span style="color:var(--muted);">-</span>';
+
+        const compareBtn = (Number(t.relacionadas_count || 0) > 1 || (t.coste !== null && t.coste !== undefined))
+            ? `<button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem; color:#0284c7; border-color:#bae6fd;" onclick='openComparativaTareaModal(${JSON.stringify(t)})' title="Comparar costes de tareas relacionadas"><i class="fa-solid fa-chart-line"></i></button> `
+            : '';
+
         const actionsHtml = t.estado === 'pendiente'
-            ? `<button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem; color:#15803d; border-color:#86efac;" onclick='openCompleteTareaModal(${JSON.stringify(t)})' title="Finalizar tarea"><i class="fa-solid fa-check"></i></button>
+            ? `${compareBtn}<button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem; color:#15803d; border-color:#86efac;" onclick='openCompleteTareaModal(${JSON.stringify(t)})' title="Finalizar tarea"><i class="fa-solid fa-check"></i></button>
                <button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem;" onclick='editVehiculoTarea(${JSON.stringify(t)})' title="Editar"><i class="fa-solid fa-pen"></i></button>
                <button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem; color:var(--danger);" onclick="deactivateVehiculoTarea(${t.id})" title="Baja"><i class="fa-solid fa-trash"></i></button>`
-            : `<button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem; color:var(--danger);" onclick="deactivateVehiculoTarea(${t.id})" title="Baja"><i class="fa-solid fa-trash"></i></button>`;
+            : `${compareBtn}<button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem; color:var(--danger);" onclick="deactivateVehiculoTarea(${t.id})" title="Baja"><i class="fa-solid fa-trash"></i></button>`;
 
         tr.innerHTML = `
             <td><strong>${t.vehiculo_nombre || ''}</strong></td>
@@ -2356,6 +2551,7 @@ function renderTareasTable() {
             <td>${perText}${t.tipo_periodicidad === 'ambos' && t.avisar_por_tiempo_si_no_km ? '<br><small style="color:var(--primary)">Aviso por tiempo sin km</small>' : ''}</td>
             <td>${t.ultima_fecha || '-'}<br><strong>Próx: ${t.proxima_fecha || '-'}</strong></td>
             <td>${t.ultimo_km !== null ? fmtNum(t.ultimo_km, 0) + ' km' : '-'}<br><strong>Próx: ${t.proximo_km !== null ? fmtNum(t.proximo_km, 0) + ' km' : '-'}</strong></td>
+            <td>${provCostHtml}</td>
             <td>${badgeHtml}</td>
             <td style="text-align:right; white-space:nowrap;">${actionsHtml}</td>
         `;
@@ -2449,6 +2645,32 @@ function toggleVtPeriodoFields() {
     document.getElementById('vt-dias-wrap').style.display = (tipo === 'kilometros') ? 'none' : '';
     document.getElementById('vt-km-wrap').style.display = (tipo === 'tiempo') ? 'none' : '';
 }
+function populateProveedorSelect(selectId, selectedId = '0') {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    sel.innerHTML = '<option value="0">-- Sin especificar --</option>';
+    const groups = [
+        { tipo: 'taller', label: 'Talleres' },
+        { tipo: 'aseguradora', label: 'Aseguradoras' },
+        { tipo: 'itv', label: 'ITVs' }
+    ];
+    const provs = currentData.proveedores || [];
+    groups.forEach(g => {
+        const items = provs.filter(p => p.tipo === g.tipo);
+        if (items.length > 0) {
+            const og = document.createElement('optgroup');
+            og.label = g.label;
+            items.forEach(p => {
+                const o = document.createElement('option');
+                o.value = p.id;
+                o.textContent = p.nombre + (p.localidad ? ` (${p.localidad})` : '');
+                og.appendChild(o);
+            });
+            sel.appendChild(og);
+        }
+    });
+    sel.value = String(selectedId || '0');
+}
 function populateVtSelectors() {
     const vSel = document.getElementById('vt-vehiculo');
     vSel.innerHTML = '';
@@ -2466,6 +2688,7 @@ function populateVtSelectors() {
         o.textContent = tm.nombre;
         mSel.appendChild(o);
     });
+    populateProveedorSelect('vt-proveedor', '0');
 }
 function onVtMaestroSelect() {
     const tmId = parseInt(document.getElementById('vt-maestro').value || '0', 10);
@@ -2498,6 +2721,8 @@ function openVehiculoTareaModal() {
     document.getElementById('vt-dias').value = '365';
     document.getElementById('vt-km').value = '15000';
     document.getElementById('vt-ultima-fecha').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('vt-proveedor').value = '0';
+    document.getElementById('vt-coste').value = '';
     document.getElementById('vt-notas').value = '';
     document.getElementById('vt-avisar-tiempo').checked = true;
     onVtVehiculoChange();
@@ -2510,12 +2735,14 @@ function editVehiculoTarea(t) {
     document.getElementById('vt-modal-title').innerHTML = '<i class="fa-solid fa-pen" style="color:var(--accent)"></i> Editar Tarea del Vehículo';
     document.getElementById('vt-vehiculo').value = t.vehiculo_id;
     document.getElementById('vt-maestro').value = t.tarea_maestro_id || '0';
+    document.getElementById('vt-proveedor').value = t.proveedor_id || '0';
     document.getElementById('vt-descripcion').value = t.descripcion || '';
     document.getElementById('vt-tipo').value = t.tipo_periodicidad || 'ambos';
     document.getElementById('vt-dias').value = t.periodo_dias || '';
     document.getElementById('vt-km').value = t.periodo_km || '';
     document.getElementById('vt-ultima-fecha').value = t.ultima_fecha || '';
     document.getElementById('vt-ultimo-km').value = t.ultimo_km !== null ? t.ultimo_km : '';
+    document.getElementById('vt-coste').value = (t.coste !== null && t.coste !== undefined) ? t.coste : '';
     document.getElementById('vt-notas').value = t.notas || '';
     document.getElementById('vt-avisar-tiempo').checked = Boolean(Number(t.avisar_por_tiempo_si_no_km));
     toggleVtPeriodoFields();
@@ -2530,12 +2757,14 @@ document.getElementById('vt-form').addEventListener('submit', async (e) => {
         id: document.getElementById('vt-id').value,
         vehiculo_id: document.getElementById('vt-vehiculo').value,
         tarea_maestro_id: document.getElementById('vt-maestro').value,
+        proveedor_id: document.getElementById('vt-proveedor').value,
         descripcion: document.getElementById('vt-descripcion').value,
         tipo_periodicidad: document.getElementById('vt-tipo').value,
         periodo_dias: document.getElementById('vt-dias').value,
         periodo_km: document.getElementById('vt-km').value,
         ultima_fecha: document.getElementById('vt-ultima-fecha').value,
         ultimo_km: document.getElementById('vt-ultimo-km').value,
+        coste: document.getElementById('vt-coste').value,
         notas: document.getElementById('vt-notas').value,
         avisar_por_tiempo_si_no_km: document.getElementById('vt-avisar-tiempo').checked ? 1 : 0
     });
@@ -2552,6 +2781,8 @@ function openCompleteTareaModal(t) {
     document.getElementById('comp-vt-desc').textContent = `${t.vehiculo_nombre}: ${t.descripcion}`;
     document.getElementById('comp-fecha').value = new Date().toISOString().slice(0, 10);
     document.getElementById('comp-km').value = t.km_actual ? Math.round(t.km_actual) : '';
+    populateProveedorSelect('comp-proveedor', t.proveedor_id || '0');
+    document.getElementById('comp-coste').value = (t.coste !== null && t.coste !== undefined) ? t.coste : '';
     document.getElementById('comp-notas').value = '';
     document.getElementById('comp-crear-siguiente').checked = true;
     document.getElementById('complete-tarea-modal').classList.add('active');
@@ -2565,6 +2796,8 @@ document.getElementById('complete-vt-form').addEventListener('submit', async (e)
         id: document.getElementById('comp-vt-id').value,
         fecha_finalizacion: document.getElementById('comp-fecha').value,
         km_finalizacion: document.getElementById('comp-km').value,
+        proveedor_id: document.getElementById('comp-proveedor').value,
+        coste: document.getElementById('comp-coste').value,
         notas: document.getElementById('comp-notas').value,
         crear_siguiente: document.getElementById('comp-crear-siguiente').checked ? 1 : 0
     });
@@ -2580,6 +2813,207 @@ async function deactivateVehiculoTarea(id) {
     if (!confirm('¿Dar de baja esta tarea?')) return;
     const res = await apiCall('deactivate_vehiculo_tarea', { id });
     if (res.success) await loadDashboard();
+}
+
+// CRUD TALLERES, ASEGURADORAS E ITVS
+let currentProveedorTab = 'taller';
+function openProveedoresModal(tab = 'taller') {
+    switchProveedorTab(tab);
+    document.getElementById('proveedores-modal').classList.add('active');
+}
+function closeProveedoresModal() {
+    document.getElementById('proveedores-modal').classList.remove('active');
+}
+function switchProveedorTab(tipo) {
+    currentProveedorTab = tipo;
+    ['taller', 'aseguradora', 'itv'].forEach(t => {
+        const btn = document.getElementById(`prov-tab-${t}`);
+        if (btn) {
+            btn.className = (t === tipo) ? 'btn btn-primary' : 'btn btn-outline';
+        }
+    });
+    resetProveedorForm();
+    renderProveedoresList();
+}
+function resetProveedorForm() {
+    const labels = { taller: 'Taller', aseguradora: 'Aseguradora', itv: 'ITV' };
+    document.getElementById('prov-id').value = '0';
+    document.getElementById('prov-tipo').value = currentProveedorTab;
+    document.getElementById('prov-form-title').textContent = `Añadir ${labels[currentProveedorTab] || 'Proveedor'}`;
+    document.getElementById('prov-nombre').value = '';
+    document.getElementById('prov-telefono').value = '';
+    document.getElementById('prov-localidad').value = '';
+    document.getElementById('prov-direccion').value = '';
+    document.getElementById('prov-notas').value = '';
+}
+function renderProveedoresList() {
+    const el = document.getElementById('proveedores-list');
+    const list = (currentData.proveedores || []).filter(p => p.tipo === currentProveedorTab);
+    if (list.length === 0) {
+        el.innerHTML = '<div style="padding:0.9rem; color:var(--muted); text-align:center; font-size:0.85rem;">No hay registros todavía en esta categoría.</div>';
+        return;
+    }
+    el.innerHTML = list.map(p => `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0.7rem; border-bottom:1px solid var(--border); gap:0.5rem;">
+            <div>
+                <strong>${p.nombre}</strong>
+                <small style="color:var(--muted); display:block;">
+                    ${[p.telefono ? 'Tel: ' + p.telefono : '', p.localidad || '', p.direccion || ''].filter(Boolean).join(' · ') || 'Sin datos adicionales'}
+                </small>
+                ${p.notas ? `<small style="color:var(--muted); font-style:italic;">${p.notas}</small>` : ''}
+            </div>
+            <div style="display:flex; gap:0.3rem;">
+                <button type="button" class="btn btn-outline" style="padding:0.2rem 0.5rem; font-size:0.75rem;" onclick='editProveedor(${JSON.stringify(p)})'><i class="fa-solid fa-pen"></i></button>
+                <button type="button" class="btn btn-outline" style="padding:0.2rem 0.5rem; font-size:0.75rem; color:var(--danger);" onclick="deleteProveedor(${p.id})"><i class="fa-solid fa-trash"></i></button>
+            </div>
+        </div>
+    `).join('');
+}
+function editProveedor(p) {
+    const labels = { taller: 'Taller', aseguradora: 'Aseguradora', itv: 'ITV' };
+    document.getElementById('prov-id').value = p.id;
+    document.getElementById('prov-tipo').value = p.tipo;
+    document.getElementById('prov-form-title').textContent = `Editar ${labels[p.tipo] || 'Proveedor'}`;
+    document.getElementById('prov-nombre').value = p.nombre || '';
+    document.getElementById('prov-telefono').value = p.telefono || '';
+    document.getElementById('prov-localidad').value = p.localidad || '';
+    document.getElementById('prov-direccion').value = p.direccion || '';
+    document.getElementById('prov-notas').value = p.notas || '';
+}
+document.getElementById('proveedor-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const res = await apiCall('save_proveedor', {
+        id: document.getElementById('prov-id').value,
+        tipo: document.getElementById('prov-tipo').value,
+        nombre: document.getElementById('prov-nombre').value,
+        telefono: document.getElementById('prov-telefono').value,
+        localidad: document.getElementById('prov-localidad').value,
+        direccion: document.getElementById('prov-direccion').value,
+        notas: document.getElementById('prov-notas').value
+    });
+    if (res.success) {
+        await loadDashboard();
+        renderProveedoresList();
+        resetProveedorForm();
+    } else {
+        alert(res.error || 'Error guardando registro');
+    }
+});
+async function deleteProveedor(id) {
+    if (!confirm('¿Dar de baja este registro?')) return;
+    const res = await apiCall('deactivate_proveedor', { id });
+    if (res.success) {
+        await loadDashboard();
+        renderProveedoresList();
+    }
+}
+
+// CREACIÓN RÁPIDA DESDE DESPLEGABLE DE TAREAS
+function openQuickProveedorModal(targetSelectId) {
+    document.getElementById('qprov-target-select').value = targetSelectId;
+    document.getElementById('qprov-tipo').value = 'taller';
+    document.getElementById('qprov-nombre').value = '';
+    document.getElementById('qprov-telefono').value = '';
+    document.getElementById('qprov-localidad').value = '';
+    document.getElementById('qprov-direccion').value = '';
+    document.getElementById('qprov-notas').value = '';
+    document.getElementById('quick-proveedor-modal').classList.add('active');
+}
+function closeQuickProveedorModal() {
+    document.getElementById('quick-proveedor-modal').classList.remove('active');
+}
+document.getElementById('quick-proveedor-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const targetId = document.getElementById('qprov-target-select').value;
+    const res = await apiCall('save_proveedor', {
+        id: 0,
+        tipo: document.getElementById('qprov-tipo').value,
+        nombre: document.getElementById('qprov-nombre').value,
+        telefono: document.getElementById('qprov-telefono').value,
+        localidad: document.getElementById('qprov-localidad').value,
+        direccion: document.getElementById('qprov-direccion').value,
+        notas: document.getElementById('qprov-notas').value
+    });
+    if (res.success && res.proveedor) {
+        if (!Array.isArray(currentData.proveedores)) currentData.proveedores = [];
+        currentData.proveedores.push(res.proveedor);
+        populateProveedorSelect('vt-proveedor', targetId === 'vt-proveedor' ? res.id : document.getElementById('vt-proveedor').value);
+        populateProveedorSelect('comp-proveedor', targetId === 'comp-proveedor' ? res.id : document.getElementById('comp-proveedor').value);
+        closeQuickProveedorModal();
+    } else {
+        alert(res.error || 'Error creando proveedor');
+    }
+});
+
+// COMPARATIVA DE COSTES DE TAREAS RELACIONADAS
+function openComparativaTareaModal(t) {
+    const normDesc = (s) => (s || '').trim().toLowerCase();
+    const relKeyOf = (x) => `${x.vehiculo_id}:${x.tarea_maestro_id ? 'm:' + x.tarea_maestro_id : 'd:' + normDesc(x.descripcion)}`;
+    const targetKey = relKeyOf(t);
+
+    const related = (currentData.vehiculo_tareas || [])
+        .filter(x => relKeyOf(x) === targetKey)
+        .sort((a, b) => {
+            const fa = a.fecha_finalizacion || a.ultima_fecha || '';
+            const fb = b.fecha_finalizacion || b.ultima_fecha || '';
+            if (fa !== fb) return fa.localeCompare(fb);
+            return Number(a.id) - Number(b.id);
+        });
+
+    document.getElementById('comp-tarea-subtitle').textContent = `${t.vehiculo_nombre || ''} · ${t.descripcion}`;
+
+    const costs = related.map(x => x.coste).filter(c => c !== null && c !== undefined && c !== '').map(Number);
+    const sumEl = document.getElementById('comp-tarea-summary');
+    if (costs.length > 0) {
+        const total = costs.reduce((acc, v) => acc + v, 0);
+        const avg = total / costs.length;
+        const min = Math.min(...costs);
+        const max = Math.max(...costs);
+        sumEl.innerHTML = `
+            <div style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:0.45rem 0.75rem; font-size:0.8rem;">Registros con coste: <strong>${costs.length}</strong></div>
+            <div style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:0.45rem 0.75rem; font-size:0.8rem;">Total acumulado: <strong>${fmtNum(total, 2)} €</strong></div>
+            <div style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:0.45rem 0.75rem; font-size:0.8rem;">Media: <strong>${fmtNum(avg, 2)} €</strong></div>
+            <div style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:0.45rem 0.75rem; font-size:0.8rem;">Mín / Máx: <strong>${fmtNum(min, 2)} €</strong> / <strong>${fmtNum(max, 2)} €</strong></div>
+        `;
+    } else {
+        sumEl.innerHTML = '<div style="font-size:0.82rem; color:var(--muted);">Aún no hay costes registrados en estas tareas.</div>';
+    }
+
+    const tbody = document.getElementById('comp-tarea-tbody');
+    tbody.innerHTML = '';
+    let prevCost = null;
+    related.forEach(r => {
+        const fecha = r.fecha_finalizacion || r.ultima_fecha || '-';
+        const km = r.km_finalizacion !== null ? r.km_finalizacion : r.ultimo_km;
+        const kmTxt = (km !== null && km !== undefined) ? `${fmtNum(km, 0)} km` : '-';
+        const provTxt = r.proveedor_nombre || '-';
+        const hasCost = (r.coste !== null && r.coste !== undefined && r.coste !== '');
+        const costNum = hasCost ? Number(r.coste) : null;
+        let diffHtml = '-';
+        if (costNum !== null && prevCost !== null) {
+            const diff = costNum - prevCost;
+            const sign = diff > 0 ? '+' : '';
+            const color = diff > 0 ? '#dc2626' : (diff < 0 ? '#16a34a' : 'var(--muted)');
+            const pct = prevCost > 0 ? ` (${sign}${fmtNum((diff / prevCost) * 100, 1)}%)` : '';
+            diffHtml = `<span style="color:${color}; font-weight:700;">${sign}${fmtNum(diff, 2)} €${pct}</span>`;
+        }
+        if (costNum !== null) prevCost = costNum;
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${fecha}</td>
+            <td>${kmTxt}</td>
+            <td>${provTxt}</td>
+            <td style="text-align:right; font-weight:700;">${costNum !== null ? fmtNum(costNum, 2) + ' €' : '-'}</td>
+            <td style="text-align:right;">${diffHtml}</td>
+            <td><small>${r.estado === 'finalizada' ? '✅ Finalizada' : '⏳ Pendiente'}${r.notas ? ' · ' + r.notas : ''}</small></td>
+        `;
+        tbody.appendChild(tr);
+    });
+    document.getElementById('comparativa-tarea-modal').classList.add('active');
+}
+function closeComparativaTareaModal() {
+    document.getElementById('comparativa-tarea-modal').classList.remove('active');
 }
 
 async function sendTaskAlertsEmailNow() {
@@ -2685,11 +3119,16 @@ async function exportTareasPDF(sendByEmail = false) {
         const estadoTxt = t.estado === 'finalizada'
             ? `Finalizada (${t.fecha_finalizacion || '-'})`
             : (t.en_alerta ? `AVISO: ${t.motivo_alerta}` : 'En plazo');
+        const provCost = [
+            t.proveedor_nombre || '',
+            (t.coste !== null && t.coste !== undefined && t.coste !== '') ? `${fmtNum(t.coste, 2)} EUR` : ''
+        ].filter(Boolean).join(' · ') || '-';
         return [
             pdfCleanText(t.vehiculo_nombre || ''),
             pdfCleanText(t.descripcion || ''),
             t.proxima_fecha || '-',
             t.proximo_km !== null ? `${fmtNum(t.proximo_km, 0)} km` : '-',
+            pdfCleanText(provCost),
             pdfCleanText(estadoTxt)
         ];
     });
@@ -2697,10 +3136,10 @@ async function exportTareasPDF(sendByEmail = false) {
     doc.autoTable({
         startY: 32,
         margin: { left: 10, right: 10 },
-        head: [['Vehículo', 'Tarea / Control', 'Próx. Fecha', 'Próx. Km', 'Estado / Margen']],
+        head: [['Vehículo', 'Tarea / Control', 'Próx. Fecha', 'Próx. Km', 'Proveedor / Coste', 'Estado / Margen']],
         body,
         theme: 'grid',
-        styles: { fontSize: 8, cellPadding: 2 },
+        styles: { fontSize: 7.5, cellPadding: 2 },
         headStyles: { fillColor: [15, 23, 42], textColor: 255 }
     });
 

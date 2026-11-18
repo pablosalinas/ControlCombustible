@@ -231,6 +231,35 @@ function ensureAdditiveSchema(PDO $pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `veh_proveedores` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `usuario_id` INT NOT NULL,
+            `tipo` ENUM('taller','aseguradora','itv') NOT NULL DEFAULT 'taller',
+            `nombre` VARCHAR(150) NOT NULL,
+            `telefono` VARCHAR(40) DEFAULT NULL,
+            `localidad` VARCHAR(120) DEFAULT NULL,
+            `direccion` VARCHAR(200) DEFAULT NULL,
+            `notas` VARCHAR(255) DEFAULT NULL,
+            `activo` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX `idx_prov_tipo_activo` (`tipo`, `activo`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    // Columnas aditivas en veh_vehiculo_tareas para proveedor (taller/aseguradora/itv) y coste
+    try {
+        $colProv = $pdo->query("SHOW COLUMNS FROM `veh_vehiculo_tareas` LIKE 'proveedor_id'")->fetch();
+        if (!$colProv) {
+            $pdo->exec("ALTER TABLE `veh_vehiculo_tareas` ADD COLUMN `proveedor_id` INT NULL DEFAULT NULL AFTER `tarea_maestro_id`");
+        }
+        $colCoste = $pdo->query("SHOW COLUMNS FROM `veh_vehiculo_tareas` LIKE 'coste'")->fetch();
+        if (!$colCoste) {
+            $pdo->exec("ALTER TABLE `veh_vehiculo_tareas` ADD COLUMN `coste` DECIMAL(10, 2) NULL DEFAULT NULL AFTER `notas`");
+        }
+    } catch (Exception $e) {}
+
     // Semilla inicial aditiva de tareas comunes si el maestro está vacío
     try {
         $cntTm = (int)$pdo->query("SELECT COUNT(*) FROM `veh_tareas_maestro`")->fetchColumn();

@@ -591,6 +591,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _selectedVehiculoId = 0; // 0 = Todos (Resultado conjunto)
   List<Vehiculo> _vehiculos = [];
   List<EstacionServicio> _estaciones = [];
+  List<Proveedor> _proveedores = [];
   List<TareaMaestro> _tareasMaestro = [];
   List<VehiculoTarea> _vehiculoTareas = [];
   Map<int, double> _ultimoKmPorVehiculo = {};
@@ -623,6 +624,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final estList = (res['estaciones'] as List? ?? [])
             .map((e) => EstacionServicio.fromJson(e as Map<String, dynamic>))
             .toList();
+        final provList = (res['proveedores'] as List? ?? [])
+            .map((e) => Proveedor.fromJson(e as Map<String, dynamic>))
+            .toList();
         final tmList = (res['tareas_maestro'] as List? ?? [])
             .map((e) => TareaMaestro.fromJson(e as Map<String, dynamic>))
             .toList();
@@ -649,6 +653,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _selectedVehiculoId = 0;
             }
             _estaciones = estList;
+            _proveedores = provList;
             _tareasMaestro = tmList;
             _vehiculoTareas = vtList;
             _userEmail = (userMap['email'] ?? '').toString();
@@ -692,6 +697,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         builder: (_) => TareasScreen(
           api: widget.api,
           vehiculos: _vehiculos,
+          proveedores: _proveedores,
           tareasMaestro: _tareasMaestro,
           vehiculoTareas: _vehiculoTareas,
           ultimoKmPorVehiculo: _ultimoKmPorVehiculo,
@@ -1213,6 +1219,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
               await Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => EstacionesScreen(api: widget.api, estaciones: _estaciones),
+                ),
+              );
+              _loadData();
+            },
+          ),
+          IconButton(
+            tooltip: 'Talleres, Aseguradoras e ITVs',
+            icon: const Icon(Icons.build_circle_outlined),
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ProveedoresScreen(api: widget.api, proveedores: _proveedores),
                 ),
               );
               _loadData();
@@ -2343,9 +2361,309 @@ class _EstacionesScreenState extends State<EstacionesScreen> {
   }
 }
 
+Future<Proveedor?> showQuickCreateProveedorDialog(BuildContext context, ApiService api, {String initialTipo = 'taller'}) async {
+  String tipo = initialTipo;
+  final nombreCtrl = TextEditingController();
+  final telCtrl = TextEditingController();
+  final locCtrl = TextEditingController();
+  final dirCtrl = TextEditingController();
+  final notasCtrl = TextEditingController();
+
+  final created = await showDialog<Proveedor?>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setDlg) => AlertDialog(
+        title: const Text('Nuevo Taller / Aseguradora / ITV'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                value: tipo,
+                decoration: const InputDecoration(labelText: 'Tipo *', border: OutlineInputBorder(), isDense: true),
+                items: const [
+                  DropdownMenuItem(value: 'taller', child: Text('Taller')),
+                  DropdownMenuItem(value: 'aseguradora', child: Text('Aseguradora')),
+                  DropdownMenuItem(value: 'itv', child: Text('ITV')),
+                ],
+                onChanged: (v) {
+                  if (v != null) setDlg(() => tipo = v);
+                },
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: nombreCtrl,
+                decoration: const InputDecoration(labelText: 'Nombre *', border: OutlineInputBorder(), isDense: true),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: telCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(labelText: 'Teléfono', border: OutlineInputBorder(), isDense: true),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: locCtrl,
+                decoration: const InputDecoration(labelText: 'Localidad', border: OutlineInputBorder(), isDense: true),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: dirCtrl,
+                decoration: const InputDecoration(labelText: 'Dirección', border: OutlineInputBorder(), isDense: true),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: notasCtrl,
+                decoration: const InputDecoration(labelText: 'Notas', border: OutlineInputBorder(), isDense: true),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Cancelar')),
+          FilledButton(
+            onPressed: () async {
+              if (nombreCtrl.text.trim().isEmpty) return;
+              final res = await api.post('save_proveedor', {
+                'id': 0,
+                'tipo': tipo,
+                'nombre': nombreCtrl.text.trim(),
+                'telefono': telCtrl.text.trim(),
+                'localidad': locCtrl.text.trim(),
+                'direccion': dirCtrl.text.trim(),
+                'notas': notasCtrl.text.trim(),
+              });
+              if (res['success'] == true && res['proveedor'] is Map<String, dynamic>) {
+                if (ctx.mounted) Navigator.pop(ctx, Proveedor.fromJson(res['proveedor'] as Map<String, dynamic>));
+              } else if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(content: Text((res['error'] ?? 'Error al guardar').toString())),
+                );
+              }
+            },
+            child: const Text('Crear'),
+          ),
+        ],
+      ),
+    ),
+  );
+  return created;
+}
+
+class ProveedoresScreen extends StatefulWidget {
+  final ApiService api;
+  final List<Proveedor> proveedores;
+
+  const ProveedoresScreen({super.key, required this.api, required this.proveedores});
+
+  @override
+  State<ProveedoresScreen> createState() => _ProveedoresScreenState();
+}
+
+class _ProveedoresScreenState extends State<ProveedoresScreen> {
+  late List<Proveedor> _list;
+  String _activeTipo = 'taller';
+  final _nombreCtrl = TextEditingController();
+  final _telCtrl = TextEditingController();
+  final _locCtrl = TextEditingController();
+  final _dirCtrl = TextEditingController();
+  final _notasCtrl = TextEditingController();
+  int _editingId = 0;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _list = List<Proveedor>.from(widget.proveedores);
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    setState(() => _loading = true);
+    try {
+      final res = await widget.api.post('list_proveedores', {});
+      if (res['success'] == true && mounted) {
+        setState(() {
+          _list = (res['proveedores'] as List? ?? [])
+              .map((e) => Proveedor.fromJson(e as Map<String, dynamic>))
+              .toList();
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _resetForm() {
+    setState(() {
+      _editingId = 0;
+      _nombreCtrl.clear();
+      _telCtrl.clear();
+      _locCtrl.clear();
+      _dirCtrl.clear();
+      _notasCtrl.clear();
+    });
+  }
+
+  Future<void> _save() async {
+    if (_nombreCtrl.text.trim().isEmpty) return;
+    final res = await widget.api.post('save_proveedor', {
+      'id': _editingId,
+      'tipo': _activeTipo,
+      'nombre': _nombreCtrl.text.trim(),
+      'telefono': _telCtrl.text.trim(),
+      'localidad': _locCtrl.text.trim(),
+      'direccion': _dirCtrl.text.trim(),
+      'notas': _notasCtrl.text.trim(),
+    });
+    if (res['success'] == true) {
+      _resetForm();
+      await _reload();
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['error'] ?? 'Error al guardar').toString())),
+      );
+    }
+  }
+
+  Future<void> _deactivate(int id) async {
+    await widget.api.post('deactivate_proveedor', {'id': id});
+    await _reload();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _list.where((p) => p.tipo == _activeTipo).toList();
+    final tipoLabel = _activeTipo == 'aseguradora' ? 'Aseguradora' : (_activeTipo == 'itv' ? 'ITV' : 'Taller');
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Talleres, Aseguradoras e ITVs'),
+          bottom: TabBar(
+            onTap: (idx) {
+              setState(() {
+                _activeTipo = idx == 0 ? 'taller' : (idx == 1 ? 'aseguradora' : 'itv');
+              });
+              _resetForm();
+            },
+            tabs: const [
+              Tab(icon: Icon(Icons.build), text: 'Talleres'),
+              Tab(icon: Icon(Icons.shield_outlined), text: 'Aseguradoras'),
+              Tab(icon: Icon(Icons.fact_check_outlined), text: 'ITVs'),
+            ],
+          ),
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  if (filtered.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 20),
+                      child: Center(child: Text('No hay registros en esta categoría.')),
+                    )
+                  else
+                    ...filtered.map(
+                      (p) => Card(
+                        child: ListTile(
+                          leading: Icon(
+                            p.tipo == 'aseguradora'
+                                ? Icons.shield_outlined
+                                : (p.tipo == 'itv' ? Icons.fact_check_outlined : Icons.build),
+                            color: const Color(0xFF0284C7),
+                          ),
+                          title: Text(p.nombre, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Text([
+                            if (p.telefono.isNotEmpty) 'Tel: ${p.telefono}',
+                            if (p.localidad.isNotEmpty) p.localidad,
+                            if (p.direccion.isNotEmpty) p.direccion,
+                            if (p.notas.isNotEmpty) p.notas,
+                          ].join(' · ')),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit),
+                                onPressed: () {
+                                  setState(() {
+                                    _editingId = p.id;
+                                    _nombreCtrl.text = p.nombre;
+                                    _telCtrl.text = p.telefono;
+                                    _locCtrl.text = p.localidad;
+                                    _dirCtrl.text = p.direccion;
+                                    _notasCtrl.text = p.notas;
+                                  });
+                                },
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                onPressed: () => _deactivate(p.id),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  const Divider(height: 32),
+                  Text(
+                    _editingId == 0 ? 'Añadir $tipoLabel' : 'Editar $tipoLabel',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _nombreCtrl,
+                    decoration: InputDecoration(labelText: 'Nombre ($tipoLabel) *', border: const OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _telCtrl,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(labelText: 'Teléfono', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _locCtrl,
+                    decoration: const InputDecoration(labelText: 'Localidad', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _dirCtrl,
+                    decoration: const InputDecoration(labelText: 'Dirección', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _notasCtrl,
+                    decoration: const InputDecoration(labelText: 'Notas', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      if (_editingId > 0) ...[
+                        OutlinedButton(onPressed: _resetForm, child: const Text('Cancelar')),
+                        const SizedBox(width: 10),
+                      ],
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _save,
+                          icon: const Icon(Icons.save),
+                          label: Text('Guardar $tipoLabel'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
 class TareasScreen extends StatefulWidget {
   final ApiService api;
   final List<Vehiculo> vehiculos;
+  final List<Proveedor> proveedores;
   final List<TareaMaestro> tareasMaestro;
   final List<VehiculoTarea> vehiculoTareas;
   final Map<int, double> ultimoKmPorVehiculo;
@@ -2355,6 +2673,7 @@ class TareasScreen extends StatefulWidget {
     super.key,
     required this.api,
     required this.vehiculos,
+    required this.proveedores,
     required this.tareasMaestro,
     required this.vehiculoTareas,
     required this.ultimoKmPorVehiculo,
@@ -2369,6 +2688,7 @@ class _TareasScreenState extends State<TareasScreen> {
   late int _vehiculoId;
   String _estadoFilter = 'todas'; // 'todas', 'pendiente', 'proximas', 'finalizada'
   String _search = '';
+  late List<Proveedor> _proveedores;
   late List<TareaMaestro> _maestro;
   late List<VehiculoTarea> _tareas;
   bool _loading = false;
@@ -2377,6 +2697,7 @@ class _TareasScreenState extends State<TareasScreen> {
   void initState() {
     super.initState();
     _vehiculoId = widget.initialVehiculoId;
+    _proveedores = List<Proveedor>.from(widget.proveedores);
     _maestro = widget.tareasMaestro;
     _tareas = widget.vehiculoTareas;
     _reload();
@@ -2388,6 +2709,9 @@ class _TareasScreenState extends State<TareasScreen> {
       final res = await widget.api.post('dashboard', {'vehiculo_id': _vehiculoId});
       if (res['success'] == true && mounted) {
         setState(() {
+          _proveedores = (res['proveedores'] as List? ?? [])
+              .map((e) => Proveedor.fromJson(e as Map<String, dynamic>))
+              .toList();
           _maestro = (res['tareas_maestro'] as List? ?? [])
               .map((e) => TareaMaestro.fromJson(e as Map<String, dynamic>))
               .toList();
@@ -2419,7 +2743,9 @@ class _TareasScreenState extends State<TareasScreen> {
   Future<void> _completeTask(VehiculoTarea t) async {
     final fechaCtrl = TextEditingController(text: DateTime.now().toIso8601String().substring(0, 10));
     final kmCtrl = TextEditingController(text: t.kmActual > 0 ? t.kmActual.toStringAsFixed(0) : '');
+    final costeCtrl = TextEditingController(text: t.coste != null ? t.coste!.toStringAsFixed(2) : '');
     final notasCtrl = TextEditingController();
+    int selectedProvId = (t.proveedorId != null && _proveedores.any((p) => p.id == t.proveedorId)) ? t.proveedorId! : 0;
     bool crearSiguiente = true;
 
     final ok = await showDialog<bool>(
@@ -2445,9 +2771,49 @@ class _TareasScreenState extends State<TareasScreen> {
                   decoration: const InputDecoration(labelText: 'Km al realizarla', border: OutlineInputBorder(), isDense: true),
                 ),
                 const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        value: selectedProvId,
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'Taller / Aseguradora / ITV', border: OutlineInputBorder(), isDense: true),
+                        items: [
+                          const DropdownMenuItem(value: 0, child: Text('-- Sin especificar --')),
+                          ..._proveedores.map(
+                            (p) => DropdownMenuItem(
+                              value: p.id,
+                              child: Text('[${p.tipoLabel}] ${p.nombre}', overflow: TextOverflow.ellipsis),
+                            ),
+                          ),
+                        ],
+                        onChanged: (v) => setDlg(() => selectedProvId = v ?? 0),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      tooltip: 'Crear Taller / Aseguradora / ITV',
+                      icon: const Icon(Icons.add_circle_outline, color: Color(0xFF0F766E)),
+                      onPressed: () async {
+                        final created = await showQuickCreateProveedorDialog(ctx, widget.api);
+                        if (created != null) {
+                          setState(() => _proveedores.add(created));
+                          setDlg(() => selectedProvId = created.id);
+                        }
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: costeCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Coste / Precio (€)', border: OutlineInputBorder(), isDense: true),
+                ),
+                const SizedBox(height: 10),
                 TextField(
                   controller: notasCtrl,
-                  decoration: const InputDecoration(labelText: 'Notas (taller, observaciones...)', border: OutlineInputBorder(), isDense: true),
+                  decoration: const InputDecoration(labelText: 'Notas (observaciones...)', border: OutlineInputBorder(), isDense: true),
                 ),
                 const SizedBox(height: 6),
                 CheckboxListTile(
@@ -2471,6 +2837,8 @@ class _TareasScreenState extends State<TareasScreen> {
         'id': t.id,
         'fecha_finalizacion': fechaCtrl.text.trim(),
         'km_finalizacion': kmCtrl.text.trim(),
+        'proveedor_id': selectedProvId,
+        'coste': costeCtrl.text.trim(),
         'notas': notasCtrl.text.trim(),
         'crear_siguiente': crearSiguiente ? 1 : 0,
       });
@@ -2481,6 +2849,98 @@ class _TareasScreenState extends State<TareasScreen> {
         _reload();
       }
     }
+  }
+
+  void _showComparativaDialog(VehiculoTarea t) {
+    String relKey(VehiculoTarea x) =>
+        '${x.vehiculoId}:${x.tareaMaestroId != null && x.tareaMaestroId! > 0 ? "m:${x.tareaMaestroId}" : "d:${x.descripcion.trim().toLowerCase()}"}';
+    final targetKey = relKey(t);
+    final related = _tareas.where((x) => relKey(x) == targetKey).toList()
+      ..sort((a, b) {
+        final fa = a.fechaFinalizacion.isNotEmpty ? a.fechaFinalizacion : a.ultimaFecha;
+        final fb = b.fechaFinalizacion.isNotEmpty ? b.fechaFinalizacion : b.ultimaFecha;
+        final cmp = fa.compareTo(fb);
+        return cmp != 0 ? cmp : a.id.compareTo(b.id);
+      });
+    final costs = related.where((x) => x.coste != null).map((x) => x.coste!).toList();
+    final total = costs.fold<double>(0.0, (a, b) => a + b);
+    final avg = costs.isNotEmpty ? total / costs.length : 0.0;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Comparativa de Costes'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${t.vehiculoNombre} · ${t.descripcion}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                if (costs.isNotEmpty)
+                  Text(
+                    'Registros: ${costs.length} · Total: ${total.toStringAsFixed(2)} € · Media: ${avg.toStringAsFixed(2)} €',
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF0F766E), fontWeight: FontWeight.w600),
+                  )
+                else
+                  const Text('Aún no hay costes registrados.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const Divider(height: 16),
+                ...(() {
+                  double? prevCost;
+                  return related.map((r) {
+                    final fecha = r.fechaFinalizacion.isNotEmpty ? r.fechaFinalizacion : (r.ultimaFecha.isNotEmpty ? r.ultimaFecha : '-');
+                    final km = r.kmFinalizacion ?? r.ultimoKm;
+                    String diffTxt = '';
+                    Color diffColor = Colors.grey;
+                    if (r.coste != null && prevCost != null) {
+                      final diff = r.coste! - prevCost!;
+                      final sign = diff > 0 ? '+' : '';
+                      final pct = prevCost! > 0 ? ' (${sign}${((diff / prevCost!) * 100).toStringAsFixed(1)}%)' : '';
+                      diffTxt = '$sign${diff.toStringAsFixed(2)} €$pct';
+                      diffColor = diff > 0 ? Colors.red : (diff < 0 ? Colors.green : Colors.grey);
+                    }
+                    if (r.coste != null) prevCost = r.coste;
+                    return ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        '$fecha ${km != null ? "· ${km.toStringAsFixed(0)} km" : ""}',
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
+                      subtitle: Text(
+                        [
+                          if (r.proveedorNombre.isNotEmpty) r.proveedorNombre,
+                          r.estado == 'finalizada' ? 'Finalizada' : 'Pendiente',
+                          if (r.notas.isNotEmpty) r.notas,
+                        ].join(' · '),
+                        style: const TextStyle(fontSize: 11.5),
+                      ),
+                      trailing: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            r.coste != null ? '${r.coste!.toStringAsFixed(2)} €' : '-',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                          if (diffTxt.isNotEmpty)
+                            Text(diffTxt, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: diffColor)),
+                        ],
+                      ),
+                    );
+                  }).toList();
+                })(),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar')),
+        ],
+      ),
+    );
   }
 
   Future<void> _exportPdf({bool sendEmail = false}) async {
@@ -2605,6 +3065,18 @@ class _TareasScreenState extends State<TareasScreen> {
             onPressed: () async {
               await Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => TareasMaestroScreen(api: widget.api, initialList: _maestro)),
+              );
+              _reload();
+            },
+          ),
+          IconButton(
+            tooltip: 'Talleres, Aseguradoras e ITVs',
+            icon: const Icon(Icons.build_circle_outlined),
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ProveedoresScreen(api: widget.api, proveedores: _proveedores),
+                ),
               );
               _reload();
             },
@@ -2745,11 +3217,49 @@ class _TareasScreenState extends State<TareasScreen> {
                                     'Próx. Fecha: ${t.proximaFecha.isNotEmpty ? t.proximaFecha : "-"} · Próx. Km: ${t.proximoKm != null ? "${t.proximoKm!.toStringAsFixed(0)} km" : "-"}',
                                     style: const TextStyle(fontSize: 12, color: Colors.black87),
                                   ),
+                                  if (t.proveedorNombre.isNotEmpty || t.coste != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Wrap(
+                                        spacing: 8,
+                                        runSpacing: 4,
+                                        crossAxisAlignment: WrapCrossAlignment.center,
+                                        children: [
+                                          if (t.proveedorNombre.isNotEmpty)
+                                            Text(
+                                              '${t.proveedorTipo == "aseguradora" ? "Aseguradora" : (t.proveedorTipo == "itv" ? "ITV" : "Taller")}: ${t.proveedorNombre}',
+                                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0369A1)),
+                                            ),
+                                          if (t.coste != null)
+                                            Text(
+                                              'Coste: ${t.coste!.toStringAsFixed(2)} €',
+                                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                            ),
+                                          if (t.diferenciaCoste != null)
+                                            Text(
+                                              '${t.diferenciaCoste! > 0 ? "+" : ""}${t.diferenciaCoste!.toStringAsFixed(2)} €${t.porcentajeCoste != null ? " (${t.diferenciaCoste! > 0 ? "+" : ""}${t.porcentajeCoste!.toStringAsFixed(1)}%)" : ""}',
+                                              style: TextStyle(
+                                                fontSize: 11.5,
+                                                fontWeight: FontWeight.bold,
+                                                color: t.diferenciaCoste! > 0
+                                                    ? Colors.red
+                                                    : (t.diferenciaCoste! < 0 ? Colors.green : Colors.grey),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
                                   if (t.notas.isNotEmpty)
                                     Text('Notas: ${t.notas}', style: const TextStyle(fontSize: 11.5, fontStyle: FontStyle.italic)),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
+                                  Wrap(
+                                    alignment: WrapAlignment.end,
                                     children: [
+                                      if (t.relacionadasCount > 1 || t.coste != null)
+                                        TextButton.icon(
+                                          onPressed: () => _showComparativaDialog(t),
+                                          icon: const Icon(Icons.analytics_outlined, size: 18, color: Color(0xFF0284C7)),
+                                          label: const Text('Comparar', style: TextStyle(color: Color(0xFF0284C7))),
+                                        ),
                                       if (t.estado == 'pendiente') ...[
                                         TextButton.icon(
                                           onPressed: () => _completeTask(t),
@@ -2763,6 +3273,7 @@ class _TareasScreenState extends State<TareasScreen> {
                                                 builder: (_) => VehiculoTareaFormScreen(
                                                   api: widget.api,
                                                   vehiculos: widget.vehiculos,
+                                                  proveedores: _proveedores,
                                                   maestro: _maestro,
                                                   ultimoKmPorVehiculo: widget.ultimoKmPorVehiculo,
                                                   editItem: t,
@@ -2802,6 +3313,7 @@ class _TareasScreenState extends State<TareasScreen> {
               builder: (_) => VehiculoTareaFormScreen(
                 api: widget.api,
                 vehiculos: widget.vehiculos,
+                proveedores: _proveedores,
                 maestro: _maestro,
                 ultimoKmPorVehiculo: widget.ultimoKmPorVehiculo,
                 initialVehiculoId: _vehiculoId > 0 ? _vehiculoId : widget.vehiculos.first.id,
@@ -2820,6 +3332,7 @@ class _TareasScreenState extends State<TareasScreen> {
 class VehiculoTareaFormScreen extends StatefulWidget {
   final ApiService api;
   final List<Vehiculo> vehiculos;
+  final List<Proveedor> proveedores;
   final List<TareaMaestro> maestro;
   final Map<int, double> ultimoKmPorVehiculo;
   final int? initialVehiculoId;
@@ -2829,6 +3342,7 @@ class VehiculoTareaFormScreen extends StatefulWidget {
     super.key,
     required this.api,
     required this.vehiculos,
+    required this.proveedores,
     required this.maestro,
     required this.ultimoKmPorVehiculo,
     this.initialVehiculoId,
@@ -2842,6 +3356,8 @@ class VehiculoTareaFormScreen extends StatefulWidget {
 class _VehiculoTareaFormScreenState extends State<VehiculoTareaFormScreen> {
   late int _vehiculoId;
   int _maestroId = 0;
+  int _proveedorId = 0;
+  late List<Proveedor> _proveedores;
   String _tipo = 'ambos';
   bool _avisarTiempoSinKm = true;
   late TextEditingController _descCtrl;
@@ -2849,14 +3365,17 @@ class _VehiculoTareaFormScreenState extends State<VehiculoTareaFormScreen> {
   late TextEditingController _kmCtrl;
   late TextEditingController _ultFechaCtrl;
   late TextEditingController _ultKmCtrl;
+  late TextEditingController _costeCtrl;
   late TextEditingController _notasCtrl;
 
   @override
   void initState() {
     super.initState();
     final e = widget.editItem;
+    _proveedores = List<Proveedor>.from(widget.proveedores);
     _vehiculoId = e?.vehiculoId ?? widget.initialVehiculoId ?? widget.vehiculos.first.id;
     _maestroId = e?.tareaMaestroId ?? 0;
+    _proveedorId = (e?.proveedorId != null && _proveedores.any((p) => p.id == e!.proveedorId)) ? e!.proveedorId! : 0;
     _tipo = e?.tipoPeriodicidad ?? 'ambos';
     _avisarTiempoSinKm = e?.avisarPorTiempoSiNoKm ?? true;
     _descCtrl = TextEditingController(text: e?.descripcion ?? '');
@@ -2865,6 +3384,7 @@ class _VehiculoTareaFormScreenState extends State<VehiculoTareaFormScreen> {
     _ultFechaCtrl = TextEditingController(text: e?.ultimaFecha.isNotEmpty == true ? e!.ultimaFecha : DateTime.now().toIso8601String().substring(0, 10));
     final defKm = e?.ultimoKm ?? widget.ultimoKmPorVehiculo[_vehiculoId];
     _ultKmCtrl = TextEditingController(text: defKm != null ? defKm.toStringAsFixed(0) : '');
+    _costeCtrl = TextEditingController(text: e?.coste != null ? e!.coste!.toStringAsFixed(2) : '');
     _notasCtrl = TextEditingController(text: e?.notas ?? '');
   }
 
@@ -2873,12 +3393,14 @@ class _VehiculoTareaFormScreenState extends State<VehiculoTareaFormScreen> {
       'id': widget.editItem?.id ?? 0,
       'vehiculo_id': _vehiculoId,
       'tarea_maestro_id': _maestroId,
+      'proveedor_id': _proveedorId,
       'descripcion': _descCtrl.text.trim(),
       'tipo_periodicidad': _tipo,
       'periodo_dias': _diasCtrl.text.trim(),
       'periodo_km': _kmCtrl.text.trim(),
       'ultima_fecha': _ultFechaCtrl.text.trim(),
       'ultimo_km': _ultKmCtrl.text.trim(),
+      'coste': _costeCtrl.text.trim(),
       'avisar_por_tiempo_si_no_km': _avisarTiempoSinKm ? 1 : 0,
       'notas': _notasCtrl.text.trim(),
     });
@@ -2981,6 +3503,48 @@ class _VehiculoTareaFormScreenState extends State<VehiculoTareaFormScreen> {
             controller: _ultKmCtrl,
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(labelText: 'Km última realización / inicio', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<int>(
+                  value: _proveedorId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Taller / Aseguradora / ITV', border: OutlineInputBorder()),
+                  items: [
+                    const DropdownMenuItem(value: 0, child: Text('-- Sin especificar --')),
+                    ..._proveedores.map(
+                      (p) => DropdownMenuItem(
+                        value: p.id,
+                        child: Text('[${p.tipoLabel}] ${p.nombre}', overflow: TextOverflow.ellipsis),
+                      ),
+                    ),
+                  ],
+                  onChanged: (v) => setState(() => _proveedorId = v ?? 0),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.outlined(
+                tooltip: 'Crear Taller / Aseguradora / ITV',
+                icon: const Icon(Icons.add),
+                onPressed: () async {
+                  final created = await showQuickCreateProveedorDialog(context, widget.api);
+                  if (created != null && mounted) {
+                    setState(() {
+                      _proveedores.add(created);
+                      _proveedorId = created.id;
+                    });
+                  }
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _costeCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Coste / Precio (€) (Opcional)', border: OutlineInputBorder()),
           ),
           const SizedBox(height: 12),
           TextField(
