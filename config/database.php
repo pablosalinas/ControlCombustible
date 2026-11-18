@@ -248,7 +248,7 @@ function ensureAdditiveSchema(PDO $pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 
-    // Columnas aditivas en veh_vehiculo_tareas para proveedor (taller/aseguradora/itv) y coste
+    // Columnas aditivas en veh_vehiculo_tareas para proveedor (taller/aseguradora/itv), coste, garantía y tipo 'unica'
     try {
         $colProv = $pdo->query("SHOW COLUMNS FROM `veh_vehiculo_tareas` LIKE 'proveedor_id'")->fetch();
         if (!$colProv) {
@@ -257,6 +257,18 @@ function ensureAdditiveSchema(PDO $pdo) {
         $colCoste = $pdo->query("SHOW COLUMNS FROM `veh_vehiculo_tareas` LIKE 'coste'")->fetch();
         if (!$colCoste) {
             $pdo->exec("ALTER TABLE `veh_vehiculo_tareas` ADD COLUMN `coste` DECIMAL(10, 2) NULL DEFAULT NULL AFTER `notas`");
+        }
+        $colGarantia = $pdo->query("SHOW COLUMNS FROM `veh_vehiculo_tareas` LIKE 'garantia_meses'")->fetch();
+        if (!$colGarantia) {
+            $pdo->exec("ALTER TABLE `veh_vehiculo_tareas` ADD COLUMN `garantia_meses` INT NULL DEFAULT NULL AFTER `coste`");
+        }
+        $colTipoVt = $pdo->query("SHOW COLUMNS FROM `veh_vehiculo_tareas` LIKE 'tipo_periodicidad'")->fetch();
+        if ($colTipoVt && isset($colTipoVt['Type']) && strpos($colTipoVt['Type'], "'unica'") === false) {
+            $pdo->exec("ALTER TABLE `veh_vehiculo_tareas` MODIFY COLUMN `tipo_periodicidad` ENUM('tiempo','kilometros','ambos','unica') NOT NULL DEFAULT 'ambos'");
+        }
+        $colTipoTm = $pdo->query("SHOW COLUMNS FROM `veh_tareas_maestro` LIKE 'tipo_periodicidad'")->fetch();
+        if ($colTipoTm && isset($colTipoTm['Type']) && strpos($colTipoTm['Type'], "'unica'") === false) {
+            $pdo->exec("ALTER TABLE `veh_tareas_maestro` MODIFY COLUMN `tipo_periodicidad` ENUM('tiempo','kilometros','ambos','unica') NOT NULL DEFAULT 'ambos'");
         }
     } catch (Exception $e) {}
 

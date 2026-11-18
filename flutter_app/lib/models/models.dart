@@ -317,6 +317,8 @@ class VehiculoTarea {
   final double? diferenciaCoste;
   final double? porcentajeCoste;
   final int relacionadasCount;
+  final int? garantiaMeses;
+  final String garantiaHasta;
 
   VehiculoTarea({
     required this.id,
@@ -351,6 +353,8 @@ class VehiculoTarea {
     this.diferenciaCoste,
     this.porcentajeCoste,
     required this.relacionadasCount,
+    this.garantiaMeses,
+    required this.garantiaHasta,
   });
 
   factory VehiculoTarea.fromJson(Map<String, dynamic> j) {
@@ -387,6 +391,8 @@ class VehiculoTarea {
       diferenciaCoste: j['diferencia_coste'] != null ? double.tryParse(j['diferencia_coste'].toString()) : null,
       porcentajeCoste: j['porcentaje_coste'] != null ? double.tryParse(j['porcentaje_coste'].toString()) : null,
       relacionadasCount: int.tryParse((j['relacionadas_count'] ?? 0).toString()) ?? 0,
+      garantiaMeses: j['garantia_meses'] != null ? int.tryParse(j['garantia_meses'].toString()) : null,
+      garantiaHasta: (j['garantia_hasta'] ?? '').toString(),
     );
   }
 }

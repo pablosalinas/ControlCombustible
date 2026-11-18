@@ -2744,9 +2744,10 @@ class _TareasScreenState extends State<TareasScreen> {
     final fechaCtrl = TextEditingController(text: DateTime.now().toIso8601String().substring(0, 10));
     final kmCtrl = TextEditingController(text: t.kmActual > 0 ? t.kmActual.toStringAsFixed(0) : '');
     final costeCtrl = TextEditingController(text: t.coste != null ? t.coste!.toStringAsFixed(2) : '');
+    final garantiaCtrl = TextEditingController(text: t.garantiaMeses != null ? t.garantiaMeses.toString() : '');
     final notasCtrl = TextEditingController();
     int selectedProvId = (t.proveedorId != null && _proveedores.any((p) => p.id == t.proveedorId)) ? t.proveedorId! : 0;
-    bool crearSiguiente = true;
+    final bool isRenewable = t.tipoPeriodicidad != 'unica' && ((t.periodoDias ?? 0) > 0 || (t.periodoKm ?? 0) > 0);
 
     final ok = await showDialog<bool>(
       context: context,
@@ -2812,15 +2813,14 @@ class _TareasScreenState extends State<TareasScreen> {
                 ),
                 const SizedBox(height: 10),
                 TextField(
+                  controller: garantiaCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Garantía (meses, opcional)', border: OutlineInputBorder(), isDense: true),
+                ),
+                const SizedBox(height: 10),
+                TextField(
                   controller: notasCtrl,
                   decoration: const InputDecoration(labelText: 'Notas (observaciones...)', border: OutlineInputBorder(), isDense: true),
-                ),
-                const SizedBox(height: 6),
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: crearSiguiente,
-                  onChanged: (v) => setDlg(() => crearSiguiente = v ?? true),
-                  title: const Text('Programar siguiente repetición automática', style: TextStyle(fontSize: 13)),
                 ),
               ],
             ),
@@ -2833,15 +2833,54 @@ class _TareasScreenState extends State<TareasScreen> {
       ),
     );
     if (ok == true) {
+      int crearSiguiente = 0;
+      if (isRenewable && mounted) {
+        final renew = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Siguiente periodo'),
+            content: const Text('Esta tarea es periódica. ¿Deseas registrar también una tarea para el siguiente periodo?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Solo finalizar')),
+              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sí, crear siguiente')),
+            ],
+          ),
+        );
+        crearSiguiente = (renew == true) ? 1 : 0;
+      }
       final res = await widget.api.post('complete_vehiculo_tarea', {
         'id': t.id,
         'fecha_finalizacion': fechaCtrl.text.trim(),
         'km_finalizacion': kmCtrl.text.trim(),
         'proveedor_id': selectedProvId,
         'coste': costeCtrl.text.trim(),
+        'garantia_meses': garantiaCtrl.text.trim(),
         'notas': notasCtrl.text.trim(),
-        'crear_siguiente': crearSiguiente ? 1 : 0,
+        'crear_siguiente': crearSiguiente,
       });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Actualizado').toString())),
+        );
+        _reload();
+      }
+    }
+  }
+
+  Future<void> _reopenTask(VehiculoTarea t) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Deshacer finalización'),
+        content: Text('¿Volver a dejar "${t.descripcion}" como pendiente?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sí, reabrir')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      final res = await widget.api.post('reopen_vehiculo_tarea', {'id': t.id});
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Actualizado').toString())),
@@ -3175,6 +3214,10 @@ class _TareasScreenState extends State<TareasScreen> {
                             badgeBg = Colors.grey.shade200;
                             badgeFg = Colors.grey.shade800;
                             badgeText = 'Finalizada (${t.fechaFinalizacion})';
+                          } else if (t.tipoPeriodicidad == 'unica') {
+                            badgeBg = const Color(0xFFE0F2FE);
+                            badgeFg = const Color(0xFF0369A1);
+                            badgeText = 'Reparación / Única (No periódica)';
                           } else if (t.vencida) {
                             badgeBg = Colors.red.shade50;
                             badgeFg = Colors.red.shade800;
@@ -3214,9 +3257,19 @@ class _TareasScreenState extends State<TareasScreen> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Próx. Fecha: ${t.proximaFecha.isNotEmpty ? t.proximaFecha : "-"} · Próx. Km: ${t.proximoKm != null ? "${t.proximoKm!.toStringAsFixed(0)} km" : "-"}',
+                                    t.tipoPeriodicidad == 'unica'
+                                        ? 'Fecha: ${t.ultimaFecha.isNotEmpty ? t.ultimaFecha : "-"} · Km: ${t.ultimoKm != null ? "${t.ultimoKm!.toStringAsFixed(0)} km" : "-"}'
+                                        : 'Próx. Fecha: ${t.proximaFecha.isNotEmpty ? t.proximaFecha : "-"} · Próx. Km: ${t.proximoKm != null ? "${t.proximoKm!.toStringAsFixed(0)} km" : "-"}',
                                     style: const TextStyle(fontSize: 12, color: Colors.black87),
                                   ),
+                                  if (t.garantiaMeses != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 3),
+                                      child: Text(
+                                        'Garantía: ${t.garantiaMeses} meses${t.garantiaHasta.isNotEmpty ? " (hasta ${t.garantiaHasta})" : ""}',
+                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0369A1)),
+                                      ),
+                                    ),
                                   if (t.proveedorNombre.isNotEmpty || t.coste != null)
                                     Padding(
                                       padding: const EdgeInsets.only(top: 4),
@@ -3286,6 +3339,12 @@ class _TareasScreenState extends State<TareasScreen> {
                                           label: const Text('Editar'),
                                         ),
                                       ],
+                                      if (t.estado == 'finalizada')
+                                        TextButton.icon(
+                                          onPressed: () => _reopenTask(t),
+                                          icon: const Icon(Icons.undo, size: 18, color: Color(0xFFD97706)),
+                                          label: const Text('Reabrir', style: TextStyle(color: Color(0xFFD97706))),
+                                        ),
                                       TextButton.icon(
                                         onPressed: () async {
                                           await widget.api.post('deactivate_vehiculo_tarea', {'id': t.id});
@@ -3366,6 +3425,7 @@ class _VehiculoTareaFormScreenState extends State<VehiculoTareaFormScreen> {
   late TextEditingController _ultFechaCtrl;
   late TextEditingController _ultKmCtrl;
   late TextEditingController _costeCtrl;
+  late TextEditingController _garantiaCtrl;
   late TextEditingController _notasCtrl;
 
   @override
@@ -3385,6 +3445,7 @@ class _VehiculoTareaFormScreenState extends State<VehiculoTareaFormScreen> {
     final defKm = e?.ultimoKm ?? widget.ultimoKmPorVehiculo[_vehiculoId];
     _ultKmCtrl = TextEditingController(text: defKm != null ? defKm.toStringAsFixed(0) : '');
     _costeCtrl = TextEditingController(text: e?.coste != null ? e!.coste!.toStringAsFixed(2) : '');
+    _garantiaCtrl = TextEditingController(text: e?.garantiaMeses != null ? e!.garantiaMeses.toString() : '');
     _notasCtrl = TextEditingController(text: e?.notas ?? '');
   }
 
@@ -3396,12 +3457,13 @@ class _VehiculoTareaFormScreenState extends State<VehiculoTareaFormScreen> {
       'proveedor_id': _proveedorId,
       'descripcion': _descCtrl.text.trim(),
       'tipo_periodicidad': _tipo,
-      'periodo_dias': _diasCtrl.text.trim(),
-      'periodo_km': _kmCtrl.text.trim(),
+      'periodo_dias': _tipo == 'unica' ? '' : _diasCtrl.text.trim(),
+      'periodo_km': _tipo == 'unica' ? '' : _kmCtrl.text.trim(),
       'ultima_fecha': _ultFechaCtrl.text.trim(),
       'ultimo_km': _ultKmCtrl.text.trim(),
       'coste': _costeCtrl.text.trim(),
-      'avisar_por_tiempo_si_no_km': _avisarTiempoSinKm ? 1 : 0,
+      'garantia_meses': _garantiaCtrl.text.trim(),
+      'avisar_por_tiempo_si_no_km': (_tipo != 'unica' && _avisarTiempoSinKm) ? 1 : 0,
       'notas': _notasCtrl.text.trim(),
     });
     if (res['success'] == true && mounted) {
@@ -3465,13 +3527,22 @@ class _VehiculoTareaFormScreenState extends State<VehiculoTareaFormScreen> {
               DropdownMenuItem(value: 'ambos', child: Text('Tiempo y Kilómetros (Ambos)')),
               DropdownMenuItem(value: 'kilometros', child: Text('Solo Kilómetros')),
               DropdownMenuItem(value: 'tiempo', child: Text('Solo Tiempo (Días)')),
+              DropdownMenuItem(value: 'unica', child: Text('Única / Reparación (No periódica)')),
             ],
             onChanged: (v) {
-              if (v != null) setState(() => _tipo = v);
+              if (v != null) {
+                setState(() {
+                  _tipo = v;
+                  if (v == 'unica') {
+                    _diasCtrl.clear();
+                    _kmCtrl.clear();
+                  }
+                });
+              }
             },
           ),
           const SizedBox(height: 12),
-          if (_tipo != 'kilometros') ...[
+          if (_tipo != 'kilometros' && _tipo != 'unica') ...[
             TextField(
               controller: _diasCtrl,
               keyboardType: TextInputType.number,
@@ -3479,7 +3550,7 @@ class _VehiculoTareaFormScreenState extends State<VehiculoTareaFormScreen> {
             ),
             const SizedBox(height: 12),
           ],
-          if (_tipo != 'tiempo') ...[
+          if (_tipo != 'tiempo' && _tipo != 'unica') ...[
             TextField(
               controller: _kmCtrl,
               keyboardType: TextInputType.number,
@@ -3487,12 +3558,13 @@ class _VehiculoTareaFormScreenState extends State<VehiculoTareaFormScreen> {
             ),
             const SizedBox(height: 12),
           ],
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Avisar por tiempo aunque no llegue al kilometraje'),
-            value: _avisarTiempoSinKm,
-            onChanged: (v) => setState(() => _avisarTiempoSinKm = v),
-          ),
+          if (_tipo != 'unica')
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Avisar por tiempo aunque no llegue al kilometraje'),
+              value: _avisarTiempoSinKm,
+              onChanged: (v) => setState(() => _avisarTiempoSinKm = v),
+            ),
           const SizedBox(height: 8),
           TextField(
             controller: _ultFechaCtrl,
@@ -3545,6 +3617,12 @@ class _VehiculoTareaFormScreenState extends State<VehiculoTareaFormScreen> {
             controller: _costeCtrl,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(labelText: 'Coste / Precio (€) (Opcional)', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _garantiaCtrl,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Garantía (meses, opcional)', border: OutlineInputBorder()),
           ),
           const SizedBox(height: 12),
           TextField(

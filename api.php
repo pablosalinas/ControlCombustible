@@ -209,6 +209,9 @@ function authenticateMoratallaUser(PDO $pdo, array $jsonBody) {
 
 function computeNextTaskTargets($tipo, $ultimaFecha, $ultimoKm, $periodoDias, $periodoKm)
 {
+    if ($tipo === 'unica') {
+        return array(null, null);
+    }
     $proximaFecha = null;
     $proximoKm    = null;
 
@@ -322,7 +325,9 @@ function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $es
             $alertaTiempo = ($diasRestantes !== null && $diasRestantes <= 15);
             $vencidaTiempo = ($diasRestantes !== null && $diasRestantes <= 0);
 
-            if ($tipo === 'kilometros') {
+            if ($tipo === 'unica') {
+                // Tarea única / reparación: sin renovación ni alertas periódicas
+            } elseif ($tipo === 'kilometros') {
                 if ($alertaKm) {
                     $enAlerta = true;
                     $vencida = $vencidaKm;
@@ -367,6 +372,18 @@ function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $es
         $relKeyRow = (int)$row['vehiculo_id'] . ':' . (!empty($row['tarea_maestro_id']) ? ('m:' . (int)$row['tarea_maestro_id']) : ('d:' . $normDescRow));
         $cMeta = isset($costMetaById[$taskIdInt]) ? $costMetaById[$taskIdInt] : null;
 
+        $garantiaMeses = ($row['garantia_meses'] !== null && $row['garantia_meses'] !== '' && (int)$row['garantia_meses'] > 0)
+            ? (int)$row['garantia_meses']
+            : null;
+        $garantiaHasta = null;
+        $baseGarantiaFecha = !empty($row['fecha_finalizacion']) ? $row['fecha_finalizacion'] : (!empty($row['ultima_fecha']) ? $row['ultima_fecha'] : null);
+        if ($garantiaMeses !== null && $baseGarantiaFecha !== null) {
+            $gTs = strtotime($baseGarantiaFecha);
+            if ($gTs !== false) {
+                $garantiaHasta = date('Y-m-d', strtotime('+' . $garantiaMeses . ' months', $gTs));
+            }
+        }
+
         $row['km_actual']           = $kmActual;
         $row['km_restantes']        = $kmRestantes;
         $row['dias_restantes']      = $diasRestantes;
@@ -374,6 +391,8 @@ function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $es
         $row['vencida']             = $vencida;
         $row['motivo_alerta']       = implode(' · ', $motivos);
         $row['coste']               = ($row['coste'] !== null && $row['coste'] !== '') ? (float)$row['coste'] : null;
+        $row['garantia_meses']      = $garantiaMeses;
+        $row['garantia_hasta']      = $garantiaHasta;
         $row['coste_anterior']      = $cMeta ? $cMeta['coste_anterior'] : null;
         $row['diferencia_coste']    = $cMeta ? $cMeta['diferencia_coste'] : null;
         $row['porcentaje_coste']    = $cMeta ? $cMeta['porcentaje_coste'] : null;
@@ -1237,7 +1256,7 @@ try {
             $nombre      = trim((string)arr_get($jsonBody, 'nombre', isset($_POST['nombre']) ? $_POST['nombre'] : ''));
             $descripcion = trim((string)arr_get($jsonBody, 'descripcion', isset($_POST['descripcion']) ? $_POST['descripcion'] : ''));
             $tipo        = trim((string)arr_get($jsonBody, 'tipo_periodicidad', isset($_POST['tipo_periodicidad']) ? $_POST['tipo_periodicidad'] : 'ambos'));
-            if (!in_array($tipo, array('tiempo', 'kilometros', 'ambos'), true)) {
+            if (!in_array($tipo, array('tiempo', 'kilometros', 'ambos', 'unica'), true)) {
                 $tipo = 'ambos';
             }
             $rawDias = arr_get($jsonBody, 'periodo_dias', isset($_POST['periodo_dias']) ? $_POST['periodo_dias'] : '');
@@ -1305,22 +1324,24 @@ try {
             $proveedorId    = (int)arr_get($jsonBody, 'proveedor_id', isset($_POST['proveedor_id']) ? $_POST['proveedor_id'] : 0);
             $descripcion    = trim((string)arr_get($jsonBody, 'descripcion', isset($_POST['descripcion']) ? $_POST['descripcion'] : ''));
             $tipo           = trim((string)arr_get($jsonBody, 'tipo_periodicidad', isset($_POST['tipo_periodicidad']) ? $_POST['tipo_periodicidad'] : 'ambos'));
-            if (!in_array($tipo, array('tiempo', 'kilometros', 'ambos'), true)) {
+            if (!in_array($tipo, array('tiempo', 'kilometros', 'ambos', 'unica'), true)) {
                 $tipo = 'ambos';
             }
             $rawDias = arr_get($jsonBody, 'periodo_dias', isset($_POST['periodo_dias']) ? $_POST['periodo_dias'] : '');
             $rawKm   = arr_get($jsonBody, 'periodo_km', isset($_POST['periodo_km']) ? $_POST['periodo_km'] : '');
-            $periodoDias = ($rawDias !== '' && $rawDias !== null && (int)$rawDias > 0) ? (int)$rawDias : null;
-            $periodoKm   = ($rawKm !== '' && $rawKm !== null && (float)str_replace(',', '.', (string)$rawKm) > 0)
+            $periodoDias = ($tipo !== 'unica' && $rawDias !== '' && $rawDias !== null && (int)$rawDias > 0) ? (int)$rawDias : null;
+            $periodoKm   = ($tipo !== 'unica' && $rawKm !== '' && $rawKm !== null && (float)str_replace(',', '.', (string)$rawKm) > 0)
                 ? round((float)str_replace(',', '.', (string)$rawKm), 2)
                 : null;
-            $avisarTiempo = (int)arr_get($jsonBody, 'avisar_por_tiempo_si_no_km', isset($_POST['avisar_por_tiempo_si_no_km']) ? $_POST['avisar_por_tiempo_si_no_km'] : 1) ? 1 : 0;
+            $avisarTiempo = ($tipo !== 'unica' && (int)arr_get($jsonBody, 'avisar_por_tiempo_si_no_km', isset($_POST['avisar_por_tiempo_si_no_km']) ? $_POST['avisar_por_tiempo_si_no_km'] : 1)) ? 1 : 0;
             $ultimaFecha  = trim((string)arr_get($jsonBody, 'ultima_fecha', isset($_POST['ultima_fecha']) ? $_POST['ultima_fecha'] : date('Y-m-d')));
             $rawUltKm     = arr_get($jsonBody, 'ultimo_km', isset($_POST['ultimo_km']) ? $_POST['ultimo_km'] : '');
             $ultimoKm     = ($rawUltKm !== '' && $rawUltKm !== null) ? round((float)str_replace(',', '.', (string)$rawUltKm), 2) : null;
             $notas        = trim((string)arr_get($jsonBody, 'notas', isset($_POST['notas']) ? $_POST['notas'] : ''));
             $rawCoste     = arr_get($jsonBody, 'coste', isset($_POST['coste']) ? $_POST['coste'] : '');
             $coste        = ($rawCoste !== '' && $rawCoste !== null) ? round((float)str_replace(',', '.', (string)$rawCoste), 2) : null;
+            $rawGarantia  = arr_get($jsonBody, 'garantia_meses', isset($_POST['garantia_meses']) ? $_POST['garantia_meses'] : '');
+            $garantiaMeses = ($rawGarantia !== '' && $rawGarantia !== null && (int)$rawGarantia > 0) ? (int)$rawGarantia : null;
 
             if ($vehiculoId <= 0 || $descripcion === '') {
                 http_response_code(400);
@@ -1349,26 +1370,26 @@ try {
                 $stmt = $pdo->prepare("
                     UPDATE `veh_vehiculo_tareas`
                     SET vehiculo_id = ?, tarea_maestro_id = ?, proveedor_id = ?, descripcion = ?, tipo_periodicidad = ?, periodo_dias = ?, periodo_km = ?,
-                        avisar_por_tiempo_si_no_km = ?, ultima_fecha = ?, ultimo_km = ?, proxima_fecha = ?, proximo_km = ?, notas = ?, coste = ?, aviso_enviado = 0
+                        avisar_por_tiempo_si_no_km = ?, ultima_fecha = ?, ultimo_km = ?, proxima_fecha = ?, proximo_km = ?, notas = ?, coste = ?, garantia_meses = ?, aviso_enviado = 0
                     WHERE id = ? AND activo = 1
                 ");
                 $stmt->execute(array(
                     $vehiculoId, $tareaMaestroId > 0 ? $tareaMaestroId : null, $proveedorId > 0 ? $proveedorId : null, $descripcion, $tipo, $periodoDias, $periodoKm,
                     $avisarTiempo, $ultimaFecha !== '' ? $ultimaFecha : null, $ultimoKm, $proximaFecha, $proximoKm,
-                    $notas !== '' ? $notas : null, $coste, $id
+                    $notas !== '' ? $notas : null, $coste, $garantiaMeses, $id
                 ));
                 $savedId = $id;
             } else {
                 $stmt = $pdo->prepare("
                     INSERT INTO `veh_vehiculo_tareas`
                     (vehiculo_id, tarea_maestro_id, proveedor_id, usuario_id, descripcion, tipo_periodicidad, periodo_dias, periodo_km,
-                     avisar_por_tiempo_si_no_km, ultima_fecha, ultimo_km, proxima_fecha, proximo_km, estado, notas, coste, activo)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, 1)
+                     avisar_por_tiempo_si_no_km, ultima_fecha, ultimo_km, proxima_fecha, proximo_km, estado, notas, coste, garantia_meses, activo)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?, 1)
                 ");
                 $stmt->execute(array(
                     $vehiculoId, $tareaMaestroId > 0 ? $tareaMaestroId : null, $proveedorId > 0 ? $proveedorId : null, $ownerUserId, $descripcion, $tipo, $periodoDias, $periodoKm,
                     $avisarTiempo, $ultimaFecha !== '' ? $ultimaFecha : null, $ultimoKm, $proximaFecha, $proximoKm,
-                    $notas !== '' ? $notas : null, $coste
+                    $notas !== '' ? $notas : null, $coste, $garantiaMeses
                 ));
                 $savedId = (int)$pdo->lastInsertId();
             }
@@ -1389,6 +1410,8 @@ try {
             $proveedorId  = (int)arr_get($jsonBody, 'proveedor_id', isset($_POST['proveedor_id']) ? $_POST['proveedor_id'] : 0);
             $rawCosteFin  = arr_get($jsonBody, 'coste', isset($_POST['coste']) ? $_POST['coste'] : '');
             $costeFin     = ($rawCosteFin !== '' && $rawCosteFin !== null) ? round((float)str_replace(',', '.', (string)$rawCosteFin), 2) : null;
+            $rawGarFin    = arr_get($jsonBody, 'garantia_meses', isset($_POST['garantia_meses']) ? $_POST['garantia_meses'] : '');
+            $garantiaFin  = ($rawGarFin !== '' && $rawGarFin !== null && (int)$rawGarFin > 0) ? (int)$rawGarFin : null;
             $crearSig     = (int)arr_get($jsonBody, 'crear_siguiente', isset($_POST['crear_siguiente']) ? $_POST['crear_siguiente'] : 1);
 
             if ($id <= 0) {
@@ -1413,18 +1436,20 @@ try {
 
             $finalProvId = $proveedorId > 0 ? $proveedorId : ($task['proveedor_id'] ? (int)$task['proveedor_id'] : null);
             $finalCoste  = ($costeFin !== null) ? $costeFin : ($task['coste'] !== null ? (float)$task['coste'] : null);
+            $finalGar    = ($garantiaFin !== null) ? $garantiaFin : ($task['garantia_meses'] !== null ? (int)$task['garantia_meses'] : null);
 
             $stmtUpd = $pdo->prepare("
                 UPDATE `veh_vehiculo_tareas`
                 SET estado = 'finalizada', fecha_finalizacion = ?, km_finalizacion = ?,
-                    proveedor_id = ?, coste = ?,
+                    proveedor_id = ?, coste = ?, garantia_meses = ?,
                     notas = COALESCE(NULLIF(?, ''), notas)
                 WHERE id = ?
             ");
-            $stmtUpd->execute(array($fechaFin, $kmFin, $finalProvId, $finalCoste, $notasFin, $id));
+            $stmtUpd->execute(array($fechaFin, $kmFin, $finalProvId, $finalCoste, $finalGar, $notasFin, $id));
 
             $nextCreated = false;
-            if ($crearSig && (($task['periodo_dias'] !== null && (int)$task['periodo_dias'] > 0) || ($task['periodo_km'] !== null && (float)$task['periodo_km'] > 0))) {
+            $isRenewable = ($task['tipo_periodicidad'] !== 'unica') && (($task['periodo_dias'] !== null && (int)$task['periodo_dias'] > 0) || ($task['periodo_km'] !== null && (float)$task['periodo_km'] > 0));
+            if ($crearSig && $isRenewable) {
                 list($nextFecha, $nextKm) = computeNextTaskTargets(
                     $task['tipo_periodicidad'],
                     $fechaFin,
@@ -1462,6 +1487,35 @@ try {
                 'message'      => $nextCreated ? 'Tarea finalizada y programada la siguiente repetición.' : 'Tarea marcada como finalizada.',
                 'next_created' => $nextCreated,
             ));
+            break;
+
+        case 'reopen_vehiculo_tarea':
+            $id = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            if ($id <= 0) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'ID de tarea inválido.'));
+                exit;
+            }
+            $stmtGet = $pdo->prepare("
+                SELECT vt.id, v.usuario_id AS veh_owner
+                FROM `veh_vehiculo_tareas` vt
+                INNER JOIN `veh_vehiculos` v ON v.id = vt.vehiculo_id
+                WHERE vt.id = ? AND vt.activo = 1
+            ");
+            $stmtGet->execute(array($id));
+            $task = $stmtGet->fetch();
+            if (!$task || (!$isAdmin && (int)$task['veh_owner'] !== $userId)) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Tarea no encontrada o sin permisos.'));
+                exit;
+            }
+            $stmtReopen = $pdo->prepare("
+                UPDATE `veh_vehiculo_tareas`
+                SET estado = 'pendiente', fecha_finalizacion = NULL, km_finalizacion = NULL, aviso_enviado = 0
+                WHERE id = ?
+            ");
+            $stmtReopen->execute(array($id));
+            echo json_encode(array('success' => true, 'message' => 'La tarea se ha vuelto a dejar pendiente.'));
             break;
 
         case 'deactivate_vehiculo_tarea':

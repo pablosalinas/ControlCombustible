@@ -918,6 +918,7 @@
                         <option value="ambos">Tiempo y Kilómetros (Ambos)</option>
                         <option value="kilometros">Solo Kilómetros</option>
                         <option value="tiempo">Solo Tiempo (Días)</option>
+                        <option value="unica">Única / Reparación (No periódica)</option>
                     </select>
                 </div>
             </div>
@@ -981,6 +982,7 @@
                         <option value="ambos">Tiempo y Kilómetros (Ambos)</option>
                         <option value="kilometros">Solo Kilómetros</option>
                         <option value="tiempo">Solo Tiempo (Días)</option>
+                        <option value="unica">Única / Reparación (No periódica)</option>
                     </select>
                 </div>
                 <div class="form-group" id="vt-dias-wrap">
@@ -1021,11 +1023,15 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>Notas</label>
-                    <input type="text" id="vt-notas" class="form-control" placeholder="Opcional">
+                    <label>Garantía (meses)</label>
+                    <input type="number" min="0" step="1" id="vt-garantia" class="form-control" placeholder="Opcional, ej: 12 o 24">
                 </div>
             </div>
             <div class="form-group">
+                <label>Notas</label>
+                <input type="text" id="vt-notas" class="form-control" placeholder="Opcional">
+            </div>
+            <div class="form-group" id="vt-avisar-wrap">
                 <label style="display:flex; align-items:center; gap:0.5rem; font-weight:600; cursor:pointer;">
                     <input type="checkbox" id="vt-avisar-tiempo" checked>
                     Avisar si llega al tiempo límite aunque no haya alcanzado los km
@@ -1048,6 +1054,7 @@
         </div>
         <form id="complete-vt-form">
             <input type="hidden" id="comp-vt-id" value="0">
+            <input type="hidden" id="comp-is-renewable" value="0">
             <p id="comp-vt-desc" style="font-weight:700; color:var(--primary-dark); margin-bottom:0.8rem;"></p>
             <div class="grid-2">
                 <div class="form-group">
@@ -1076,15 +1083,15 @@
                     <input type="number" step="0.01" id="comp-coste" class="form-control" placeholder="Ej: 125.50">
                 </div>
             </div>
-            <div class="form-group">
-                <label>Notas de ejecución</label>
-                <input type="text" id="comp-notas" class="form-control" placeholder="Observaciones...">
-            </div>
-            <div class="form-group">
-                <label style="display:flex; align-items:center; gap:0.5rem; font-weight:600; cursor:pointer;">
-                    <input type="checkbox" id="comp-crear-siguiente" checked>
-                    Programar automáticamente la siguiente repetición periódica
-                </label>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Garantía (meses)</label>
+                    <input type="number" min="0" step="1" id="comp-garantia" class="form-control" placeholder="Opcional, ej: 12">
+                </div>
+                <div class="form-group">
+                    <label>Notas de ejecución</label>
+                    <input type="text" id="comp-notas" class="form-control" placeholder="Observaciones...">
+                </div>
             </div>
             <div style="display:flex; justify-content:flex-end; gap:0.6rem;">
                 <button type="button" class="btn btn-outline" onclick="closeCompleteTareaModal()">Cancelar</button>
@@ -2499,13 +2506,20 @@ function renderTareasTable() {
     list.forEach(t => {
         const tr = document.createElement('tr');
         const perParts = [];
-        if (t.periodo_dias) perParts.push(`${t.periodo_dias} d`);
-        if (t.periodo_km) perParts.push(`${fmtNum(t.periodo_km, 0)} km`);
-        const perText = perParts.join(' / ') || 'Única';
+        if (t.tipo_periodicidad !== 'unica') {
+            if (t.periodo_dias) perParts.push(`${t.periodo_dias} d`);
+            if (t.periodo_km) perParts.push(`${fmtNum(t.periodo_km, 0)} km`);
+        }
+        const perText = t.tipo_periodicidad === 'unica' ? 'Única / Reparación' : (perParts.join(' / ') || 'Única');
+        const garantiaHtml = t.garantia_meses
+            ? `<br><small style="color:#0369a1; font-weight:600;">🛡️ Garantía: ${t.garantia_meses} meses${t.garantia_hasta ? ` (hasta ${t.garantia_hasta})` : ''}</small>`
+            : '';
 
         let badgeHtml = '';
         if (t.estado === 'finalizada') {
             badgeHtml = `<span style="background:#e2e8f0; color:#334155; padding:0.2rem 0.5rem; border-radius:6px; font-size:0.75rem; font-weight:700;">✅ Finalizada (${t.fecha_finalizacion || ''})</span>`;
+        } else if (t.tipo_periodicidad === 'unica') {
+            badgeHtml = `<span style="background:#e0f2fe; color:#0369a1; padding:0.2rem 0.5rem; border-radius:6px; font-size:0.75rem; font-weight:700;">🔧 Reparación / Única</span>`;
         } else if (t.vencida) {
             badgeHtml = `<span style="background:#fee2e2; color:#b91c1c; padding:0.2rem 0.5rem; border-radius:6px; font-size:0.75rem; font-weight:700;">🚨 Vencida: ${t.motivo_alerta}</span>`;
         } else if (t.en_alerta) {
@@ -2543,11 +2557,12 @@ function renderTareasTable() {
             ? `${compareBtn}<button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem; color:#15803d; border-color:#86efac;" onclick='openCompleteTareaModal(${JSON.stringify(t)})' title="Finalizar tarea"><i class="fa-solid fa-check"></i></button>
                <button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem;" onclick='editVehiculoTarea(${JSON.stringify(t)})' title="Editar"><i class="fa-solid fa-pen"></i></button>
                <button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem; color:var(--danger);" onclick="deactivateVehiculoTarea(${t.id})" title="Baja"><i class="fa-solid fa-trash"></i></button>`
-            : `${compareBtn}<button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem; color:var(--danger);" onclick="deactivateVehiculoTarea(${t.id})" title="Baja"><i class="fa-solid fa-trash"></i></button>`;
+            : `${compareBtn}<button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem; color:#d97706; border-color:#fcd34d;" onclick="reopenVehiculoTarea(${t.id})" title="Deshacer finalización (volver a pendiente)"><i class="fa-solid fa-rotate-left"></i></button>
+               <button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem; color:var(--danger);" onclick="deactivateVehiculoTarea(${t.id})" title="Baja"><i class="fa-solid fa-trash"></i></button>`;
 
         tr.innerHTML = `
             <td><strong>${t.vehiculo_nombre || ''}</strong></td>
-            <td><strong>${t.descripcion}</strong>${t.notas ? `<br><small style="color:var(--muted)">${t.notas}</small>` : ''}</td>
+            <td><strong>${t.descripcion}</strong>${garantiaHtml}${t.notas ? `<br><small style="color:var(--muted)">${t.notas}</small>` : ''}</td>
             <td>${perText}${t.tipo_periodicidad === 'ambos' && t.avisar_por_tiempo_si_no_km ? '<br><small style="color:var(--primary)">Aviso por tiempo sin km</small>' : ''}</td>
             <td>${t.ultima_fecha || '-'}<br><strong>Próx: ${t.proxima_fecha || '-'}</strong></td>
             <td>${t.ultimo_km !== null ? fmtNum(t.ultimo_km, 0) + ' km' : '-'}<br><strong>Próx: ${t.proximo_km !== null ? fmtNum(t.proximo_km, 0) + ' km' : '-'}</strong></td>
@@ -2569,8 +2584,8 @@ function closeTareasMaestroModal() {
 }
 function toggleTmPeriodoFields() {
     const tipo = document.getElementById('tm-tipo').value;
-    document.getElementById('tm-dias-wrap').style.display = (tipo === 'kilometros') ? 'none' : '';
-    document.getElementById('tm-km-wrap').style.display = (tipo === 'tiempo') ? 'none' : '';
+    document.getElementById('tm-dias-wrap').style.display = (tipo === 'kilometros' || tipo === 'unica') ? 'none' : '';
+    document.getElementById('tm-km-wrap').style.display = (tipo === 'tiempo' || tipo === 'unica') ? 'none' : '';
 }
 function resetTmForm() {
     document.getElementById('tm-id').value = '0';
@@ -2642,8 +2657,14 @@ async function deleteTm(id) {
 
 function toggleVtPeriodoFields() {
     const tipo = document.getElementById('vt-tipo').value;
-    document.getElementById('vt-dias-wrap').style.display = (tipo === 'kilometros') ? 'none' : '';
-    document.getElementById('vt-km-wrap').style.display = (tipo === 'tiempo') ? 'none' : '';
+    document.getElementById('vt-dias-wrap').style.display = (tipo === 'kilometros' || tipo === 'unica') ? 'none' : '';
+    document.getElementById('vt-km-wrap').style.display = (tipo === 'tiempo' || tipo === 'unica') ? 'none' : '';
+    const avisarWrap = document.getElementById('vt-avisar-wrap');
+    if (avisarWrap) avisarWrap.style.display = (tipo === 'unica') ? 'none' : '';
+    if (tipo === 'unica') {
+        document.getElementById('vt-dias').value = '';
+        document.getElementById('vt-km').value = '';
+    }
 }
 function populateProveedorSelect(selectId, selectedId = '0') {
     const sel = document.getElementById(selectId);
@@ -2723,6 +2744,7 @@ function openVehiculoTareaModal() {
     document.getElementById('vt-ultima-fecha').value = new Date().toISOString().slice(0, 10);
     document.getElementById('vt-proveedor').value = '0';
     document.getElementById('vt-coste').value = '';
+    document.getElementById('vt-garantia').value = '';
     document.getElementById('vt-notas').value = '';
     document.getElementById('vt-avisar-tiempo').checked = true;
     onVtVehiculoChange();
@@ -2743,6 +2765,7 @@ function editVehiculoTarea(t) {
     document.getElementById('vt-ultima-fecha').value = t.ultima_fecha || '';
     document.getElementById('vt-ultimo-km').value = t.ultimo_km !== null ? t.ultimo_km : '';
     document.getElementById('vt-coste').value = (t.coste !== null && t.coste !== undefined) ? t.coste : '';
+    document.getElementById('vt-garantia').value = (t.garantia_meses !== null && t.garantia_meses !== undefined) ? t.garantia_meses : '';
     document.getElementById('vt-notas').value = t.notas || '';
     document.getElementById('vt-avisar-tiempo').checked = Boolean(Number(t.avisar_por_tiempo_si_no_km));
     toggleVtPeriodoFields();
@@ -2765,6 +2788,7 @@ document.getElementById('vt-form').addEventListener('submit', async (e) => {
         ultima_fecha: document.getElementById('vt-ultima-fecha').value,
         ultimo_km: document.getElementById('vt-ultimo-km').value,
         coste: document.getElementById('vt-coste').value,
+        garantia_meses: document.getElementById('vt-garantia').value,
         notas: document.getElementById('vt-notas').value,
         avisar_por_tiempo_si_no_km: document.getElementById('vt-avisar-tiempo').checked ? 1 : 0
     });
@@ -2777,14 +2801,16 @@ document.getElementById('vt-form').addEventListener('submit', async (e) => {
 });
 
 function openCompleteTareaModal(t) {
+    const isRenewable = (t.tipo_periodicidad !== 'unica') && ((t.periodo_dias && Number(t.periodo_dias) > 0) || (t.periodo_km && Number(t.periodo_km) > 0));
     document.getElementById('comp-vt-id').value = t.id;
+    document.getElementById('comp-is-renewable').value = isRenewable ? '1' : '0';
     document.getElementById('comp-vt-desc').textContent = `${t.vehiculo_nombre}: ${t.descripcion}`;
     document.getElementById('comp-fecha').value = new Date().toISOString().slice(0, 10);
     document.getElementById('comp-km').value = t.km_actual ? Math.round(t.km_actual) : '';
     populateProveedorSelect('comp-proveedor', t.proveedor_id || '0');
     document.getElementById('comp-coste').value = (t.coste !== null && t.coste !== undefined) ? t.coste : '';
+    document.getElementById('comp-garantia').value = (t.garantia_meses !== null && t.garantia_meses !== undefined) ? t.garantia_meses : '';
     document.getElementById('comp-notas').value = '';
-    document.getElementById('comp-crear-siguiente').checked = true;
     document.getElementById('complete-tarea-modal').classList.add('active');
 }
 function closeCompleteTareaModal() {
@@ -2792,14 +2818,20 @@ function closeCompleteTareaModal() {
 }
 document.getElementById('complete-vt-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const isRenewable = document.getElementById('comp-is-renewable').value === '1';
+    let crearSig = 0;
+    if (isRenewable) {
+        crearSig = confirm('Esta tarea es periódica. ¿Deseas registrar también una tarea para el siguiente periodo?') ? 1 : 0;
+    }
     const res = await apiCall('complete_vehiculo_tarea', {
         id: document.getElementById('comp-vt-id').value,
         fecha_finalizacion: document.getElementById('comp-fecha').value,
         km_finalizacion: document.getElementById('comp-km').value,
         proveedor_id: document.getElementById('comp-proveedor').value,
         coste: document.getElementById('comp-coste').value,
+        garantia_meses: document.getElementById('comp-garantia').value,
         notas: document.getElementById('comp-notas').value,
-        crear_siguiente: document.getElementById('comp-crear-siguiente').checked ? 1 : 0
+        crear_siguiente: crearSig
     });
     if (res.success) {
         closeCompleteTareaModal();
@@ -2808,6 +2840,16 @@ document.getElementById('complete-vt-form').addEventListener('submit', async (e)
         alert(res.error || 'Error finalizando tarea');
     }
 });
+
+async function reopenVehiculoTarea(id) {
+    if (!confirm('¿Deshacer la finalización y volver a dejar esta tarea como pendiente?')) return;
+    const res = await apiCall('reopen_vehiculo_tarea', { id });
+    if (res.success) {
+        await loadDashboard();
+    } else {
+        alert(res.error || 'Error al reabrir la tarea');
+    }
+}
 
 async function deactivateVehiculoTarea(id) {
     if (!confirm('¿Dar de baja esta tarea?')) return;
