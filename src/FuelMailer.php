@@ -520,4 +520,84 @@ class FuelMailer
             }
         }
     }
+
+    /**
+     * Notifica al correo de moratalla-murcia.com que hay una nueva solicitud de alta pendiente de activar.
+     */
+    public static function sendNewRegistrationAdminNotification($pdo, $newUsername, $newUserEmail, &$errorDetail = null)
+    {
+        $cfg = self::getConfig($pdo);
+        $adminEmail = !empty($cfg['admin_email']) ? trim($cfg['admin_email']) : trim($cfg['smtp_user']);
+        if (!filter_var($adminEmail, FILTER_VALIDATE_EMAIL)) {
+            $errorDetail = 'Correo de administración no configurado.';
+            return false;
+        }
+
+        $subject = "Nueva alta pendiente de activar ({$newUsername}) - moratalla-murcia.com";
+        $plain = "Hola,\r\n\r\nSe ha recibido una nueva solicitud de registro pendiente de validación por parte del superusuario:\r\n"
+            . "- Usuario: {$newUsername}\r\n"
+            . "- Correo: {$newUserEmail}\r\n"
+            . "- Fecha: " . date('d/m/Y H:i') . "\r\n\r\n"
+            . "Puedes validarla o rechazarla desde el panel de Control de Combustible (botón Solicitudes).\r\n";
+
+        $safeUser  = htmlspecialchars($newUsername, ENT_QUOTES, 'UTF-8');
+        $safeEmail = htmlspecialchars($newUserEmail, ENT_QUOTES, 'UTF-8');
+        $html = "<!DOCTYPE html><html lang='es'><body style='font-family:Arial,sans-serif; background:#f4f6f5; padding:20px; color:#1e293b;'>"
+            . "<div style='max-width:600px; margin:0 auto; background:#ffffff; border-radius:12px; overflow:hidden; border:1px solid #cbd5e1;'>"
+            . "<div style='background:#0f766e; color:#ffffff; padding:16px 22px;'>"
+            . "<h2 style='margin:0; font-size:18px;'>👤 Nueva Solicitud de Alta Pendiente</h2></div>"
+            . "<div style='padding:20px;'>"
+            . "<p style='margin-top:0;'>Hay una nueva solicitud de registro pendiente de activar en <strong>moratalla-murcia.com</strong>:</p>"
+            . "<div style='background:#f8fafc; border-left:4px solid #f59e0b; padding:12px; border-radius:6px; font-size:14px;'>"
+            . "<div><strong>Usuario:</strong> {$safeUser}</div>"
+            . "<div><strong>Correo electrónico:</strong> {$safeEmail}</div>"
+            . "<div><strong>Fecha solicitud:</strong> " . date('d/m/Y H:i') . "</div>"
+            . "</div>"
+            . "<p style='font-size:13px; color:#475569; margin-top:16px;'>Accede con tu cuenta de superusuario para aprobar o rechazar esta solicitud.</p>"
+            . "<p style='font-size:12px; color:#64748b; margin-bottom:0;'>Enviado automáticamente por www.moratalla-murcia.com</p>"
+            . "</div></div></body></html>";
+
+        return self::sendHtmlEmail($pdo, $adminEmail, $subject, $plain, $html, $errorDetail);
+    }
+
+    /**
+     * Envía un correo al usuario indicando que su cuenta ha sido dada de alta / activada.
+     */
+    public static function sendRegistrationApprovedEmail($pdo, $toEmail, $username, $accesoSistema = 'ambos', &$errorDetail = null)
+    {
+        $toEmail = trim((string)$toEmail);
+        if (!filter_var($toEmail, FILTER_VALIDATE_EMAIL)) {
+            $errorDetail = 'El usuario no tiene un correo electrónico válido.';
+            return false;
+        }
+
+        $scopeDesc = ($accesoSistema === 'combustible')
+            ? 'Control de Combustible'
+            : (($accesoSistema === 'web') ? 'moratalla-murcia.com' : 'moratalla-murcia.com y Control de Combustible');
+
+        $subject = "Tu cuenta en moratalla-murcia.com ha sido dada de alta";
+        $plain = "Hola {$username},\r\n\r\n"
+            . "Tu solicitud de registro ha sido aprobada por el superusuario y tu usuario ya está dado de alta.\r\n"
+            . "Acceso habilitado: {$scopeDesc}.\r\n\r\n"
+            . "Ya puedes iniciar sesión con tu usuario y contraseña en https://www.moratalla-murcia.com/combustible\r\n";
+
+        $safeUser  = htmlspecialchars($username, ENT_QUOTES, 'UTF-8');
+        $safeScope = htmlspecialchars($scopeDesc, ENT_QUOTES, 'UTF-8');
+        $html = "<!DOCTYPE html><html lang='es'><body style='font-family:Arial,sans-serif; background:#f4f6f5; padding:20px; color:#1e293b;'>"
+            . "<div style='max-width:600px; margin:0 auto; background:#ffffff; border-radius:12px; overflow:hidden; border:1px solid #cbd5e1;'>"
+            . "<div style='background:#0f766e; color:#ffffff; padding:16px 22px;'>"
+            . "<h2 style='margin:0; font-size:18px;'>✅ Usuario Dado de Alta</h2></div>"
+            . "<div style='padding:20px;'>"
+            . "<p style='margin-top:0;'>Hola <strong>{$safeUser}</strong>,</p>"
+            . "<p>Tu solicitud ha sido validada por el superusuario y tu cuenta ya está <strong>activa y dada de alta</strong>.</p>"
+            . "<div style='background:#f0fdf4; border-left:4px solid #16a34a; padding:12px; border-radius:6px; font-size:14px;'>"
+            . "<div><strong>Usuario:</strong> {$safeUser}</div>"
+            . "<div><strong>Acceso habilitado:</strong> {$safeScope}</div>"
+            . "</div>"
+            . "<p style='margin-top:16px;'>Ya puedes iniciar sesión en la web o en la app Android.</p>"
+            . "<p style='font-size:12px; color:#64748b; margin-bottom:0;'>Enviado automáticamente por www.moratalla-murcia.com (" . date('d/m/Y H:i') . ")</p>"
+            . "</div></div></body></html>";
+
+        return self::sendHtmlEmail($pdo, $toEmail, $subject, $plain, $html, $errorDetail);
+    }
 }

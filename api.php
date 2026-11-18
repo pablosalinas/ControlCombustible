@@ -369,9 +369,18 @@ if ($action === 'register') {
         ");
         $stmtIns->execute(array($regUser, $regEmail, $hash));
 
+        $mailErr = null;
+        $notified = false;
+        try {
+            $notified = FuelMailer::sendNewRegistrationAdminNotification($pdo, $regUser, $regEmail, $mailErr);
+        } catch (Exception $mailEx) {
+            $mailErr = $mailEx->getMessage();
+        }
+
         echo json_encode(array(
-            'success' => true,
-            'message' => 'Solicitud de registro enviada correctamente. Queda pendiente de validación por parte del superusuario.',
+            'success'        => true,
+            'admin_notified' => $notified,
+            'message'        => 'Solicitud de registro enviada correctamente. Queda pendiente de validación por parte del superusuario.',
         ));
         exit;
     } catch (Exception $e) {
@@ -1399,7 +1408,27 @@ try {
             }
             $stmtApp = $pdo->prepare("UPDATE `users` SET validado = 1, acceso_sistema = ? WHERE id = ?");
             $stmtApp->execute(array($acceso, $targetId));
-            echo json_encode(array('success' => true, 'message' => 'Usuario validado y activado correctamente.'));
+
+            $mailSent = false;
+            $mailErr  = null;
+            try {
+                $stmtU = $pdo->prepare("SELECT username, email FROM `users` WHERE id = ? LIMIT 1");
+                $stmtU->execute(array($targetId));
+                $uRow = $stmtU->fetch();
+                if ($uRow && !empty($uRow['email'])) {
+                    $mailSent = FuelMailer::sendRegistrationApprovedEmail($pdo, $uRow['email'], $uRow['username'], $acceso, $mailErr);
+                }
+            } catch (Exception $mailEx) {
+                $mailErr = $mailEx->getMessage();
+            }
+
+            echo json_encode(array(
+                'success'    => true,
+                'email_sent' => $mailSent,
+                'message'    => $mailSent
+                    ? 'Usuario validado y activado correctamente. Se le ha enviado un correo de confirmación.'
+                    : 'Usuario validado y activado correctamente.',
+            ));
             break;
 
         case 'reject_user':
