@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'models/models.dart';
 import 'services/api_service.dart';
@@ -149,11 +150,63 @@ class _LoginScreenState extends State<LoginScreen> {
   int _n2 = 4;
   bool _loading = false;
   String? _error;
+  String? _latestVersion;
+  String _latestApkUrl = kApkDownloadUrl;
 
   @override
   void initState() {
     super.initState();
     _generateCaptcha();
+    _checkLatestAppVersion();
+  }
+
+  int _compareVersions(String latest, String current) {
+    List<int> parse(String v) {
+      final clean = v.trim().replaceFirst(RegExp(r'^[vV]'), '');
+      return clean.split('.').map((p) => int.tryParse(p) ?? 0).toList();
+    }
+
+    final a = parse(latest);
+    final b = parse(current);
+    final len = a.length > b.length ? a.length : b.length;
+    for (int i = 0; i < len; i++) {
+      final av = i < a.length ? a[i] : 0;
+      final bv = i < b.length ? b[i] : 0;
+      if (av != bv) return av.compareTo(bv);
+    }
+    return 0;
+  }
+
+  Future<void> _checkLatestAppVersion() async {
+    try {
+      final uri = Uri.parse('https://api.github.com/repos/pablosalinas/ControlCombustible/releases/latest');
+      final resp = await http.get(uri, headers: {'Accept': 'application/vnd.github+json'}).timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+        final tag = (data['tag_name'] ?? '').toString().trim();
+        if (tag.isNotEmpty && _compareVersions(tag, kAppVersion) > 0) {
+          String dlUrl = kApkDownloadUrl;
+          final assets = data['assets'] as List? ?? [];
+          for (final a in assets) {
+            if (a is Map && (a['name']?.toString().endsWith('.apk') ?? false)) {
+              final u = a['browser_download_url']?.toString() ?? '';
+              if (u.isNotEmpty) {
+                dlUrl = u;
+                break;
+              }
+            }
+          }
+          if (mounted) {
+            setState(() {
+              _latestVersion = tag;
+              _latestApkUrl = dlUrl;
+            });
+          }
+        }
+      }
+    } catch (_) {
+      // Silencioso si no hay red o hay límite de API
+    }
   }
 
   void _generateCaptcha() {
@@ -368,6 +421,47 @@ class _LoginScreenState extends State<LoginScreen> {
                     style: TextStyle(fontSize: 13, color: Colors.black54),
                   ),
                   const SizedBox(height: 20),
+                  if (_latestVersion != null)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.amber.shade400),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.system_update, color: Colors.amber.shade900, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Nueva versión disponible: $_latestVersion (instalada: $kAppVersion)',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.amber.shade900),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0F766E)),
+                              onPressed: () => launchUrl(
+                                Uri.parse(_latestApkUrl),
+                                mode: LaunchMode.externalApplication,
+                              ),
+                              icon: const Icon(Icons.download, size: 18),
+                              label: Text('Actualizar a $_latestVersion'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   if (_error != null)
                     Container(
                       padding: const EdgeInsets.all(10),
