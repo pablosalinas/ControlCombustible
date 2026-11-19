@@ -4653,6 +4653,7 @@ class _PapeleraScreenState extends State<PapeleraScreen> {
   bool _loading = true;
   List<Map<String, dynamic>> _vehiculos = [];
   List<Map<String, dynamic>> _repostajes = [];
+  final Set<String> _selectedKeys = {};
 
   @override
   void initState() {
@@ -4666,12 +4667,40 @@ class _PapeleraScreenState extends State<PapeleraScreen> {
     if (mounted) {
       setState(() {
         _loading = false;
+        _selectedKeys.clear();
         if (res['success'] == true) {
           _vehiculos = (res['vehiculos'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
           _repostajes = (res['repostajes'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
         }
       });
     }
+  }
+
+  String _fmtDateEs(String val) {
+    final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2})').firstMatch(val.trim());
+    return m != null ? '${m.group(3)}-${m.group(2)}-${m.group(1)}' : val;
+  }
+
+  List<int> _selectedIdsFor(String prefix) {
+    return _selectedKeys
+        .where((k) => k.startsWith('$prefix:'))
+        .map((k) => int.tryParse(k.split(':')[1]) ?? 0)
+        .where((id) => id > 0)
+        .toList();
+  }
+
+  void _toggleSelectAll(bool selectAll) {
+    setState(() {
+      _selectedKeys.clear();
+      if (selectAll) {
+        for (final v in _vehiculos) {
+          _selectedKeys.add('vehiculo:${v['id']}');
+        }
+        for (final r in _repostajes) {
+          _selectedKeys.add('repostaje:${r['id']}');
+        }
+      }
+    });
   }
 
   Future<void> _reactivate(String tipo, int id) async {
@@ -4684,24 +4713,133 @@ class _PapeleraScreenState extends State<PapeleraScreen> {
     }
   }
 
+  Future<void> _reactivateSelected() async {
+    final vehIds = _selectedIdsFor('vehiculo');
+    final repIds = _selectedIdsFor('repostaje');
+    if (vehIds.isEmpty && repIds.isEmpty) return;
+    final res = await widget.api.post('reactivate_records', {
+      'tipo': 'batch',
+      'vehiculo_ids': vehIds,
+      'repostaje_ids': repIds,
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Reactivados').toString())),
+      );
+      if (res['success'] == true) await _load();
+    }
+  }
+
+  Future<void> _purgeSingle(String tipo, int id) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Borrado definitivo'),
+        content: const Text('¿Borrar DEFINITIVAMENTE este registro de la base de datos? Esta acción no se puede deshacer.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Borrar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final res = await widget.api.post('purge_inactive_records', {'tipo': tipo, 'id': id});
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Eliminado').toString())),
+      );
+      if (res['success'] == true) await _load();
+    }
+  }
+
+  Future<void> _purgeSelected() async {
+    final vehIds = _selectedIdsFor('vehiculo');
+    final repIds = _selectedIdsFor('repostaje');
+    final total = vehIds.length + repIds.length;
+    if (total == 0) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Borrado definitivo'),
+        content: Text('¿Borrar DEFINITIVAMENTE los $total registros seleccionados de la base de datos? Esta acción no se puede deshacer.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Borrar definitivamente'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final res = await widget.api.post('purge_inactive_records', {
+      'tipo': 'batch',
+      'vehiculo_ids': vehIds,
+      'repostaje_ids': repIds,
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Eliminados').toString())),
+      );
+      if (res['success'] == true) await _load();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final totalItems = _vehiculos.length + _repostajes.length;
+    final allSelected = totalItems > 0 && _selectedKeys.length == totalItems;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Papelera (Recuperar)')),
+      appBar: AppBar(title: const Text('Papelera')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                if (_repostajes.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: FilledButton.icon(
-                      onPressed: () => _reactivate('all_repostajes', 0),
-                      icon: const Icon(Icons.restore),
-                      label: const Text('Reactivar todos los repostajes inactivos'),
+                if (totalItems > 0) ...[
+                  Card(
+                    color: Colors.grey.shade50,
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CheckboxListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            value: allSelected,
+                            title: Text('Seleccionar todo (${_selectedKeys.length}/$totalItems)'),
+                            onChanged: (v) => _toggleSelectAll(v == true),
+                          ),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              FilledButton.icon(
+                                onPressed: _selectedKeys.isEmpty ? null : _reactivateSelected,
+                                icon: const Icon(Icons.restore, size: 18),
+                                label: const Text('Recuperar sel.'),
+                              ),
+                              FilledButton.icon(
+                                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                                onPressed: _selectedKeys.isEmpty ? null : _purgeSelected,
+                                icon: const Icon(Icons.delete_forever, size: 18),
+                                label: const Text('Borrar def.'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
+                  const SizedBox(height: 10),
+                ],
                 if (_vehiculos.isEmpty && _repostajes.isEmpty)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 24),
@@ -4710,37 +4848,73 @@ class _PapeleraScreenState extends State<PapeleraScreen> {
                 if (_vehiculos.isNotEmpty) ...[
                   const Text('Vehículos dados de baja', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                   const SizedBox(height: 8),
-                  ..._vehiculos.map(
-                    (v) => Card(
+                  ..._vehiculos.map((v) {
+                    final vid = int.tryParse(v['id'].toString()) ?? 0;
+                    final key = 'vehiculo:$vid';
+                    return Card(
                       child: ListTile(
-                        leading: const Icon(Icons.directions_car, color: Colors.redAccent),
-                        title: Text('#${v['id']} ${v['nombre']}'),
+                        leading: Checkbox(
+                          value: _selectedKeys.contains(key),
+                          onChanged: (chk) => setState(() {
+                            if (chk == true) _selectedKeys.add(key); else _selectedKeys.remove(key);
+                          }),
+                        ),
+                        title: Text('#$vid ${v['nombre']}'),
                         subtitle: Text('${v['matricula'] ?? 'Sin matrícula'} · ${v['propietario'] ?? v['usuario_id']}'),
-                        trailing: FilledButton(
-                          onPressed: () => _reactivate('vehiculo', int.tryParse(v['id'].toString()) ?? 0),
-                          child: const Text('Reactivar'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Recuperar',
+                              icon: const Icon(Icons.restore, color: Color(0xFF0F766E)),
+                              onPressed: () => _reactivate('vehiculo', vid),
+                            ),
+                            IconButton(
+                              tooltip: 'Borrar definitivamente',
+                              icon: const Icon(Icons.delete_forever, color: Colors.red),
+                              onPressed: () => _purgeSingle('vehiculo', vid),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                  ),
+                    );
+                  }),
                   const SizedBox(height: 16),
                 ],
                 if (_repostajes.isNotEmpty) ...[
-                  const Text('Repostajes dados de baja', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  Text('Repostajes dados de baja (${_repostajes.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                   const SizedBox(height: 8),
-                  ..._repostajes.map(
-                    (r) => Card(
+                  ..._repostajes.map((r) {
+                    final rid = int.tryParse(r['id'].toString()) ?? 0;
+                    final key = 'repostaje:$rid';
+                    return Card(
                       child: ListTile(
-                        leading: const Icon(Icons.local_gas_station, color: Colors.redAccent),
-                        title: Text('#${r['id']} · ${r['fecha']} · ${r['vehiculo_nombre'] ?? ''}'),
+                        leading: Checkbox(
+                          value: _selectedKeys.contains(key),
+                          onChanged: (chk) => setState(() {
+                            if (chk == true) _selectedKeys.add(key); else _selectedKeys.remove(key);
+                          }),
+                        ),
+                        title: Text('#$rid · ${_fmtDateEs((r['fecha'] ?? '').toString())} · ${r['vehiculo_nombre'] ?? ''}'),
                         subtitle: Text('${r['litros']} L · ${r['importe_total']} € · ${r['km_odometro']} km'),
-                        trailing: FilledButton(
-                          onPressed: () => _reactivate('repostaje', int.tryParse(r['id'].toString()) ?? 0),
-                          child: const Text('Reactivar'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Recuperar',
+                              icon: const Icon(Icons.restore, color: Color(0xFF0F766E)),
+                              onPressed: () => _reactivate('repostaje', rid),
+                            ),
+                            IconButton(
+                              tooltip: 'Borrar definitivamente',
+                              icon: const Icon(Icons.delete_forever, color: Colors.red),
+                              onPressed: () => _purgeSingle('repostaje', rid),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                  ),
+                    );
+                  }),
                 ],
               ],
             ),

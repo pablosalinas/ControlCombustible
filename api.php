@@ -2206,8 +2206,8 @@ try {
                 LEFT JOIN `veh_vehiculos` v ON v.id = r.vehiculo_id
                 LEFT JOIN `users` u ON u.id = r.usuario_id
                 WHERE r.activo = 0 AND ({$inRepAccess} OR r.usuario_id = ?)
-                ORDER BY r.id DESC
-                LIMIT 200
+                ORDER BY r.fecha DESC, r.id DESC
+                LIMIT 2000
             ");
             $inRepParams[] = (int)$userId;
             $stmtInRep->execute($inRepParams);
@@ -2265,10 +2265,127 @@ try {
                 $stmt = $pdo->prepare("UPDATE `veh_vehiculos` SET activo = 1 WHERE id = ?");
                 $stmt->execute(array($id));
                 echo json_encode(array('success' => true, 'affected' => $stmt->rowCount(), 'message' => 'Vehículo reactivado (activo = 1).'));
+            } elseif ($tipo === 'batch') {
+                $vehIds = array_values(array_filter(array_map('intval', (array)arr_get($jsonBody, 'vehiculo_ids', array())), function ($x) { return $x > 0; }));
+                $repIds = array_values(array_filter(array_map('intval', (array)arr_get($jsonBody, 'repostaje_ids', array())), function ($x) { return $x > 0; }));
+                $affected = 0;
+
+                if (!empty($vehIds)) {
+                    $ph = implode(',', array_fill(0, count($vehIds), '?'));
+                    $vParams = $vehIds;
+                    $vAccess = buildVehicleAccessClause('v', $userId, $isAdmin, $vParams);
+                    $stmt = $pdo->prepare("UPDATE `veh_vehiculos` v SET v.activo = 1 WHERE v.id IN ($ph) AND v.activo = 0 AND {$vAccess}");
+                    $stmt->execute($vParams);
+                    $affected += $stmt->rowCount();
+                }
+                if (!empty($repIds)) {
+                    $ph = implode(',', array_fill(0, count($repIds), '?'));
+                    if ($isAdmin) {
+                        $stmt = $pdo->prepare("UPDATE `veh_repostajes` SET activo = 1 WHERE id IN ($ph) AND activo = 0");
+                        $stmt->execute($repIds);
+                    } else {
+                        $rParams = $repIds;
+                        $rAccess = buildVehicleAccessClause('v', $userId, false, $rParams);
+                        $rParams[] = (int)$userId;
+                        $stmt = $pdo->prepare("
+                            UPDATE `veh_repostajes` r
+                            LEFT JOIN `veh_vehiculos` v ON v.id = r.vehiculo_id
+                            SET r.activo = 1
+                            WHERE r.id IN ($ph) AND r.activo = 0 AND ({$rAccess} OR r.usuario_id = ?)
+                        ");
+                        $stmt->execute($rParams);
+                    }
+                    $affected += $stmt->rowCount();
+                }
+                echo json_encode(array('success' => true, 'affected' => $affected, 'message' => "Se han reactivado $affected registros seleccionados."));
             } else {
                 http_response_code(400);
                 echo json_encode(array('success' => false, 'error' => 'Parámetros de reactivación inválidos.'));
             }
+            break;
+
+        case 'purge_inactive_records':
+            // Baja física definitiva EXCLUSIVA para registros en papelera (activo = 0)
+            $tipo = trim((string)arr_get($jsonBody, 'tipo', isset($_POST['tipo']) ? $_POST['tipo'] : ''));
+            $id   = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+
+            $vehIds = array();
+            $repIds = array();
+            if ($tipo === 'vehiculo' && $id > 0) {
+                $vehIds = array($id);
+            } elseif ($tipo === 'repostaje' && $id > 0) {
+                $repIds = array($id);
+            } elseif ($tipo === 'batch') {
+                $vehIds = array_values(array_filter(array_map('intval', (array)arr_get($jsonBody, 'vehiculo_ids', array())), function ($x) { return $x > 0; }));
+                $repIds = array_values(array_filter(array_map('intval', (array)arr_get($jsonBody, 'repostaje_ids', array())), function ($x) { return $x > 0; }));
+            } else {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'Parámetros de borrado definitivo inválidos.'));
+                exit;
+            }
+
+            $deleted = 0;
+            if (!empty($repIds)) {
+                $ph = implode(',', array_fill(0, count($repIds), '?'));
+                if ($isAdmin) {
+                    $stmt = $pdo->prepare("DELETE FROM `veh_repostajes` WHERE id IN ($ph) AND activo = 0");
+                    $stmt->execute($repIds);
+                } else {
+                    $rParams = $repIds;
+                    $rAccess = buildVehicleAccessClause('v', $userId, false, $rParams);
+                    $rParams[] = (int)$userId;
+                    $stmt = $pdo->prepare("
+                        DELETE r FROM `veh_repostajes` r
+                        LEFT JOIN `veh_vehiculos` v ON v.id = r.vehiculo_id
+                        WHERE r.id IN ($ph) AND r.activo = 0 AND ({$rAccess} OR r.usuario_id = ?)
+                    ");
+                    $stmt->execute($rParams);
+                }
+                $deleted += $stmt->rowCount();
+            }
+            if (!empty($vehIds)) {
+                $stmtChkRep = $pdo->prepare("SELECT COUNT(*) FROM `veh_repostajes` WHERE vehiculo_id = ?");
+                $stmtChkTar = $pdo->prepare("SELECT COUNT(*) FROM `veh_vehiculo_tareas` WHERE vehiculo_id = ?");
+                $blockedVehIds = array();
+                $allowedVehIds = array();
+                foreach ($vehIds as $vid) {
+                    $stmtChkRep->execute(array($vid));
+                    $cntR = (int)$stmtChkRep->fetchColumn();
+                    $stmtChkTar->execute(array($vid));
+                    $cntT = (int)$stmtChkTar->fetchColumn();
+                    if ($cntR > 0 || $cntT > 0) {
+                        $blockedVehIds[] = $vid;
+                    } else {
+                        $allowedVehIds[] = $vid;
+                    }
+                }
+                if (!empty($allowedVehIds)) {
+                    $ph = implode(',', array_fill(0, count($allowedVehIds), '?'));
+                    if ($isAdmin) {
+                        $stmt = $pdo->prepare("DELETE FROM `veh_vehiculos` WHERE id IN ($ph) AND activo = 0");
+                        $stmt->execute($allowedVehIds);
+                    } else {
+                        $vParams = $allowedVehIds;
+                        $vAccess = buildVehicleAccessClause('v', $userId, false, $vParams);
+                        $stmt = $pdo->prepare("DELETE v FROM `veh_vehiculos` v WHERE v.id IN ($ph) AND v.activo = 0 AND {$vAccess}");
+                        $stmt->execute($vParams);
+                    }
+                    $deleted += $stmt->rowCount();
+                }
+                if (!empty($blockedVehIds) && $deleted === 0) {
+                    http_response_code(409);
+                    echo json_encode(array(
+                        'success' => false,
+                        'error'   => 'No se puede borrar definitivamente el vehículo (' . implode(', ', $blockedVehIds) . ') porque tiene repostajes o tareas asociadas. Elimina primero sus registros dependientes.',
+                    ));
+                    exit;
+                }
+            }
+            echo json_encode(array(
+                'success' => true,
+                'deleted' => $deleted,
+                'message' => "Borrado definitivo completado ($deleted registros eliminados de la base de datos).",
+            ));
             break;
 
         default:

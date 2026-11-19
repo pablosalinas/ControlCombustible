@@ -1363,19 +1363,34 @@
     </div>
 </div>
 
-<!-- MODAL PAPELERA / REACTIVAR REGISTROS INACTIVOS (SUPERUSUARIO) -->
+<!-- MODAL PAPELERA / REACTIVAR O BORRAR DEFINITIVAMENTE -->
 <div class="modal-backdrop" id="inactive-records-modal">
-    <div class="modal-content" style="max-width:700px;">
-        <div class="card-header" style="margin-bottom:0.8rem;">
-            <div class="card-title"><i class="fa-solid fa-trash-arrow-up" style="color:#dc2626"></i> Registros Inactivos (activo = 0)</div>
+    <div class="modal-content" style="max-width:780px;">
+        <div class="card-header" style="margin-bottom:0.6rem;">
+            <div class="card-title"><i class="fa-solid fa-trash-arrow-up" style="color:#dc2626"></i> Papelera (Registros con activo = 0)</div>
             <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closeInactiveRecordsModal()"><i class="fa-solid fa-xmark"></i></button>
         </div>
-        <div style="display:flex; justify-content:flex-end; margin-bottom:0.75rem;">
-            <button type="button" class="btn btn-primary" style="padding:0.4rem 0.75rem; font-size:0.82rem;" onclick="reactivateRecord('all_repostajes', 0)">
-                <i class="fa-solid fa-rotate-left"></i> Reactivar todos los repostajes inactivos
-            </button>
+        <div style="font-size:0.77rem; color:var(--muted); margin-bottom:0.55rem;">
+            <i class="fa-solid fa-circle-info"></i> Selecciona con la casilla, <strong>Ctrl + clic</strong> para elegir uno a uno, o <strong>Shift + clic</strong> para seleccionar un bloque completo.
         </div>
-        <div id="inactive-records-list" style="display:flex; flex-direction:column; gap:0.65rem; max-height:58vh; overflow-y:auto;"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem; padding:0.5rem 0.65rem; background:#f8fafc; border:1px solid var(--border); border-radius:10px;">
+            <label style="display:inline-flex; align-items:center; gap:0.4rem; font-size:0.82rem; font-weight:600; cursor:pointer;">
+                <input type="checkbox" id="inactive-select-all" onchange="toggleAllInactiveSelection(this.checked)">
+                Seleccionar todo (<span id="inactive-selected-count">0</span>)
+            </label>
+            <div style="display:flex; gap:0.45rem; flex-wrap:wrap;">
+                <button type="button" class="btn btn-primary" style="padding:0.36rem 0.68rem; font-size:0.78rem;" onclick="reactivateSelectedInactive()">
+                    <i class="fa-solid fa-rotate-left"></i> Recuperar seleccionados
+                </button>
+                <button type="button" class="btn btn-danger" style="padding:0.36rem 0.68rem; font-size:0.78rem;" onclick="purgeSelectedInactive()">
+                    <i class="fa-solid fa-trash-can"></i> Borrar definitivamente
+                </button>
+                <button type="button" class="btn btn-outline" style="padding:0.36rem 0.68rem; font-size:0.78rem;" onclick="reactivateRecord('all_repostajes', 0)">
+                    <i class="fa-solid fa-rotate"></i> Recuperar todos los repostajes
+                </button>
+            </div>
+        </div>
+        <div id="inactive-records-list" style="display:flex; flex-direction:column; gap:0.45rem; max-height:55vh; overflow-y:auto; user-select:none;"></div>
     </div>
 </div>
 
@@ -3949,11 +3964,74 @@ async function deactivateParque(id) {
     }
 }
 
-// PAPELERA / REACTIVAR REGISTROS INACTIVOS (SUPERUSUARIO)
+// PAPELERA / REACTIVAR O BORRAR DEFINITIVAMENTE REGISTROS INACTIVOS
+let inactiveItemsOrder = [];
+let selectedInactiveKeys = new Set();
+let lastInactiveAnchorIdx = null;
+
+function syncInactiveSelectionUI() {
+    const cntEl = document.getElementById('inactive-selected-count');
+    if (cntEl) cntEl.textContent = String(selectedInactiveKeys.size);
+    const allChk = document.getElementById('inactive-select-all');
+    if (allChk) {
+        allChk.checked = inactiveItemsOrder.length > 0 && selectedInactiveKeys.size === inactiveItemsOrder.length;
+    }
+    inactiveItemsOrder.forEach((key, idx) => {
+        const rowEl = document.getElementById(`inactive-row-${idx}`);
+        const chkEl = document.getElementById(`inactive-chk-${idx}`);
+        const isSel = selectedInactiveKeys.has(key);
+        if (chkEl) chkEl.checked = isSel;
+        if (rowEl) {
+            rowEl.style.background = isSel ? '#f0fdfa' : '#ffffff';
+            rowEl.style.borderColor = isSel ? '#0f766e' : 'var(--border)';
+        }
+    });
+}
+
+function toggleAllInactiveSelection(checked) {
+    if (checked) {
+        inactiveItemsOrder.forEach(k => selectedInactiveKeys.add(k));
+    } else {
+        selectedInactiveKeys.clear();
+    }
+    syncInactiveSelectionUI();
+}
+
+function handleInactiveRowClick(ev, idx, key) {
+    if (ev.target && ev.target.closest('button')) return;
+    const isCheckbox = ev.target && ev.target.tagName === 'INPUT';
+    if (ev.shiftKey && lastInactiveAnchorIdx !== null) {
+        const start = Math.min(lastInactiveAnchorIdx, idx);
+        const end = Math.max(lastInactiveAnchorIdx, idx);
+        if (!ev.ctrlKey && !ev.metaKey) selectedInactiveKeys.clear();
+        for (let i = start; i <= end; i++) {
+            selectedInactiveKeys.add(inactiveItemsOrder[i]);
+        }
+    } else if (ev.ctrlKey || ev.metaKey || isCheckbox) {
+        if (selectedInactiveKeys.has(key)) selectedInactiveKeys.delete(key);
+        else selectedInactiveKeys.add(key);
+        lastInactiveAnchorIdx = idx;
+    } else {
+        if (selectedInactiveKeys.size === 1 && selectedInactiveKeys.has(key)) {
+            selectedInactiveKeys.clear();
+        } else {
+            selectedInactiveKeys.clear();
+            selectedInactiveKeys.add(key);
+        }
+        lastInactiveAnchorIdx = idx;
+    }
+    syncInactiveSelectionUI();
+}
+
 async function openInactiveRecordsModal() {
     document.getElementById('inactive-records-modal').classList.add('active');
     const box = document.getElementById('inactive-records-list');
     box.innerHTML = '<div style="color:#64748b; font-size:0.85rem;">Cargando registros inactivos...</div>';
+    inactiveItemsOrder = [];
+    selectedInactiveKeys = new Set();
+    lastInactiveAnchorIdx = null;
+    syncInactiveSelectionUI();
+
     const res = await apiCall('list_inactive_records');
     if (!res.success) {
         box.innerHTML = `<div style="color:#b91c1c; font-size:0.85rem;">${res.error || 'Error cargando registros'}</div>`;
@@ -3966,31 +4044,98 @@ async function openInactiveRecordsModal() {
         return;
     }
     let html = '';
+    let idx = 0;
     if (vehs.length > 0) {
         html += '<div style="font-weight:700; font-size:0.85rem; color:var(--primary-dark);">Vehículos inactivos</div>';
-        html += vehs.map(v => `
-            <div style="border:1px solid var(--border); border-radius:8px; padding:0.55rem 0.75rem; display:flex; justify-content:space-between; align-items:center;">
-                <div style="font-size:0.83rem;"><b>#${v.id} ${v.nombre}</b> (${v.matricula || 'Sin matrícula'}) · Usuario: ${v.propietario || v.usuario_id}</div>
-                <button class="btn btn-primary" style="padding:0.28rem 0.6rem; font-size:0.76rem;" onclick="reactivateRecord('vehiculo', ${v.id})">Reactivar</button>
-            </div>
-        `).join('');
+        html += vehs.map(v => {
+            const key = `vehiculo:${v.id}`;
+            const curIdx = idx++;
+            inactiveItemsOrder.push(key);
+            return `
+                <div id="inactive-row-${curIdx}" onclick="handleInactiveRowClick(event, ${curIdx}, '${key}')" style="border:1px solid var(--border); border-radius:8px; padding:0.5rem 0.7rem; display:flex; justify-content:space-between; align-items:center; gap:0.5rem; cursor:pointer;">
+                    <div style="display:flex; align-items:center; gap:0.55rem; font-size:0.83rem;">
+                        <input type="checkbox" id="inactive-chk-${curIdx}">
+                        <span><b>#${v.id} ${v.nombre}</b> (${v.matricula || 'Sin matrícula'}) · Usuario: ${v.propietario || v.usuario_id}</span>
+                    </div>
+                    <div style="display:flex; gap:0.35rem;">
+                        <button type="button" class="btn btn-primary" style="padding:0.26rem 0.55rem; font-size:0.75rem;" onclick="reactivateRecord('vehiculo', ${v.id})">Recuperar</button>
+                        <button type="button" class="btn btn-danger" style="padding:0.26rem 0.55rem; font-size:0.75rem;" onclick="purgeRecord('vehiculo', ${v.id})" title="Borrado físico definitivo"><i class="fa-solid fa-trash-can"></i></button>
+                    </div>
+                </div>
+            `;
+        }).join('');
     }
     if (reps.length > 0) {
-        html += '<div style="font-weight:700; font-size:0.85rem; color:var(--primary-dark); margin-top:0.4rem;">Repostajes inactivos</div>';
-        html += reps.map(r => `
-            <div style="border:1px solid var(--border); border-radius:8px; padding:0.55rem 0.75rem; display:flex; justify-content:space-between; align-items:center;">
-                <div style="font-size:0.83rem;"><b>#${r.id}</b> · ${r.fecha} · ${r.vehiculo_nombre || ('Veh #' + r.vehiculo_id)} · ${r.litros} L (${r.importe_total} €) · ${r.propietario || r.usuario_id}</div>
-                <button class="btn btn-primary" style="padding:0.28rem 0.6rem; font-size:0.76rem;" onclick="reactivateRecord('repostaje', ${r.id})">Reactivar</button>
-            </div>
-        `).join('');
+        html += `<div style="font-weight:700; font-size:0.85rem; color:var(--primary-dark); margin-top:0.4rem;">Repostajes inactivos (${reps.length})</div>`;
+        html += reps.map(r => {
+            const key = `repostaje:${r.id}`;
+            const curIdx = idx++;
+            inactiveItemsOrder.push(key);
+            return `
+                <div id="inactive-row-${curIdx}" onclick="handleInactiveRowClick(event, ${curIdx}, '${key}')" style="border:1px solid var(--border); border-radius:8px; padding:0.5rem 0.7rem; display:flex; justify-content:space-between; align-items:center; gap:0.5rem; cursor:pointer;">
+                    <div style="display:flex; align-items:center; gap:0.55rem; font-size:0.83rem;">
+                        <input type="checkbox" id="inactive-chk-${curIdx}">
+                        <span><b>#${r.id}</b> · ${fmtDate(r.fecha)} · ${r.vehiculo_nombre || ('Veh #' + r.vehiculo_id)} · ${r.litros} L (${r.importe_total} €) · ${r.propietario || r.usuario_id}</span>
+                    </div>
+                    <div style="display:flex; gap:0.35rem;">
+                        <button type="button" class="btn btn-primary" style="padding:0.26rem 0.55rem; font-size:0.75rem;" onclick="reactivateRecord('repostaje', ${r.id})">Recuperar</button>
+                        <button type="button" class="btn btn-danger" style="padding:0.26rem 0.55rem; font-size:0.75rem;" onclick="purgeRecord('repostaje', ${r.id})" title="Borrado físico definitivo"><i class="fa-solid fa-trash-can"></i></button>
+                    </div>
+                </div>
+            `;
+        }).join('');
     }
     box.innerHTML = html;
+    syncInactiveSelectionUI();
 }
 function closeInactiveRecordsModal() {
     document.getElementById('inactive-records-modal').classList.remove('active');
 }
+function getSelectedInactiveBatch() {
+    const vehiculo_ids = [];
+    const repostaje_ids = [];
+    selectedInactiveKeys.forEach(k => {
+        const [tipo, idStr] = k.split(':');
+        const id = parseInt(idStr, 10);
+        if (tipo === 'vehiculo' && id > 0) vehiculo_ids.push(id);
+        if (tipo === 'repostaje' && id > 0) repostaje_ids.push(id);
+    });
+    return { vehiculo_ids, repostaje_ids };
+}
 async function reactivateRecord(tipo, id) {
     const res = await apiCall('reactivate_records', { tipo, id });
+    alert(res.message || res.error || 'Operación completada');
+    await loadDashboard();
+    await openInactiveRecordsModal();
+}
+async function reactivateSelectedInactive() {
+    const batch = getSelectedInactiveBatch();
+    const total = batch.vehiculo_ids.length + batch.repostaje_ids.length;
+    if (total === 0) {
+        alert('Selecciona primero uno o varios registros.');
+        return;
+    }
+    const res = await apiCall('reactivate_records', { tipo: 'batch', ...batch });
+    alert(res.message || res.error || 'Operación completada');
+    await loadDashboard();
+    await openInactiveRecordsModal();
+}
+async function purgeRecord(tipo, id) {
+    if (!confirm('¿Borrar DEFINITIVAMENTE este registro de la base de datos? Esta acción NO se puede deshacer.')) return;
+    const res = await apiCall('purge_inactive_records', { tipo, id });
+    alert(res.message || res.error || 'Operación completada');
+    await loadDashboard();
+    await openInactiveRecordsModal();
+}
+async function purgeSelectedInactive() {
+    const batch = getSelectedInactiveBatch();
+    const total = batch.vehiculo_ids.length + batch.repostaje_ids.length;
+    if (total === 0) {
+        alert('Selecciona primero uno o varios registros.');
+        return;
+    }
+    if (!confirm(`¿Borrar DEFINITIVAMENTE los ${total} registros seleccionados de la base de datos? Esta acción NO se puede deshacer.`)) return;
+    const res = await apiCall('purge_inactive_records', { tipo: 'batch', ...batch });
     alert(res.message || res.error || 'Operación completada');
     await loadDashboard();
     await openInactiveRecordsModal();
