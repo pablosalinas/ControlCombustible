@@ -1904,6 +1904,7 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
         setState(() {
           _localEstaciones.add(EstacionServicio(
             id: newId,
+            usuarioId: 0,
             nombre: st.nombre,
             marca: st.marca,
             localidad: st.localidad,
