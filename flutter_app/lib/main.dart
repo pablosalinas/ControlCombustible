@@ -11,8 +11,25 @@ import 'services/api_service.dart';
 import 'services/ocr_service.dart';
 import 'services/pdf_service.dart';
 
-const String kAppVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'V1.2611191308');
+const String kAppVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'V1.2611191345');
 const String kApkDownloadUrl = 'https://github.com/pablosalinas/ControlCombustible/releases/latest/download/ControlCombustible.apk';
+
+int compareAppVersions(String latest, String current) {
+  List<int> parse(String v) {
+    final clean = v.trim().replaceFirst(RegExp(r'^[vV]'), '');
+    return clean.split('.').map((p) => int.tryParse(p) ?? 0).toList();
+  }
+
+  final a = parse(latest);
+  final b = parse(current);
+  final len = a.length > b.length ? a.length : b.length;
+  for (int i = 0; i < len; i++) {
+    final av = i < a.length ? a[i] : 0;
+    final bv = i < b.length ? b[i] : 0;
+    if (av != bv) return av.compareTo(bv);
+  }
+  return 0;
+}
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -161,23 +178,6 @@ class _LoginScreenState extends State<LoginScreen> {
     _checkLatestAppVersion();
   }
 
-  int _compareVersions(String latest, String current) {
-    List<int> parse(String v) {
-      final clean = v.trim().replaceFirst(RegExp(r'^[vV]'), '');
-      return clean.split('.').map((p) => int.tryParse(p) ?? 0).toList();
-    }
-
-    final a = parse(latest);
-    final b = parse(current);
-    final len = a.length > b.length ? a.length : b.length;
-    for (int i = 0; i < len; i++) {
-      final av = i < a.length ? a[i] : 0;
-      final bv = i < b.length ? b[i] : 0;
-      if (av != bv) return av.compareTo(bv);
-    }
-    return 0;
-  }
-
   Future<void> _checkLatestAppVersion() async {
     try {
       final uri = Uri.parse('https://api.github.com/repos/pablosalinas/ControlCombustible/releases/latest');
@@ -185,7 +185,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (resp.statusCode == 200) {
         final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
         final tag = (data['tag_name'] ?? '').toString().trim();
-        if (tag.isNotEmpty && _compareVersions(tag, kAppVersion) > 0) {
+        if (tag.isNotEmpty && compareAppVersions(tag, kAppVersion) > 0) {
           String dlUrl = kApkDownloadUrl;
           final assets = data['assets'] as List? ?? [];
           for (final a in assets) {
@@ -993,47 +993,132 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _showAppVersionDialog() {
+    bool checking = true;
+    String? latestTag;
+    String dlUrl = kApkDownloadUrl;
+    String statusText = 'Comprobando si hay una nueva versión...';
+    bool hasUpdate = false;
+    bool started = false;
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.system_update, color: Color(0xFF0F766E)),
-            SizedBox(width: 8),
-            Text('Versión y Actualización'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Versión instalada: $kAppVersion', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.amber.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.amber.shade300),
-              ),
-              child: const Text(
-                'Si Android rechaza instalar una actualización (por ejemplo, al actualizar desde versiones anteriores a V1.261118), desinstala primero la app del teléfono e instala el nuevo APK. Tus datos están seguros en el servidor.\n\nA partir de V1.261118, las actualizaciones se instalarán directamente sin necesidad de desinstalar.',
-                style: TextStyle(fontSize: 12.5, color: Colors.black87),
-              ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) {
+          if (!started) {
+            started = true;
+            http
+                .get(
+                  Uri.parse('https://api.github.com/repos/pablosalinas/ControlCombustible/releases/latest'),
+                  headers: {'Accept': 'application/vnd.github+json'},
+                )
+                .timeout(const Duration(seconds: 6))
+                .then((resp) {
+              if (!ctx.mounted) return;
+              if (resp.statusCode == 200) {
+                final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+                final tag = (data['tag_name'] ?? '').toString().trim();
+                final assets = data['assets'] as List? ?? [];
+                for (final a in assets) {
+                  if (a is Map && (a['name']?.toString().endsWith('.apk') ?? false)) {
+                    final u = a['browser_download_url']?.toString() ?? '';
+                    if (u.isNotEmpty) {
+                      dlUrl = u;
+                      break;
+                    }
+                  }
+                }
+                final isNewer = tag.isNotEmpty && compareAppVersions(tag, kAppVersion) > 0;
+                setDlgState(() {
+                  checking = false;
+                  latestTag = tag;
+                  hasUpdate = isNewer;
+                  statusText = isNewer
+                      ? '¡Nueva versión disponible: $tag!'
+                      : 'Tienes la última versión disponible ($tag).';
+                });
+              } else {
+                setDlgState(() {
+                  checking = false;
+                  statusText = 'No se pudo comprobar en GitHub (HTTP ${resp.statusCode}).';
+                });
+              }
+            }).catchError((_) {
+              if (!ctx.mounted) return;
+              setDlgState(() {
+                checking = false;
+                statusText = 'No se pudo conectar para comprobar actualizaciones.';
+              });
+            });
+          }
+
+          return AlertDialog(
+            title: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.asset('assets/logo_v2.png', width: 32, height: 32),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(child: Text('Versión y Actualización')),
+              ],
             ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar')),
-          FilledButton.icon(
-            onPressed: () {
-              Navigator.pop(ctx);
-              launchUrl(Uri.parse(kApkDownloadUrl), mode: LaunchMode.externalApplication);
-            },
-            icon: const Icon(Icons.download),
-            label: const Text('Descargar último APK'),
-          ),
-        ],
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Versión instalada: $kAppVersion', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: hasUpdate ? Colors.teal.shade50 : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: hasUpdate ? Colors.teal.shade300 : Colors.grey.shade300),
+                  ),
+                  child: Row(
+                    children: [
+                      if (checking)
+                        const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      else
+                        Icon(
+                          hasUpdate ? Icons.new_releases : Icons.check_circle,
+                          size: 18,
+                          color: hasUpdate ? const Color(0xFF0F766E) : Colors.green.shade700,
+                        ),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(statusText, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600))),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.amber.shade300),
+                  ),
+                  child: const Text(
+                    'A partir de V1.261118, las actualizaciones se instalan directamente sin necesidad de desinstalar.',
+                    style: TextStyle(fontSize: 12, color: Colors.black87),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar')),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  launchUrl(Uri.parse(dlUrl), mode: LaunchMode.externalApplication);
+                },
+                icon: const Icon(Icons.download),
+                label: Text(hasUpdate && latestTag != null ? 'Descargar $latestTag' : 'Descargar último APK'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1202,53 +1287,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
             ],
           ),
-          if (widget.api.isAdmin)
-            IconButton(
-              tooltip: 'Solicitudes de Registro',
-              icon: const Icon(Icons.how_to_reg),
-              onPressed: _showPendingUsersDialog,
-            ),
-          IconButton(
-            tooltip: 'Correo de Avisos',
-            icon: const Icon(Icons.email_outlined),
-            onPressed: _showUserEmailDialog,
-          ),
-          IconButton(
-            tooltip: 'Estaciones de Servicio',
-            icon: const Icon(Icons.storefront),
-            onPressed: () async {
-              await Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => EstacionesScreen(api: widget.api, estaciones: _estaciones),
-                ),
-              );
-              _loadData();
-            },
-          ),
-          IconButton(
-            tooltip: 'Talleres, Aseguradoras e ITVs',
-            icon: const Icon(Icons.build_circle_outlined),
-            onPressed: () async {
-              await Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ProveedoresScreen(api: widget.api, proveedores: _proveedores),
-                ),
-              );
-              _loadData();
-            },
-          ),
-          IconButton(
-            tooltip: 'Gestionar Vehículos',
-            icon: const Icon(Icons.directions_car),
-            onPressed: () async {
-              await Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => VehiculosScreen(api: widget.api, vehiculos: _vehiculos),
-                ),
-              );
-              _loadData();
-            },
-          ),
           IconButton(
             tooltip: 'Generar Informe PDF',
             icon: const Icon(Icons.picture_as_pdf),
@@ -1256,10 +1294,100 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ? null
                 : () => _showPdfOptionsDialog(filtered),
           ),
-          IconButton(
-            tooltip: 'Cerrar sesión',
-            icon: const Icon(Icons.logout),
-            onPressed: widget.onLogout,
+          PopupMenuButton<String>(
+            tooltip: 'Opciones y Menú',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (val) async {
+              switch (val) {
+                case 'version':
+                  _showAppVersionDialog();
+                  break;
+                case 'vehiculos':
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => VehiculosScreen(api: widget.api, vehiculos: _vehiculos),
+                    ),
+                  );
+                  _loadData();
+                  break;
+                case 'estaciones':
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => EstacionesScreen(api: widget.api, estaciones: _estaciones),
+                    ),
+                  );
+                  _loadData();
+                  break;
+                case 'proveedores':
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ProveedoresScreen(api: widget.api, proveedores: _proveedores),
+                    ),
+                  );
+                  _loadData();
+                  break;
+                case 'email':
+                  _showUserEmailDialog();
+                  break;
+                case 'pending':
+                  _showPendingUsersDialog();
+                  break;
+                case 'logout':
+                  widget.onLogout();
+                  break;
+              }
+            },
+            itemBuilder: (ctx) => [
+              PopupMenuItem<String>(
+                value: 'version',
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.asset('assets/logo_v2.png', width: 24, height: 24),
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('Versión y Actualizaciones', style: TextStyle(fontWeight: FontWeight.w600)),
+                          Text(kAppVersion, style: TextStyle(fontSize: 11, color: Colors.black54)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem<String>(
+                value: 'vehiculos',
+                child: ListTile(leading: Icon(Icons.directions_car), title: Text('Gestionar Vehículos'), dense: true, contentPadding: EdgeInsets.zero),
+              ),
+              const PopupMenuItem<String>(
+                value: 'estaciones',
+                child: ListTile(leading: Icon(Icons.storefront), title: Text('Estaciones de Servicio'), dense: true, contentPadding: EdgeInsets.zero),
+              ),
+              const PopupMenuItem<String>(
+                value: 'proveedores',
+                child: ListTile(leading: Icon(Icons.build_circle_outlined), title: Text('Talleres, Aseguradoras e ITVs'), dense: true, contentPadding: EdgeInsets.zero),
+              ),
+              const PopupMenuItem<String>(
+                value: 'email',
+                child: ListTile(leading: Icon(Icons.email_outlined), title: Text('Correo de Avisos'), dense: true, contentPadding: EdgeInsets.zero),
+              ),
+              if (widget.api.isAdmin)
+                const PopupMenuItem<String>(
+                  value: 'pending',
+                  child: ListTile(leading: Icon(Icons.how_to_reg), title: Text('Solicitudes de Registro'), dense: true, contentPadding: EdgeInsets.zero),
+                ),
+              const PopupMenuDivider(),
+              const PopupMenuItem<String>(
+                value: 'logout',
+                child: ListTile(leading: Icon(Icons.logout, color: Colors.red), title: Text('Cerrar sesión', style: TextStyle(color: Colors.red)), dense: true, contentPadding: EdgeInsets.zero),
+              ),
+            ],
           ),
         ],
       ),
