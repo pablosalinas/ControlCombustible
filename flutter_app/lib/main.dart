@@ -591,6 +591,7 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   int _selectedVehiculoId = 0; // 0 = Todos (Resultado conjunto)
   List<Vehiculo> _vehiculos = [];
+  List<ParqueMovil> _parques = [];
   List<EstacionServicio> _estaciones = [];
   List<Proveedor> _proveedores = [];
   List<TareaMaestro> _tareasMaestro = [];
@@ -622,6 +623,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final vList = (res['vehiculos'] as List? ?? [])
             .map((e) => Vehiculo.fromJson(e as Map<String, dynamic>))
             .toList();
+        final pqList = (res['parques'] as List? ?? [])
+            .map((e) => ParqueMovil.fromJson(e as Map<String, dynamic>))
+            .toList();
         final estList = (res['estaciones'] as List? ?? [])
             .map((e) => EstacionServicio.fromJson(e as Map<String, dynamic>))
             .toList();
@@ -650,6 +654,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (mounted) {
           setState(() {
             _vehiculos = vList;
+            _parques = pqList;
             if (_selectedVehiculoId != 0 && !vList.any((v) => v.id == _selectedVehiculoId)) {
               _selectedVehiculoId = 0;
             }
@@ -1305,7 +1310,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 case 'vehiculos':
                   await Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => VehiculosScreen(api: widget.api, vehiculos: _vehiculos),
+                      builder: (_) => VehiculosScreen(api: widget.api, vehiculos: _vehiculos, parques: _parques),
+                    ),
+                  );
+                  _loadData();
+                  break;
+                case 'parques':
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ParquesMovilesScreen(api: widget.api),
+                    ),
+                  );
+                  _loadData();
+                  break;
+                case 'papelera':
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => PapeleraScreen(api: widget.api),
                     ),
                   );
                   _loadData();
@@ -1364,6 +1385,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const PopupMenuItem<String>(
                 value: 'vehiculos',
                 child: ListTile(leading: Icon(Icons.directions_car), title: Text('Gestionar Vehículos'), dense: true, contentPadding: EdgeInsets.zero),
+              ),
+              const PopupMenuItem<String>(
+                value: 'parques',
+                child: ListTile(leading: Icon(Icons.groups, color: Color(0xFF0F766E)), title: Text('Parques Móviles'), dense: true, contentPadding: EdgeInsets.zero),
+              ),
+              const PopupMenuItem<String>(
+                value: 'papelera',
+                child: ListTile(leading: Icon(Icons.restore_from_trash, color: Colors.redAccent), title: Text('Papelera (Recuperar)'), dense: true, contentPadding: EdgeInsets.zero),
               ),
               const PopupMenuItem<String>(
                 value: 'estaciones',
@@ -2425,8 +2454,14 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
 class VehiculosScreen extends StatefulWidget {
   final ApiService api;
   final List<Vehiculo> vehiculos;
+  final List<ParqueMovil> parques;
 
-  const VehiculosScreen({super.key, required this.api, required this.vehiculos});
+  const VehiculosScreen({
+    super.key,
+    required this.api,
+    required this.vehiculos,
+    this.parques = const [],
+  });
 
   @override
   State<VehiculosScreen> createState() => _VehiculosScreenState();
@@ -2437,6 +2472,7 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
   final _matriculaCtrl = TextEditingController();
   final _modeloCtrl = TextEditingController();
   String _tipoCombustible = 'Diésel';
+  int? _selectedParqueId;
   int _editingId = 0;
 
   static const List<String> _fuelTypes = [
@@ -2455,6 +2491,7 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
       _matriculaCtrl.clear();
       _modeloCtrl.clear();
       _tipoCombustible = 'Diésel';
+      _selectedParqueId = null;
     });
   }
 
@@ -2462,6 +2499,7 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
     if (_nombreCtrl.text.trim().isEmpty) return;
     final res = await widget.api.post('save_vehiculo', {
       'id': _editingId,
+      'parque_id': _selectedParqueId,
       'nombre': _nombreCtrl.text.trim(),
       'matricula': _matriculaCtrl.text.trim(),
       'modelo': _modeloCtrl.text.trim(),
@@ -2525,7 +2563,10 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
               child: ListTile(
                 leading: const Icon(Icons.directions_car, color: Color(0xFF0F766E)),
                 title: Text(v.nombre, style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text('${v.matricula.isNotEmpty ? v.matricula : "Sin matrícula"} · ${v.tipoCombustible}'),
+                subtitle: Text(
+                  '${v.matricula.isNotEmpty ? v.matricula : "Sin matrícula"} · ${v.tipoCombustible}'
+                  '${v.parqueNombre.isNotEmpty ? " · Parque: ${v.parqueNombre}" : " · Personal"}',
+                ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -2539,6 +2580,7 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
                           _matriculaCtrl.text = v.matricula;
                           _modeloCtrl.text = v.modelo;
                           _tipoCombustible = v.tipoCombustible.isNotEmpty ? v.tipoCombustible : 'Diésel';
+                          _selectedParqueId = v.parqueId;
                         });
                       },
                     ),
@@ -2591,6 +2633,29 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
             onChanged: (v) {
               if (v != null) setState(() => _tipoCombustible = v);
             },
+          ),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<int?>(
+            value: (_selectedParqueId != null && widget.parques.any((p) => p.id == _selectedParqueId))
+                ? _selectedParqueId
+                : null,
+            decoration: const InputDecoration(
+              labelText: 'Parque Móvil / Flota (opcional)',
+              border: OutlineInputBorder(),
+            ),
+            items: [
+              const DropdownMenuItem<int?>(
+                value: null,
+                child: Text('Personal (solo mi usuario)'),
+              ),
+              ...widget.parques.map(
+                (pq) => DropdownMenuItem<int?>(
+                  value: pq.id,
+                  child: Text('Parque Móvil: ${pq.nombre}'),
+                ),
+              ),
+            ],
+            onChanged: (val) => setState(() => _selectedParqueId = val),
           ),
           const SizedBox(height: 16),
           FilledButton.icon(
@@ -4170,6 +4235,398 @@ class _TareasMaestroScreenState extends State<TareasMaestroScreen> {
           FilledButton.icon(onPressed: _save, icon: const Icon(Icons.save), label: const Text('Guardar en Maestro')),
         ],
       ),
+    );
+  }
+}
+
+class ParquesMovilesScreen extends StatefulWidget {
+  final ApiService api;
+
+  const ParquesMovilesScreen({super.key, required this.api});
+
+  @override
+  State<ParquesMovilesScreen> createState() => _ParquesMovilesScreenState();
+}
+
+class _ParquesMovilesScreenState extends State<ParquesMovilesScreen> {
+  final _nombreCtrl = TextEditingController();
+  final _descCtrl = TextEditingController();
+  int _editingId = 0;
+  bool _loading = true;
+  List<ParqueMovil> _parques = [];
+  List<Map<String, dynamic>> _users = [];
+  final Map<int, int?> _selectedUserByParque = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final res = await widget.api.post('list_parques', {});
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        if (res['success'] == true) {
+          _parques = (res['parques'] as List? ?? [])
+              .map((e) => ParqueMovil.fromJson(e as Map<String, dynamic>))
+              .toList();
+          _users = (res['users'] as List? ?? [])
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
+        }
+      });
+    }
+  }
+
+  void _clearForm() {
+    setState(() {
+      _editingId = 0;
+      _nombreCtrl.clear();
+      _descCtrl.clear();
+    });
+  }
+
+  Future<void> _saveParque() async {
+    if (_nombreCtrl.text.trim().isEmpty) return;
+    final res = await widget.api.post('save_parque', {
+      'id': _editingId,
+      'nombre': _nombreCtrl.text.trim(),
+      'descripcion': _descCtrl.text.trim(),
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Guardado').toString())),
+      );
+      if (res['success'] == true) {
+        _clearForm();
+        await _load();
+      }
+    }
+  }
+
+  Future<void> _assignUser(int parqueId) async {
+    final uid = _selectedUserByParque[parqueId];
+    if (uid == null || uid <= 0) return;
+    final res = await widget.api.post('assign_parque_user', {
+      'parque_id': parqueId,
+      'usuario_id': uid,
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Usuario añadido').toString())),
+      );
+      if (res['success'] == true) {
+        _selectedUserByParque[parqueId] = null;
+        await _load();
+      }
+    }
+  }
+
+  Future<void> _removeUser(int parqueId, int usuarioId) async {
+    final res = await widget.api.post('remove_parque_user', {
+      'parque_id': parqueId,
+      'usuario_id': usuarioId,
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Usuario retirado').toString())),
+      );
+      if (res['success'] == true) await _load();
+    }
+  }
+
+  Future<void> _deactivateParque(ParqueMovil pq) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Baja lógica de Parque Móvil'),
+        content: Text('¿Dar de baja el parque móvil "${pq.nombre}" (activo = 0)?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Dar de baja'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final res = await widget.api.post('deactivate_parque', {'id': pq.id});
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Operación completada').toString())),
+      );
+      if (res['success'] == true) await _load();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isAdmin = widget.api.isAdmin;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Parques Móviles')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                if (_parques.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Text(
+                      'No hay parques móviles creados o asignados todavía.',
+                      style: TextStyle(color: Colors.black54),
+                    ),
+                  ),
+                ..._parques.map((pq) {
+                  final availableUsers = _users
+                      .where((u) => !pq.miembros.any((m) => m.usuarioId == int.tryParse(u['id'].toString())))
+                      .toList();
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.groups, color: Color(0xFF0F766E)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  pq.nombre,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                ),
+                              ),
+                              Chip(
+                                label: Text('${pq.numVehiculos} veh.'),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                              if (isAdmin) ...[
+                                IconButton(
+                                  icon: const Icon(Icons.edit, size: 20),
+                                  onPressed: () {
+                                    setState(() {
+                                      _editingId = pq.id;
+                                      _nombreCtrl.text = pq.nombre;
+                                      _descCtrl.text = pq.descripcion;
+                                    });
+                                  },
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                  onPressed: () => _deactivateParque(pq),
+                                ),
+                              ],
+                            ],
+                          ),
+                          if (pq.descripcion.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4, bottom: 6),
+                              child: Text(pq.descripcion, style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                            ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: pq.miembros.isEmpty
+                                ? [const Text('Sin usuarios asignados', style: TextStyle(color: Colors.black45, fontSize: 12))]
+                                : pq.miembros
+                                    .map(
+                                      (m) => InputChip(
+                                        avatar: const Icon(Icons.person, size: 16),
+                                        label: Text(m.username),
+                                        onDeleted: isAdmin ? () => _removeUser(pq.id, m.usuarioId) : null,
+                                      ),
+                                    )
+                                    .toList(),
+                          ),
+                          if (isAdmin && availableUsers.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: DropdownButtonFormField<int>(
+                                    value: availableUsers.any((u) => int.tryParse(u['id'].toString()) == _selectedUserByParque[pq.id])
+                                        ? _selectedUserByParque[pq.id]
+                                        : null,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Añadir usuario al parque',
+                                      border: OutlineInputBorder(),
+                                      isDense: true,
+                                    ),
+                                    items: availableUsers
+                                        .map((u) => DropdownMenuItem<int>(
+                                              value: int.tryParse(u['id'].toString()) ?? 0,
+                                              child: Text('${u['username']} (${u['role']})'),
+                                            ))
+                                        .toList(),
+                                    onChanged: (v) => setState(() => _selectedUserByParque[pq.id] = v),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                FilledButton.icon(
+                                  onPressed: () => _assignUser(pq.id),
+                                  icon: const Icon(Icons.person_add, size: 18),
+                                  label: const Text('Añadir'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+                if (isAdmin) ...[
+                  const Divider(height: 32),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _editingId == 0 ? 'Crear Nuevo Parque Móvil' : 'Editar Parque Móvil',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      if (_editingId != 0)
+                        TextButton.icon(
+                          onPressed: _clearForm,
+                          icon: const Icon(Icons.close, size: 18),
+                          label: const Text('Cancelar'),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _nombreCtrl,
+                    decoration: const InputDecoration(labelText: 'Nombre del Parque Móvil *', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _descCtrl,
+                    decoration: const InputDecoration(labelText: 'Descripción (opcional)', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 14),
+                  FilledButton.icon(
+                    onPressed: _saveParque,
+                    icon: const Icon(Icons.save),
+                    label: Text(_editingId == 0 ? 'Crear Parque Móvil' : 'Actualizar Parque Móvil'),
+                  ),
+                ],
+              ],
+            ),
+    );
+  }
+}
+
+class PapeleraScreen extends StatefulWidget {
+  final ApiService api;
+
+  const PapeleraScreen({super.key, required this.api});
+
+  @override
+  State<PapeleraScreen> createState() => _PapeleraScreenState();
+}
+
+class _PapeleraScreenState extends State<PapeleraScreen> {
+  bool _loading = true;
+  List<Map<String, dynamic>> _vehiculos = [];
+  List<Map<String, dynamic>> _repostajes = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final res = await widget.api.post('list_inactive_records', {});
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        if (res['success'] == true) {
+          _vehiculos = (res['vehiculos'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          _repostajes = (res['repostajes'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      });
+    }
+  }
+
+  Future<void> _reactivate(String tipo, int id) async {
+    final res = await widget.api.post('reactivate_records', {'tipo': tipo, 'id': id});
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Reactivado').toString())),
+      );
+      if (res['success'] == true) await _load();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Papelera (Recuperar)')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                if (_repostajes.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: FilledButton.icon(
+                      onPressed: () => _reactivate('all_repostajes', 0),
+                      icon: const Icon(Icons.restore),
+                      label: const Text('Reactivar todos los repostajes inactivos'),
+                    ),
+                  ),
+                if (_vehiculos.isEmpty && _repostajes.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(child: Text('No hay vehículos ni repostajes inactivos.', style: TextStyle(color: Colors.black54))),
+                  ),
+                if (_vehiculos.isNotEmpty) ...[
+                  const Text('Vehículos dados de baja', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  const SizedBox(height: 8),
+                  ..._vehiculos.map(
+                    (v) => Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.directions_car, color: Colors.redAccent),
+                        title: Text('#${v['id']} ${v['nombre']}'),
+                        subtitle: Text('${v['matricula'] ?? 'Sin matrícula'} · ${v['propietario'] ?? v['usuario_id']}'),
+                        trailing: FilledButton(
+                          onPressed: () => _reactivate('vehiculo', int.tryParse(v['id'].toString()) ?? 0),
+                          child: const Text('Reactivar'),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                if (_repostajes.isNotEmpty) ...[
+                  const Text('Repostajes dados de baja', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  const SizedBox(height: 8),
+                  ..._repostajes.map(
+                    (r) => Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.local_gas_station, color: Colors.redAccent),
+                        title: Text('#${r['id']} · ${r['fecha']} · ${r['vehiculo_nombre'] ?? ''}'),
+                        subtitle: Text('${r['litros']} L · ${r['importe_total']} € · ${r['km_odometro']} km'),
+                        trailing: FilledButton(
+                          onPressed: () => _reactivate('repostaje', int.tryParse(r['id'].toString()) ?? 0),
+                          child: const Text('Reactivar'),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
     );
   }
 }

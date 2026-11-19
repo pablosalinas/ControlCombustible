@@ -1,6 +1,9 @@
 class Vehiculo {
   final int id;
   final int usuarioId;
+  final int? parqueId;
+  final String parqueNombre;
+  final String propietario;
   final String nombre;
   final String matricula;
   final String marca;
@@ -12,6 +15,9 @@ class Vehiculo {
   Vehiculo({
     required this.id,
     required this.usuarioId,
+    this.parqueId,
+    this.parqueNombre = '',
+    this.propietario = '',
     required this.nombre,
     required this.matricula,
     required this.marca,
@@ -22,9 +28,16 @@ class Vehiculo {
   });
 
   factory Vehiculo.fromJson(Map<String, dynamic> j) {
+    final rawParqueId = j['parque_id'];
+    final parsedParqueId = rawParqueId != null && rawParqueId.toString().isNotEmpty
+        ? int.tryParse(rawParqueId.toString())
+        : null;
     return Vehiculo(
       id: int.tryParse(j['id'].toString()) ?? 0,
       usuarioId: int.tryParse(j['usuario_id'].toString()) ?? 0,
+      parqueId: (parsedParqueId != null && parsedParqueId > 0) ? parsedParqueId : null,
+      parqueNombre: (j['parque_nombre'] ?? '').toString(),
+      propietario: (j['propietario'] ?? '').toString(),
       nombre: (j['nombre'] ?? '').toString(),
       matricula: (j['matricula'] ?? '').toString(),
       marca: (j['marca'] ?? '').toString(),
@@ -393,6 +406,58 @@ class VehiculoTarea {
       relacionadasCount: int.tryParse((j['relacionadas_count'] ?? 0).toString()) ?? 0,
       garantiaMeses: j['garantia_meses'] != null ? int.tryParse(j['garantia_meses'].toString()) : null,
       garantiaHasta: (j['garantia_hasta'] ?? '').toString(),
+    );
+  }
+}
+
+class ParqueMiembro {
+  final int usuarioId;
+  final String username;
+  final String email;
+  final String rolParque;
+
+  ParqueMiembro({
+    required this.usuarioId,
+    required this.username,
+    required this.email,
+    required this.rolParque,
+  });
+
+  factory ParqueMiembro.fromJson(Map<String, dynamic> j) {
+    return ParqueMiembro(
+      usuarioId: int.tryParse((j['usuario_id'] ?? 0).toString()) ?? 0,
+      username: (j['username'] ?? '').toString(),
+      email: (j['email'] ?? '').toString(),
+      rolParque: (j['rol_parque'] ?? 'gestor').toString(),
+    );
+  }
+}
+
+class ParqueMovil {
+  final int id;
+  final String nombre;
+  final String descripcion;
+  final int numVehiculos;
+  final List<ParqueMiembro> miembros;
+
+  ParqueMovil({
+    required this.id,
+    required this.nombre,
+    required this.descripcion,
+    required this.numVehiculos,
+    required this.miembros,
+  });
+
+  factory ParqueMovil.fromJson(Map<String, dynamic> j) {
+    final memList = (j['miembros'] as List? ?? [])
+        .map((e) => ParqueMiembro.fromJson(e as Map<String, dynamic>))
+        .toList();
+    return ParqueMovil(
+      id: int.tryParse((j['id'] ?? 0).toString()) ?? 0,
+      nombre: (j['nombre'] ?? '').toString(),
+      descripcion: (j['descripcion'] ?? '').toString(),
+      numVehiculos: int.tryParse((j['num_vehiculos'] ?? 0).toString()) ?? 0,
+      miembros: memList,
     );
   }
 }
