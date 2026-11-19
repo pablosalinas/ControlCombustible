@@ -1004,6 +1004,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     String? latestTag;
     String dlUrl = kApkDownloadUrl;
     String statusText = 'Comprobando si hay una nueva versión...';
+    String releaseNotes = '';
     bool hasUpdate = false;
     bool started = false;
 
@@ -1024,6 +1025,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               if (resp.statusCode == 200) {
                 final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
                 final tag = (data['tag_name'] ?? '').toString().trim();
+                final body = (data['body'] ?? '').toString().trim();
                 final assets = data['assets'] as List? ?? [];
                 for (final a in assets) {
                   if (a is Map && (a['name']?.toString().endsWith('.apk') ?? false)) {
@@ -1038,6 +1040,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 setDlgState(() {
                   checking = false;
                   latestTag = tag;
+                  releaseNotes = body;
                   hasUpdate = isNewer;
                   statusText = isNewer
                       ? '¡Nueva versión disponible: $tag!'
@@ -1098,6 +1101,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ],
                   ),
                 ),
+                if (releaseNotes.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  const Text('Novedades de la versión:', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: Color(0xFF0F766E))),
+                  const SizedBox(height: 4),
+                  Container(
+                    width: double.infinity,
+                    constraints: const BoxConstraints(maxHeight: 165),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: SingleChildScrollView(
+                      child: Text(releaseNotes, style: const TextStyle(fontSize: 12, height: 1.35, color: Colors.black87)),
+                    ),
+                  ),
+                ],
               ],
             ),
             actions: [

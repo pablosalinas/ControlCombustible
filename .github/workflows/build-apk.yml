@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: 📥 Clonar repositorio
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: ☕ Configurar Java 21 (Requerido por Android Lint / AGP en Flutter 3.50+)
         uses: actions/setup-java@v4
@@ -187,11 +189,28 @@ jobs:
           name: ControlCombustible-APK
           path: flutter_app/build/app/outputs/flutter-apk/ControlCombustible.apk
 
+      - name: 📝 Generar log breve de mejoras
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"• %s" -n 8)
+          else
+            CHANGES=$(git log -n 6 --pretty=format:"• %s")
+          fi
+          if [ -z "$CHANGES" ]; then
+            CHANGES="• Mejoras de estabilidad y sincronización con la web."
+          fi
+          {
+            echo "Mejoras incluidas en ${{ env.APP_VERSION_NAME }}:"
+            echo ""
+            echo "$CHANGES"
+          } > /tmp/release_notes.txt
+
       - name: 🚀 Publicar Descarga Directa en GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.APP_VERSION_NAME }}
           name: "Control de Combustible ${{ env.APP_VERSION_NAME }} (APK)"
-          body: "Versión ${{ env.APP_VERSION_NAME }} — Descarga directa del instalador Android (`ControlCombustible.apk`). Incluye gestión SCRUB de vehículos, envío de PDFs por email/compartir, y firma persistente para actualizaciones directas sin desinstalar (nota: si actualizas desde una versión anterior a V1.261118, desinstala la app antigua una única vez antes de instalar esta)."
+          body_path: /tmp/release_notes.txt
           files: flutter_app/build/app/outputs/flutter-apk/ControlCombustible.apk
           prerelease: false
