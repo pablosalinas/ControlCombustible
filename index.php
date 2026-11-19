@@ -3336,13 +3336,19 @@ document.getElementById('vt-form').addEventListener('submit', async (e) => {
     }
 });
 
+let completingPrevTaskKm = null;
+
 function openCompleteTareaModal(t) {
     const isRenewable = (t.tipo_periodicidad !== 'unica') && ((t.periodo_dias && Number(t.periodo_dias) > 0) || (t.periodo_km && Number(t.periodo_km) > 0));
+    completingPrevTaskKm = (t.ultimo_km !== null && t.ultimo_km !== undefined && Number(t.ultimo_km) > 0)
+        ? Math.round(Number(t.ultimo_km))
+        : ((t.km_actual && Number(t.km_actual) > 0) ? Math.round(Number(t.km_actual)) : null);
     document.getElementById('comp-vt-id').value = t.id;
     document.getElementById('comp-is-renewable').value = isRenewable ? '1' : '0';
     document.getElementById('comp-vt-desc').textContent = `${t.vehiculo_nombre}: ${t.descripcion}`;
     document.getElementById('comp-fecha').value = new Date().toISOString().slice(0, 10);
-    document.getElementById('comp-km').value = t.km_actual ? Math.round(t.km_actual) : '';
+    const defaultKm = (t.km_actual && Number(t.km_actual) > 0) ? Math.round(Number(t.km_actual)) : (completingPrevTaskKm || '');
+    document.getElementById('comp-km').value = defaultKm;
     populateProveedorSelect('comp-proveedor', t.proveedor_id || '0');
     document.getElementById('comp-coste').value = (t.coste !== null && t.coste !== undefined) ? t.coste : '';
     document.getElementById('comp-garantia').value = (t.garantia_meses !== null && t.garantia_meses !== undefined) ? t.garantia_meses : '';
@@ -3359,10 +3365,24 @@ document.getElementById('complete-vt-form').addEventListener('submit', async (e)
     if (isRenewable) {
         crearSig = confirm('Esta tarea es periódica. ¿Deseas registrar también una tarea para el siguiente periodo?') ? 1 : 0;
     }
+    let kmVal = document.getElementById('comp-km').value.trim();
+    if (crearSig === 1 && (!kmVal || Number(kmVal) <= 0)) {
+        if (completingPrevTaskKm !== null && completingPrevTaskKm > 0) {
+            const proceed = confirm(
+                `⚠️ No has indicado un nuevo kilometraje al renovar la tarea.\n\nSe utilizará por defecto el kilometraje de la tarea anterior (${completingPrevTaskKm} km).\n\n¿Deseas continuar con ${completingPrevTaskKm} km? (Pulsa Cancelar para introducir otro kilometraje)`
+            );
+            if (!proceed) return;
+            kmVal = String(completingPrevTaskKm);
+            document.getElementById('comp-km').value = kmVal;
+        } else {
+            const proceedEmpty = confirm('⚠️ No has indicado un nuevo kilometraje y la tarea anterior tampoco tenía kilómetros registrados. ¿Deseas continuar igualmente?');
+            if (!proceedEmpty) return;
+        }
+    }
     const res = await apiCall('complete_vehiculo_tarea', {
         id: document.getElementById('comp-vt-id').value,
         fecha_finalizacion: document.getElementById('comp-fecha').value,
-        km_finalizacion: document.getElementById('comp-km').value,
+        km_finalizacion: kmVal,
         proveedor_id: document.getElementById('comp-proveedor').value,
         coste: document.getElementById('comp-coste').value,
         garantia_meses: document.getElementById('comp-garantia').value,

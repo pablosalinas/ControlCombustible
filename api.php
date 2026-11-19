@@ -1666,6 +1666,13 @@ try {
             $finalCoste  = ($costeFin !== null) ? $costeFin : ($task['coste'] !== null ? (float)$task['coste'] : null);
             $finalGar    = ($garantiaFin !== null) ? $garantiaFin : ($task['garantia_meses'] !== null ? (int)$task['garantia_meses'] : null);
 
+            $isRenewable = ($task['tipo_periodicidad'] !== 'unica') && (($task['periodo_dias'] !== null && (int)$task['periodo_dias'] > 0) || ($task['periodo_km'] !== null && (float)$task['periodo_km'] > 0));
+            $kmFallbackUsed = false;
+            if (($kmFin === null || $kmFin <= 0) && $crearSig && $isRenewable && $task['ultimo_km'] !== null && (float)$task['ultimo_km'] > 0) {
+                $kmFin = (float)$task['ultimo_km'];
+                $kmFallbackUsed = true;
+            }
+
             $stmtUpd = $pdo->prepare("
                 UPDATE `veh_vehiculo_tareas`
                 SET estado = 'finalizada', fecha_finalizacion = ?, km_finalizacion = ?,
@@ -1676,7 +1683,6 @@ try {
             $stmtUpd->execute(array($fechaFin, $kmFin, $finalProvId, $finalCoste, $finalGar, $notasFin, $id));
 
             $nextCreated = false;
-            $isRenewable = ($task['tipo_periodicidad'] !== 'unica') && (($task['periodo_dias'] !== null && (int)$task['periodo_dias'] > 0) || ($task['periodo_km'] !== null && (float)$task['periodo_km'] > 0));
             if ($crearSig && $isRenewable) {
                 list($nextFecha, $nextKm) = computeNextTaskTargets(
                     $task['tipo_periodicidad'],
@@ -1711,9 +1717,14 @@ try {
             }
 
             echo json_encode(array(
-                'success'      => true,
-                'message'      => $nextCreated ? 'Tarea finalizada y programada la siguiente repetición.' : 'Tarea marcada como finalizada.',
-                'next_created' => $nextCreated,
+                'success'          => true,
+                'message'          => $nextCreated
+                    ? ($kmFallbackUsed
+                        ? 'Tarea finalizada y renovada usando por defecto el kilometraje anterior (' . $kmFin . ' km).'
+                        : 'Tarea finalizada y programada la siguiente repetición.')
+                    : 'Tarea marcada como finalizada.',
+                'next_created'     => $nextCreated,
+                'km_fallback_used' => $kmFallbackUsed,
             ));
             break;
 

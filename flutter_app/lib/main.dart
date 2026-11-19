@@ -3068,8 +3068,15 @@ class _TareasScreenState extends State<TareasScreen> {
   }
 
   Future<void> _completeTask(VehiculoTarea t) async {
+    final double? prevTaskKm = (t.ultimoKm != null && t.ultimoKm! > 0)
+        ? t.ultimoKm
+        : (t.kmActual > 0 ? t.kmActual : null);
     final fechaCtrl = TextEditingController(text: DateTime.now().toIso8601String().substring(0, 10));
-    final kmCtrl = TextEditingController(text: t.kmActual > 0 ? t.kmActual.toStringAsFixed(0) : '');
+    final kmCtrl = TextEditingController(
+      text: t.kmActual > 0
+          ? t.kmActual.toStringAsFixed(0)
+          : (prevTaskKm != null ? prevTaskKm.toStringAsFixed(0) : ''),
+    );
     final costeCtrl = TextEditingController(text: t.coste != null ? t.coste!.toStringAsFixed(2) : '');
     final garantiaCtrl = TextEditingController(text: t.garantiaMeses != null ? t.garantiaMeses.toString() : '');
     final notasCtrl = TextEditingController();
@@ -3174,6 +3181,35 @@ class _TareasScreenState extends State<TareasScreen> {
           ),
         );
         crearSiguiente = (renew == true) ? 1 : 0;
+      }
+      final enteredKm = double.tryParse(kmCtrl.text.trim().replaceAll(',', '.')) ?? 0;
+      if (crearSiguiente == 1 && enteredKm <= 0 && mounted) {
+        final hasPrev = prevTaskKm != null && prevTaskKm > 0;
+        final confirmFallback = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Sin nuevo kilometraje'),
+            content: Text(
+              hasPrev
+                  ? 'No se ha indicado un nuevo kilometraje al renovar la tarea.\n\nPor defecto se utilizará el kilometraje de la tarea anterior (${prevTaskKm.toStringAsFixed(0)} km). ¿Deseas continuar?'
+                  : 'No se ha indicado un nuevo kilometraje y la tarea anterior tampoco tenía kilómetros registrados. ¿Deseas continuar igualmente?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Introducir km'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(hasPrev ? 'Usar ${prevTaskKm.toStringAsFixed(0)} km' : 'Continuar'),
+              ),
+            ],
+          ),
+        );
+        if (confirmFallback != true) return;
+        if (hasPrev) {
+          kmCtrl.text = prevTaskKm.toStringAsFixed(0);
+        }
       }
       final res = await widget.api.post('complete_vehiculo_tarea', {
         'id': t.id,
