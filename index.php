@@ -2007,15 +2007,26 @@ function removeRepostajePhoto(tipo) {
     renderRepostajePhotosPreview();
 }
 
+function getAuthHeadersForFormData() {
+    const headers = {};
+    if (typeof authCreds !== 'undefined' && authCreds && authCreds.username && authCreds.password) {
+        headers['Authorization'] = 'Basic ' + btoa(authCreds.username + ':' + authCreds.password);
+    }
+    return headers;
+}
+
 async function uploadRepostajePhoto(file, tipo) {
     const fd = new FormData();
     fd.append('tipo', tipo);
     fd.append('foto', file);
-    const headers = {};
-    if (apiToken) headers['Authorization'] = 'Bearer ' + apiToken;
+    if (typeof authCreds !== 'undefined' && authCreds && authCreds.username && authCreds.password) {
+        fd.append('username', authCreds.username);
+        fd.append('password', authCreds.password);
+    }
     const res = await fetch(`api.php?action=upload_repostaje_foto`, {
         method: 'POST',
-        headers,
+        headers: getAuthHeadersForFormData(),
+        credentials: 'same-origin',
         body: fd
     });
     const data = await res.json();
@@ -2028,11 +2039,14 @@ async function tryGeminiExtract(file, tipo) {
         const fd = new FormData();
         fd.append('tipo', tipo);
         fd.append('foto', file);
-        const headers = {};
-        if (apiToken) headers['Authorization'] = 'Bearer ' + apiToken;
+        if (typeof authCreds !== 'undefined' && authCreds && authCreds.username && authCreds.password) {
+            fd.append('username', authCreds.username);
+            fd.append('password', authCreds.password);
+        }
         const res = await fetch(`api.php?action=extract_repostaje_ocr`, {
             method: 'POST',
-            headers,
+            headers: getAuthHeadersForFormData(),
+            credentials: 'same-origin',
             body: fd
         });
         const json = await res.json();
