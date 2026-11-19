@@ -2090,27 +2090,32 @@ try {
             break;
 
         case 'list_inactive_records':
-            if (!$isAdmin) {
-                http_response_code(403);
-                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede consultar registros inactivos.'));
-                exit;
-            }
-            $inVeh = $pdo->query("
+            $inVehParams = array();
+            $inVehAccess = buildVehicleAccessClause('v', $userId, $isAdmin, $inVehParams);
+            $stmtInVeh = $pdo->prepare("
                 SELECT v.id, v.usuario_id, u.username AS propietario, v.nombre, v.matricula
                 FROM `veh_vehiculos` v
                 LEFT JOIN `users` u ON u.id = v.usuario_id
-                WHERE v.activo = 0
+                WHERE v.activo = 0 AND {$inVehAccess}
                 ORDER BY v.id DESC
-            ")->fetchAll();
-            $inRep = $pdo->query("
+            ");
+            $stmtInVeh->execute($inVehParams);
+            $inVeh = $stmtInVeh->fetchAll();
+
+            $inRepParams = array();
+            $inRepAccess = buildVehicleAccessClause('v', $userId, $isAdmin, $inRepParams);
+            $stmtInRep = $pdo->prepare("
                 SELECT r.id, r.vehiculo_id, r.usuario_id, u.username AS propietario, v.nombre AS vehiculo_nombre, r.fecha, r.litros, r.importe_total, r.km_odometro
                 FROM `veh_repostajes` r
                 LEFT JOIN `veh_vehiculos` v ON v.id = r.vehiculo_id
                 LEFT JOIN `users` u ON u.id = r.usuario_id
-                WHERE r.activo = 0
+                WHERE r.activo = 0 AND ({$inRepAccess} OR r.usuario_id = ?)
                 ORDER BY r.id DESC
                 LIMIT 200
-            ")->fetchAll();
+            ");
+            $inRepParams[] = (int)$userId;
+            $stmtInRep->execute($inRepParams);
+            $inRep = $stmtInRep->fetchAll();
             echo json_encode(array(
                 'success'    => true,
                 'vehiculos'  => $inVeh,
@@ -2119,23 +2124,48 @@ try {
             break;
 
         case 'reactivate_records':
-            if (!$isAdmin) {
-                http_response_code(403);
-                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede reactivar registros.'));
-                exit;
-            }
             $tipo = trim((string)arr_get($jsonBody, 'tipo', isset($_POST['tipo']) ? $_POST['tipo'] : ''));
             $id   = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
 
             if ($tipo === 'all_repostajes') {
-                $stmt = $pdo->prepare("UPDATE `veh_repostajes` SET activo = 1 WHERE activo = 0");
-                $stmt->execute();
-                echo json_encode(array('success' => true, 'affected' => $stmt->rowCount(), 'message' => 'Todos los repostajes inactivos reactivados (activo = 1).'));
+                if ($isAdmin) {
+                    $stmt = $pdo->prepare("UPDATE `veh_repostajes` SET activo = 1 WHERE activo = 0");
+                    $stmt->execute();
+                } else {
+                    $allParams = array();
+                    $allAccess = buildVehicleAccessClause('v', $userId, false, $allParams);
+                    $allParams[] = (int)$userId;
+                    $stmt = $pdo->prepare("
+                        UPDATE `veh_repostajes` r
+                        LEFT JOIN `veh_vehiculos` v ON v.id = r.vehiculo_id
+                        SET r.activo = 1
+                        WHERE r.activo = 0 AND ({$allAccess} OR r.usuario_id = ?)
+                    ");
+                    $stmt->execute($allParams);
+                }
+                echo json_encode(array('success' => true, 'affected' => $stmt->rowCount(), 'message' => 'Repostajes inactivos reactivados (activo = 1).'));
             } elseif ($tipo === 'repostaje' && $id > 0) {
+                $stmtChk = $pdo->prepare("SELECT id, vehiculo_id, usuario_id FROM `veh_repostajes` WHERE id = ? LIMIT 1");
+                $stmtChk->execute(array($id));
+                $repRow = $stmtChk->fetch();
+                if (!$repRow || (!$isAdmin && (int)$repRow['usuario_id'] !== $userId && !canAccessVehicle($pdo, (int)$repRow['vehiculo_id'], $userId, false))) {
+                    http_response_code(403);
+                    echo json_encode(array('success' => false, 'error' => 'No tienes permisos para reactivar este repostaje.'));
+                    exit;
+                }
                 $stmt = $pdo->prepare("UPDATE `veh_repostajes` SET activo = 1 WHERE id = ?");
                 $stmt->execute(array($id));
                 echo json_encode(array('success' => true, 'affected' => $stmt->rowCount(), 'message' => 'Repostaje reactivado (activo = 1).'));
             } elseif ($tipo === 'vehiculo' && $id > 0) {
+                $vParams = array($id);
+                $vAccess = buildVehicleAccessClause('v', $userId, $isAdmin, $vParams);
+                $stmtChk = $pdo->prepare("SELECT v.id FROM `veh_vehiculos` v WHERE v.id = ? AND {$vAccess} LIMIT 1");
+                $stmtChk->execute($vParams);
+                if (!$stmtChk->fetch()) {
+                    http_response_code(403);
+                    echo json_encode(array('success' => false, 'error' => 'No tienes permisos para reactivar este vehículo.'));
+                    exit;
+                }
                 $stmt = $pdo->prepare("UPDATE `veh_vehiculos` SET activo = 1 WHERE id = ?");
                 $stmt->execute(array($id));
                 echo json_encode(array('success' => true, 'affected' => $stmt->rowCount(), 'message' => 'Vehículo reactivado (activo = 1).'));

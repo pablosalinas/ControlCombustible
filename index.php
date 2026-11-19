@@ -560,7 +560,7 @@
                 <button class="btn btn-outline hidden" id="btn-pending-users" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openPendingUsersModal()" title="Validar solicitudes de registro">
                     <i class="fa-solid fa-user-check" style="color:#d97706"></i> Solicitudes
                 </button>
-                <button class="btn btn-outline hidden" id="btn-inactive-records" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openInactiveRecordsModal()" title="Papelera / Reactivar registros inactivos">
+                <button class="btn btn-outline" id="btn-inactive-records" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openInactiveRecordsModal()" title="Papelera / Reactivar vehículos y repostajes inactivos">
                     <i class="fa-solid fa-trash-arrow-up" style="color:#dc2626"></i> Papelera
                 </button>
                 <button class="btn btn-outline" id="btn-parques-moviles" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openParquesModal()" title="Gestionar Parques Móviles compartidos">
@@ -1655,13 +1655,11 @@ async function loadDashboard() {
         document.getElementById('label-fecha-form').textContent = 'Fecha. *';
         document.getElementById('brand-icon-box').style.border = '1.5px solid #f59e0b';
         document.getElementById('btn-pending-users').classList.remove('hidden');
-        document.getElementById('btn-inactive-records').classList.remove('hidden');
     } else {
         document.getElementById('app-title-text').textContent = 'Control de Combustible';
         document.getElementById('label-fecha-form').textContent = 'Fecha *';
         document.getElementById('brand-icon-box').style.border = 'none';
         document.getElementById('btn-pending-users').classList.add('hidden');
-        document.getElementById('btn-inactive-records').classList.add('hidden');
     }
 
     // Poblar selector de vehículos manteniendo selección en el dashboard
