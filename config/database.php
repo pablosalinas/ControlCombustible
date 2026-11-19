@@ -272,6 +272,39 @@ function ensureAdditiveSchema(PDO $pdo) {
         }
     } catch (Exception $e) {}
 
+    // Tablas aditivas para Parques Móviles compartidos entre varios usuarios
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `veh_parques` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `nombre` VARCHAR(120) NOT NULL,
+            `descripcion` TEXT DEFAULT NULL,
+            `creado_por` INT NOT NULL,
+            `activo` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX `idx_parque_activo` (`activo`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `veh_parque_usuarios` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `parque_id` INT NOT NULL,
+            `usuario_id` INT NOT NULL,
+            `rol_parque` VARCHAR(20) NOT NULL DEFAULT 'gestor',
+            `activo` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY `uq_parque_usuario` (`parque_id`, `usuario_id`),
+            INDEX `idx_pu_usuario_activo` (`usuario_id`, `activo`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    ");
+
+    try {
+        $colParque = $pdo->query("SHOW COLUMNS FROM `veh_vehiculos` LIKE 'parque_id'")->fetch();
+        if (!$colParque) {
+            $pdo->exec("ALTER TABLE `veh_vehiculos` ADD COLUMN `parque_id` INT NULL DEFAULT NULL AFTER `usuario_id`, ADD INDEX `idx_veh_parque` (`parque_id`)");
+        }
+    } catch (Exception $e) {}
+
     // Semilla inicial aditiva de tareas comunes si el maestro está vacío
     try {
         $cntTm = (int)$pdo->query("SELECT COUNT(*) FROM `veh_tareas_maestro`")->fetchColumn();

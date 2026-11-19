@@ -560,6 +560,12 @@
                 <button class="btn btn-outline hidden" id="btn-pending-users" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openPendingUsersModal()" title="Validar solicitudes de registro">
                     <i class="fa-solid fa-user-check" style="color:#d97706"></i> Solicitudes
                 </button>
+                <button class="btn btn-outline hidden" id="btn-inactive-records" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openInactiveRecordsModal()" title="Papelera / Reactivar registros inactivos">
+                    <i class="fa-solid fa-trash-arrow-up" style="color:#dc2626"></i> Papelera
+                </button>
+                <button class="btn btn-outline" id="btn-parques-moviles" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openParquesModal()" title="Gestionar Parques Móviles compartidos">
+                    <i class="fa-solid fa-people-group" style="color:#0f766e"></i> Parques Móviles
+                </button>
                 <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openUserEmailModal()" title="Configurar correo para avisos">
                     <i class="fa-solid fa-envelope" style="color:#0284c7"></i> Correo
                 </button>
@@ -879,6 +885,12 @@
                         <option value="GLP">GLP</option>
                     </select>
                 </div>
+            </div>
+            <div class="form-group">
+                <label>Parque Móvil / Flota (opcional)</label>
+                <select id="veh-parque" class="form-control">
+                    <option value="">Personal (solo mi usuario)</option>
+                </select>
             </div>
             <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
                 <button type="button" class="btn btn-outline" onclick="resetVehicleForm()">Limpiar</button>
@@ -1319,6 +1331,54 @@
     </div>
 </div>
 
+<!-- MODAL PARQUES MÓVILES COMPARTIDOS -->
+<div class="modal-backdrop" id="parques-modal">
+    <div class="modal-content" style="max-width:680px;">
+        <div class="card-header" style="margin-bottom:0.8rem;">
+            <div class="card-title"><i class="fa-solid fa-people-group" style="color:var(--primary)"></i> Parques Móviles (Flotas Compartidas)</div>
+            <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closeParquesModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="parques-list" style="display:flex; flex-direction:column; gap:0.75rem; max-height:48vh; overflow-y:auto; margin-bottom:1rem;"></div>
+        <div id="parque-admin-section" class="hidden">
+            <hr style="border:none; border-top:1px solid var(--border); margin:0.9rem 0;">
+            <h4 style="font-size:0.92rem; margin-bottom:0.65rem;" id="parque-form-title">Crear / Editar Parque Móvil</h4>
+            <form id="parque-form">
+                <input type="hidden" id="parque-id" value="0">
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>Nombre del Parque Móvil *</label>
+                        <input type="text" id="parque-nombre" class="form-control" placeholder="Ej: Flota Ayuntamiento / Empresa" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Descripción</label>
+                        <input type="text" id="parque-descripcion" class="form-control" placeholder="Opcional">
+                    </div>
+                </div>
+                <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                    <button type="button" class="btn btn-outline" onclick="resetParqueForm()">Limpiar</button>
+                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Guardar Parque Móvil</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL PAPELERA / REACTIVAR REGISTROS INACTIVOS (SUPERUSUARIO) -->
+<div class="modal-backdrop" id="inactive-records-modal">
+    <div class="modal-content" style="max-width:700px;">
+        <div class="card-header" style="margin-bottom:0.8rem;">
+            <div class="card-title"><i class="fa-solid fa-trash-arrow-up" style="color:#dc2626"></i> Registros Inactivos (activo = 0)</div>
+            <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closeInactiveRecordsModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div style="display:flex; justify-content:flex-end; margin-bottom:0.75rem;">
+            <button type="button" class="btn btn-primary" style="padding:0.4rem 0.75rem; font-size:0.82rem;" onclick="reactivateRecord('all_repostajes', 0)">
+                <i class="fa-solid fa-rotate-left"></i> Reactivar todos los repostajes inactivos
+            </button>
+        </div>
+        <div id="inactive-records-list" style="display:flex; flex-direction:column; gap:0.65rem; max-height:58vh; overflow-y:auto;"></div>
+    </div>
+</div>
+
 <!-- MODAL CORREO DE NOTIFICACIONES -->
 <div class="modal-backdrop" id="user-email-modal">
     <div class="modal-content" style="max-width:420px;">
@@ -1595,11 +1655,13 @@ async function loadDashboard() {
         document.getElementById('label-fecha-form').textContent = 'Fecha. *';
         document.getElementById('brand-icon-box').style.border = '1.5px solid #f59e0b';
         document.getElementById('btn-pending-users').classList.remove('hidden');
+        document.getElementById('btn-inactive-records').classList.remove('hidden');
     } else {
         document.getElementById('app-title-text').textContent = 'Control de Combustible';
         document.getElementById('label-fecha-form').textContent = 'Fecha *';
         document.getElementById('brand-icon-box').style.border = 'none';
         document.getElementById('btn-pending-users').classList.add('hidden');
+        document.getElementById('btn-inactive-records').classList.add('hidden');
     }
 
     // Poblar selector de vehículos manteniendo selección en el dashboard
@@ -2460,7 +2522,20 @@ async function scanOdometerOCR(input) {
 }
 
 // GESTIÓN DE VEHÍCULOS
+function populateVehicleParqueSelect(selectedId = '') {
+    const sel = document.getElementById('veh-parque');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Personal (solo mi usuario)</option>';
+    (currentData.parques || []).forEach(pq => {
+        const opt = document.createElement('option');
+        opt.value = String(pq.id);
+        opt.textContent = `Parque Móvil: ${pq.nombre}`;
+        if (String(selectedId || '') === String(pq.id)) opt.selected = true;
+        sel.appendChild(opt);
+    });
+}
 function openVehiclesModal() {
+    populateVehicleParqueSelect();
     renderVehiclesList();
     document.getElementById('vehicles-modal').classList.add('active');
 }
@@ -2473,10 +2548,13 @@ function renderVehiclesList() {
     (currentData.vehiculos || []).forEach(v => {
         const div = document.createElement('div');
         div.style = 'display:flex; justify-content:space-between; align-items:center; padding:0.65rem; border:1px solid var(--border); border-radius:10px; margin-bottom:0.5rem;';
+        const parqueBadge = v.parque_nombre
+            ? `<span class="badge" style="background:#e0f2fe; color:#0369a1; margin-left:4px;"><i class="fa-solid fa-people-group"></i> ${v.parque_nombre}</span>`
+            : `<span class="badge" style="background:#f1f5f9; color:#475569; margin-left:4px;">Personal</span>`;
         div.innerHTML = `
             <div>
-                <div style="font-weight:700;">${v.nombre} ${v.matricula ? `<span class="badge badge-teal">${v.matricula}</span>` : ''}</div>
-                <div style="font-size:0.78rem; color:var(--muted);">${v.tipo_combustible || 'Diésel'} · ${v.modelo || ''}</div>
+                <div style="font-weight:700;">${v.nombre} ${v.matricula ? `<span class="badge badge-teal">${v.matricula}</span>` : ''}${parqueBadge}</div>
+                <div style="font-size:0.78rem; color:var(--muted);">${v.tipo_combustible || 'Diésel'} · ${v.modelo || ''}${v.propietario ? ` · Propietario: ${v.propietario}` : ''}</div>
             </div>
             <div style="display:flex; gap:0.4rem;">
                 <button class="btn btn-outline" style="padding:0.3rem 0.6rem; font-size:0.78rem;" onclick='editVehicle(${JSON.stringify(v)})'><i class="fa-solid fa-pen"></i></button>
@@ -2492,17 +2570,20 @@ function editVehicle(v) {
     document.getElementById('veh-matricula').value = v.matricula || '';
     document.getElementById('veh-modelo').value = v.modelo || '';
     document.getElementById('veh-combustible').value = v.tipo_combustible || 'Diésel';
+    populateVehicleParqueSelect(v.parque_id || '');
 }
 function resetVehicleForm() {
     document.getElementById('veh-id').value = '0';
     document.getElementById('veh-nombre').value = '';
     document.getElementById('veh-matricula').value = '';
     document.getElementById('veh-modelo').value = '';
+    populateVehicleParqueSelect('');
 }
 document.getElementById('vehicle-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const res = await apiCall('save_vehiculo', {
         id: document.getElementById('veh-id').value,
+        parque_id: document.getElementById('veh-parque').value || null,
         nombre: document.getElementById('veh-nombre').value,
         matricula: document.getElementById('veh-matricula').value,
         modelo: document.getElementById('veh-modelo').value,
@@ -2511,7 +2592,10 @@ document.getElementById('vehicle-form').addEventListener('submit', async (e) => 
     if (res.success) {
         resetVehicleForm();
         await loadDashboard();
+        populateVehicleParqueSelect();
         renderVehiclesList();
+    } else if (res.error) {
+        alert(res.error);
     }
 });
 async function deactivateVehicle(id) {
@@ -3680,6 +3764,180 @@ async function rejectPendingUser(id) {
     const res = await apiCall('reject_user', { id });
     alert(res.message || res.error || 'Operación completada');
     await openPendingUsersModal();
+}
+
+// PARQUES MÓVILES COMPARTIDOS
+let cachedAllUsers = [];
+async function openParquesModal() {
+    document.getElementById('parques-modal').classList.add('active');
+    const isAdmin = !!(currentData.user && currentData.user.is_admin);
+    const adminSec = document.getElementById('parque-admin-section');
+    if (isAdmin) adminSec.classList.remove('hidden'); else adminSec.classList.add('hidden');
+
+    const box = document.getElementById('parques-list');
+    box.innerHTML = '<div style="color:#64748b; font-size:0.85rem;">Cargando parques móviles...</div>';
+    const res = await apiCall('list_parques');
+    if (!res.success) {
+        box.innerHTML = `<div style="color:#b91c1c; font-size:0.85rem;">${res.error || 'Error cargando parques'}</div>`;
+        return;
+    }
+    cachedAllUsers = res.users || [];
+    const list = res.parques || [];
+    if (list.length === 0) {
+        box.innerHTML = '<div style="color:#64748b; font-size:0.85rem; padding:0.5rem 0;">No hay parques móviles creados o asignados todavía.</div>';
+        return;
+    }
+
+    box.innerHTML = list.map(pq => {
+        const miembros = (pq.miembros || []).map(m => `
+            <span class="badge" style="background:#f1f5f9; color:#0f172a; display:inline-flex; align-items:center; gap:0.35rem; margin:2px;">
+                <i class="fa-solid fa-user" style="color:var(--primary);"></i> ${m.username}
+                ${isAdmin ? `<button type="button" onclick="removeParqueUser(${pq.id}, ${m.usuario_id})" style="border:none; background:none; color:#dc2626; cursor:pointer; font-weight:700;" title="Quitar usuario">×</button>` : ''}
+            </span>
+        `).join('') || '<span style="font-size:0.78rem; color:#94a3b8;">Sin usuarios asignados</span>';
+
+        const userOpts = cachedAllUsers
+            .filter(u => !(pq.miembros || []).some(m => parseInt(m.usuario_id, 10) === parseInt(u.id, 10)))
+            .map(u => `<option value="${u.id}">${u.username} (${u.role})</option>`)
+            .join('');
+
+        const assignRow = isAdmin ? `
+            <div style="display:flex; gap:0.4rem; margin-top:0.55rem; align-items:center; flex-wrap:wrap;">
+                <select id="assign-user-parque-${pq.id}" class="form-control" style="flex:1; min-width:170px; padding:0.35rem 0.5rem; font-size:0.8rem;">
+                    <option value="">-- Añadir usuario al parque --</option>
+                    ${userOpts}
+                </select>
+                <button type="button" class="btn btn-primary" style="padding:0.35rem 0.65rem; font-size:0.78rem;" onclick="assignParqueUser(${pq.id})">
+                    <i class="fa-solid fa-user-plus"></i> Añadir
+                </button>
+                <button type="button" class="btn btn-outline" style="padding:0.35rem 0.6rem; font-size:0.78rem;" onclick='editParque(${JSON.stringify({id: pq.id, nombre: pq.nombre, descripcion: pq.descripcion || ""})})'>
+                    <i class="fa-solid fa-pen"></i>
+                </button>
+                <button type="button" class="btn btn-danger" style="padding:0.35rem 0.6rem; font-size:0.78rem;" onclick="deactivateParque(${pq.id})">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            </div>
+        ` : '';
+
+        return `
+            <div style="border:1px solid var(--border); border-radius:10px; padding:0.75rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
+                    <div style="font-weight:700; font-size:0.95rem;"><i class="fa-solid fa-people-group" style="color:var(--primary)"></i> ${pq.nombre}</div>
+                    <span class="badge badge-teal">${pq.num_vehiculos || 0} vehículos</span>
+                </div>
+                ${pq.descripcion ? `<div style="font-size:0.8rem; color:var(--muted); margin-top:0.2rem;">${pq.descripcion}</div>` : ''}
+                <div style="margin-top:0.45rem;">${miembros}</div>
+                ${assignRow}
+            </div>
+        `;
+    }).join('');
+}
+function closeParquesModal() {
+    document.getElementById('parques-modal').classList.remove('active');
+}
+function editParque(pq) {
+    document.getElementById('parque-id').value = pq.id;
+    document.getElementById('parque-nombre').value = pq.nombre;
+    document.getElementById('parque-descripcion').value = pq.descripcion || '';
+}
+function resetParqueForm() {
+    document.getElementById('parque-id').value = '0';
+    document.getElementById('parque-nombre').value = '';
+    document.getElementById('parque-descripcion').value = '';
+}
+document.getElementById('parque-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const res = await apiCall('save_parque', {
+        id: document.getElementById('parque-id').value,
+        nombre: document.getElementById('parque-nombre').value,
+        descripcion: document.getElementById('parque-descripcion').value
+    });
+    if (res.success) {
+        resetParqueForm();
+        await loadDashboard();
+        await openParquesModal();
+    } else {
+        alert(res.error || 'Error guardando parque móvil');
+    }
+});
+async function assignParqueUser(parqueId) {
+    const sel = document.getElementById(`assign-user-parque-${parqueId}`);
+    const usuarioId = sel ? parseInt(sel.value || '0', 10) : 0;
+    if (!usuarioId) return;
+    const res = await apiCall('assign_parque_user', { parque_id: parqueId, usuario_id: usuarioId });
+    if (res.success) {
+        await loadDashboard();
+        await openParquesModal();
+    } else {
+        alert(res.error || 'Error asignando usuario');
+    }
+}
+async function removeParqueUser(parqueId, usuarioId) {
+    if (!confirm('¿Retirar este usuario del parque móvil?')) return;
+    const res = await apiCall('remove_parque_user', { parque_id: parqueId, usuario_id: usuarioId });
+    if (res.success) {
+        await loadDashboard();
+        await openParquesModal();
+    } else {
+        alert(res.error || 'Error retirando usuario');
+    }
+}
+async function deactivateParque(id) {
+    if (!confirm('¿Dar de baja lógica este parque móvil (activo = 0)?')) return;
+    const res = await apiCall('deactivate_parque', { id });
+    if (res.success) {
+        await loadDashboard();
+        await openParquesModal();
+    } else {
+        alert(res.error || 'Error dando de baja el parque');
+    }
+}
+
+// PAPELERA / REACTIVAR REGISTROS INACTIVOS (SUPERUSUARIO)
+async function openInactiveRecordsModal() {
+    document.getElementById('inactive-records-modal').classList.add('active');
+    const box = document.getElementById('inactive-records-list');
+    box.innerHTML = '<div style="color:#64748b; font-size:0.85rem;">Cargando registros inactivos...</div>';
+    const res = await apiCall('list_inactive_records');
+    if (!res.success) {
+        box.innerHTML = `<div style="color:#b91c1c; font-size:0.85rem;">${res.error || 'Error cargando registros'}</div>`;
+        return;
+    }
+    const vehs = res.vehiculos || [];
+    const reps = res.repostajes || [];
+    if (vehs.length === 0 && reps.length === 0) {
+        box.innerHTML = '<div style="color:#64748b; font-size:0.85rem; padding:0.75rem 0;">No hay vehículos ni repostajes inactivos (activo = 0).</div>';
+        return;
+    }
+    let html = '';
+    if (vehs.length > 0) {
+        html += '<div style="font-weight:700; font-size:0.85rem; color:var(--primary-dark);">Vehículos inactivos</div>';
+        html += vehs.map(v => `
+            <div style="border:1px solid var(--border); border-radius:8px; padding:0.55rem 0.75rem; display:flex; justify-content:space-between; align-items:center;">
+                <div style="font-size:0.83rem;"><b>#${v.id} ${v.nombre}</b> (${v.matricula || 'Sin matrícula'}) · Usuario: ${v.propietario || v.usuario_id}</div>
+                <button class="btn btn-primary" style="padding:0.28rem 0.6rem; font-size:0.76rem;" onclick="reactivateRecord('vehiculo', ${v.id})">Reactivar</button>
+            </div>
+        `).join('');
+    }
+    if (reps.length > 0) {
+        html += '<div style="font-weight:700; font-size:0.85rem; color:var(--primary-dark); margin-top:0.4rem;">Repostajes inactivos</div>';
+        html += reps.map(r => `
+            <div style="border:1px solid var(--border); border-radius:8px; padding:0.55rem 0.75rem; display:flex; justify-content:space-between; align-items:center;">
+                <div style="font-size:0.83rem;"><b>#${r.id}</b> · ${r.fecha} · ${r.vehiculo_nombre || ('Veh #' + r.vehiculo_id)} · ${r.litros} L (${r.importe_total} €) · ${r.propietario || r.usuario_id}</div>
+                <button class="btn btn-primary" style="padding:0.28rem 0.6rem; font-size:0.76rem;" onclick="reactivateRecord('repostaje', ${r.id})">Reactivar</button>
+            </div>
+        `).join('');
+    }
+    box.innerHTML = html;
+}
+function closeInactiveRecordsModal() {
+    document.getElementById('inactive-records-modal').classList.remove('active');
+}
+async function reactivateRecord(tipo, id) {
+    const res = await apiCall('reactivate_records', { tipo, id });
+    alert(res.message || res.error || 'Operación completada');
+    await loadDashboard();
+    await openInactiveRecordsModal();
 }
 
 function pdfCleanText(str) {

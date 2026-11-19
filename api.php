@@ -389,6 +389,115 @@ function computeNextTaskTargets($tipo, $ultimaFecha, $ultimoKm, $periodoDias, $p
     return array($proximaFecha, $proximoKm);
 }
 
+/**
+ * Construye la cláusula SQL de acceso a vehículos:
+ * - Superusuario: todos los vehículos activos.
+ * - Usuario estándar: vehículos propios (usuario_id) o pertenecientes a un Parque Móvil donde esté asignado.
+ */
+function buildVehicleAccessClause($alias, $userId, $isAdmin, array &$params)
+{
+    if ($isAdmin) {
+        return '1=1';
+    }
+    $params[] = (int)$userId;
+    $params[] = (int)$userId;
+    return "({$alias}.usuario_id = ? OR {$alias}.parque_id IN (SELECT pu.parque_id FROM `veh_parque_usuarios` pu INNER JOIN `veh_parques` pq ON pq.id = pu.parque_id AND pq.activo = 1 WHERE pu.usuario_id = ? AND pu.activo = 1))";
+}
+
+function canAccessVehicle(PDO $pdo, $vehiculoId, $userId, $isAdmin)
+{
+    $params = array((int)$vehiculoId);
+    $accessClause = buildVehicleAccessClause('v', $userId, $isAdmin, $params);
+    $stmt = $pdo->prepare("SELECT v.id, v.usuario_id, v.parque_id, v.nombre FROM `veh_vehiculos` v WHERE v.id = ? AND v.activo = 1 AND {$accessClause} LIMIT 1");
+    $stmt->execute($params);
+    return $stmt->fetch();
+}
+
+function userBelongsToParque(PDO $pdo, $parqueId, $userId, $isAdmin)
+{
+    if ($parqueId <= 0) return false;
+    if ($isAdmin) {
+        $stmt = $pdo->prepare("SELECT id FROM `veh_parques` WHERE id = ? AND activo = 1 LIMIT 1");
+        $stmt->execute(array((int)$parqueId));
+        return (bool)$stmt->fetch();
+    }
+    $stmt = $pdo->prepare("
+        SELECT pu.id
+        FROM `veh_parque_usuarios` pu
+        INNER JOIN `veh_parques` pq ON pq.id = pu.parque_id AND pq.activo = 1
+        WHERE pu.parque_id = ? AND pu.usuario_id = ? AND pu.activo = 1
+        LIMIT 1
+    ");
+    $stmt->execute(array((int)$parqueId, (int)$userId));
+    return (bool)$stmt->fetch();
+}
+
+function getAccessibleParques(PDO $pdo, $userId, $isAdmin)
+{
+    if ($isAdmin) {
+        $stmt = $pdo->query("
+            SELECT pq.id, pq.nombre, pq.descripcion, pq.creado_por, pq.created_at,
+                   (SELECT COUNT(*) FROM `veh_vehiculos` v WHERE v.parque_id = pq.id AND v.activo = 1) AS num_vehiculos
+            FROM `veh_parques` pq
+            WHERE pq.activo = 1
+            ORDER BY pq.nombre ASC
+        ");
+        $parques = $stmt ? $stmt->fetchAll() : array();
+    } else {
+        $stmt = $pdo->prepare("
+            SELECT pq.id, pq.nombre, pq.descripcion, pq.creado_por, pq.created_at,
+                   (SELECT COUNT(*) FROM `veh_vehiculos` v WHERE v.parque_id = pq.id AND v.activo = 1) AS num_vehiculos
+            FROM `veh_parques` pq
+            INNER JOIN `veh_parque_usuarios` pu ON pu.parque_id = pq.id AND pu.activo = 1
+            WHERE pq.activo = 1 AND pu.usuario_id = ?
+            ORDER BY pq.nombre ASC
+        ");
+        $stmt->execute(array((int)$userId));
+        $parques = $stmt->fetchAll();
+    }
+
+    if (empty($parques)) {
+        return array();
+    }
+
+    $parqueIds = array();
+    foreach ($parques as $pq) {
+        $parqueIds[] = (int)$pq['id'];
+    }
+    $placeholders = implode(',', array_fill(0, count($parqueIds), '?'));
+    $stmtMem = $pdo->prepare("
+        SELECT pu.parque_id, pu.usuario_id, pu.rol_parque, u.username, u.email
+        FROM `veh_parque_usuarios` pu
+        INNER JOIN `users` u ON u.id = pu.usuario_id
+        WHERE pu.activo = 1 AND pu.parque_id IN ($placeholders)
+        ORDER BY u.username ASC
+    ");
+    $stmtMem->execute($parqueIds);
+    $membersByParque = array();
+    while ($m = $stmtMem->fetch()) {
+        $pid = (int)$m['parque_id'];
+        if (!isset($membersByParque[$pid])) {
+            $membersByParque[$pid] = array();
+        }
+        $membersByParque[$pid][] = array(
+            'usuario_id' => (int)$m['usuario_id'],
+            'username'   => $m['username'],
+            'email'      => isset($m['email']) ? $m['email'] : '',
+            'rol_parque' => $m['rol_parque'],
+        );
+    }
+
+    foreach ($parques as &$pq) {
+        $pid = (int)$pq['id'];
+        $pq['id'] = $pid;
+        $pq['num_vehiculos'] = (int)$pq['num_vehiculos'];
+        $pq['miembros'] = isset($membersByParque[$pid]) ? $membersByParque[$pid] : array();
+    }
+    unset($pq);
+
+    return $parques;
+}
+
 function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $estadoFilter = 'todas')
 {
     $sql = "
@@ -401,10 +510,7 @@ function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $es
         WHERE vt.activo = 1
     ";
     $params = array();
-    if (!$isAdmin) {
-        $sql .= " AND v.usuario_id = ?";
-        $params[] = $userId;
-    }
+    $sql .= " AND " . buildVehicleAccessClause('v', $userId, $isAdmin, $params);
     if ($vehiculoId > 0) {
         $sql .= " AND vt.vehiculo_id = ?";
         $params[] = $vehiculoId;
@@ -429,10 +535,7 @@ function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $es
         WHERE vt.activo = 1 AND vt.coste IS NOT NULL
     ";
     $costParams = array();
-    if (!$isAdmin) {
-        $costSql .= " AND v.usuario_id = ?";
-        $costParams[] = $userId;
-    }
+    $costSql .= " AND " . buildVehicleAccessClause('v', $userId, $isAdmin, $costParams);
     if ($vehiculoId > 0) {
         $costSql .= " AND vt.vehiculo_id = ?";
         $costParams[] = $vehiculoId;
@@ -638,34 +741,30 @@ try {
             break;
 
         case 'list_vehiculos':
-            if ($isAdmin) {
-                $stmt = $pdo->query("
-                    SELECT v.id, v.usuario_id, u.username AS propietario, v.nombre, v.matricula, v.marca, v.modelo, v.tipo_combustible, v.km_iniciales, v.notas, v.created_at
-                    FROM `veh_vehiculos` v
-                    LEFT JOIN `users` u ON u.id = v.usuario_id
-                    WHERE v.activo = 1
-                    ORDER BY v.id ASC
-                ");
-            } else {
-                $stmt = $pdo->prepare("
-                    SELECT v.id, v.usuario_id, u.username AS propietario, v.nombre, v.matricula, v.marca, v.modelo, v.tipo_combustible, v.km_iniciales, v.notas, v.created_at
-                    FROM `veh_vehiculos` v
-                    LEFT JOIN `users` u ON u.id = v.usuario_id
-                    WHERE v.usuario_id = ? AND v.activo = 1
-                    ORDER BY v.id ASC
-                ");
-                $stmt->execute(array($userId));
-            }
+            $vParams = array();
+            $vAccess = buildVehicleAccessClause('v', $userId, $isAdmin, $vParams);
+            $stmt = $pdo->prepare("
+                SELECT v.id, v.usuario_id, v.parque_id, pq.nombre AS parque_nombre, u.username AS propietario, v.nombre, v.matricula, v.marca, v.modelo, v.tipo_combustible, v.km_iniciales, v.notas, v.created_at
+                FROM `veh_vehiculos` v
+                LEFT JOIN `users` u ON u.id = v.usuario_id
+                LEFT JOIN `veh_parques` pq ON pq.id = v.parque_id AND pq.activo = 1
+                WHERE v.activo = 1 AND {$vAccess}
+                ORDER BY v.id ASC
+            ");
+            $stmt->execute($vParams);
             $vehiculos = $stmt->fetchAll();
 
             echo json_encode(array(
                 'success'   => true,
                 'vehiculos' => $vehiculos,
+                'parques'   => getAccessibleParques($pdo, $userId, $isAdmin),
             ));
             break;
 
         case 'save_vehiculo':
             $id              = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            $rawParqueId     = arr_get($jsonBody, 'parque_id', isset($_POST['parque_id']) ? $_POST['parque_id'] : '');
+            $parqueId        = ($rawParqueId !== '' && $rawParqueId !== null && (int)$rawParqueId > 0) ? (int)$rawParqueId : null;
             $nombre          = trim((string)arr_get($jsonBody, 'nombre', isset($_POST['nombre']) ? $_POST['nombre'] : ''));
             $matricula       = trim((string)arr_get($jsonBody, 'matricula', isset($_POST['matricula']) ? $_POST['matricula'] : ''));
             $marca           = trim((string)arr_get($jsonBody, 'marca', isset($_POST['marca']) ? $_POST['marca'] : ''));
@@ -679,30 +778,32 @@ try {
                 echo json_encode(array('success' => false, 'error' => 'El nombre del vehículo es obligatorio.'));
                 exit;
             }
+            if ($parqueId !== null && !userBelongsToParque($pdo, $parqueId, $userId, $isAdmin)) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'No tienes permisos para asignar vehículos a ese parque móvil.'));
+                exit;
+            }
 
             if ($id > 0) {
-                if ($isAdmin) {
-                    $stmt = $pdo->prepare("
-                        UPDATE `veh_vehiculos`
-                        SET nombre = ?, matricula = ?, marca = ?, modelo = ?, tipo_combustible = ?, km_iniciales = ?, notas = ?
-                        WHERE id = ? AND activo = 1
-                    ");
-                    $stmt->execute(array($nombre, $matricula, $marca, $modelo, $tipoCombustible, $kmIniciales, $notas, $id));
-                } else {
-                    $stmt = $pdo->prepare("
-                        UPDATE `veh_vehiculos`
-                        SET nombre = ?, matricula = ?, marca = ?, modelo = ?, tipo_combustible = ?, km_iniciales = ?, notas = ?
-                        WHERE id = ? AND usuario_id = ? AND activo = 1
-                    ");
-                    $stmt->execute(array($nombre, $matricula, $marca, $modelo, $tipoCombustible, $kmIniciales, $notas, $id, $userId));
+                $existingVeh = canAccessVehicle($pdo, $id, $userId, $isAdmin);
+                if (!$existingVeh) {
+                    http_response_code(403);
+                    echo json_encode(array('success' => false, 'error' => 'Vehículo no encontrado o sin permisos.'));
+                    exit;
                 }
+                $stmt = $pdo->prepare("
+                    UPDATE `veh_vehiculos`
+                    SET parque_id = ?, nombre = ?, matricula = ?, marca = ?, modelo = ?, tipo_combustible = ?, km_iniciales = ?, notas = ?
+                    WHERE id = ? AND activo = 1
+                ");
+                $stmt->execute(array($parqueId, $nombre, $matricula, $marca, $modelo, $tipoCombustible, $kmIniciales, $notas, $id));
                 $savedId = $id;
             } else {
                 $stmt = $pdo->prepare("
-                    INSERT INTO `veh_vehiculos` (usuario_id, nombre, matricula, marca, modelo, tipo_combustible, km_iniciales, notas, activo)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    INSERT INTO `veh_vehiculos` (usuario_id, parque_id, nombre, matricula, marca, modelo, tipo_combustible, km_iniciales, notas, activo)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                 ");
-                $stmt->execute(array($userId, $nombre, $matricula, $marca, $modelo, $tipoCombustible, $kmIniciales, $notas));
+                $stmt->execute(array($userId, $parqueId, $nombre, $matricula, $marca, $modelo, $tipoCombustible, $kmIniciales, $notas));
                 $savedId = (int)$pdo->lastInsertId();
             }
 
@@ -721,13 +822,13 @@ try {
                 echo json_encode(array('success' => false, 'error' => 'ID de vehículo inválido.'));
                 exit;
             }
-            if ($isAdmin) {
-                $stmt = $pdo->prepare("UPDATE `veh_vehiculos` SET activo = 0 WHERE id = ?");
-                $stmt->execute(array($id));
-            } else {
-                $stmt = $pdo->prepare("UPDATE `veh_vehiculos` SET activo = 0 WHERE id = ? AND usuario_id = ?");
-                $stmt->execute(array($id, $userId));
+            if (!canAccessVehicle($pdo, $id, $userId, $isAdmin)) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Vehículo no encontrado o sin permisos.'));
+                exit;
             }
+            $stmt = $pdo->prepare("UPDATE `veh_vehiculos` SET activo = 0 WHERE id = ?");
+            $stmt->execute(array($id));
 
             echo json_encode(array(
                 'success' => true,
@@ -741,40 +842,29 @@ try {
             $fechaDesde = trim((string)(isset($_GET['fecha_desde']) ? $_GET['fecha_desde'] : arr_get($jsonBody, 'fecha_desde', '')));
             $fechaHasta = trim((string)(isset($_GET['fecha_hasta']) ? $_GET['fecha_hasta'] : arr_get($jsonBody, 'fecha_hasta', '')));
 
-            // Obtener vehículos activos (todos si el usuario tiene rol 'admin', o solo los suyos)
-            if ($isAdmin) {
-                $stmtVeh = $pdo->query("
-                    SELECT v.id, v.usuario_id, u.username AS propietario, v.nombre, v.matricula, v.marca, v.modelo, v.tipo_combustible, v.km_iniciales, v.notas
-                    FROM `veh_vehiculos` v
-                    LEFT JOIN `users` u ON u.id = v.usuario_id
-                    WHERE v.activo = 1
-                    ORDER BY v.id ASC
-                ");
-            } else {
-                $stmtVeh = $pdo->prepare("
-                    SELECT v.id, v.usuario_id, u.username AS propietario, v.nombre, v.matricula, v.marca, v.modelo, v.tipo_combustible, v.km_iniciales, v.notas
-                    FROM `veh_vehiculos` v
-                    LEFT JOIN `users` u ON u.id = v.usuario_id
-                    WHERE v.usuario_id = ? AND v.activo = 1
-                    ORDER BY v.id ASC
-                ");
-                $stmtVeh->execute(array($userId));
-            }
+            // Obtener vehículos activos accesibles (todos si es superusuario, o propios + parques móviles asignados)
+            $vParams = array();
+            $vAccess = buildVehicleAccessClause('v', $userId, $isAdmin, $vParams);
+            $stmtVeh = $pdo->prepare("
+                SELECT v.id, v.usuario_id, v.parque_id, pq.nombre AS parque_nombre, u.username AS propietario, v.nombre, v.matricula, v.marca, v.modelo, v.tipo_combustible, v.km_iniciales, v.notas
+                FROM `veh_vehiculos` v
+                LEFT JOIN `users` u ON u.id = v.usuario_id
+                LEFT JOIN `veh_parques` pq ON pq.id = v.parque_id AND pq.activo = 1
+                WHERE v.activo = 1 AND {$vAccess}
+                ORDER BY v.id ASC
+            ");
+            $stmtVeh->execute($vParams);
             $vehiculos = $stmtVeh->fetchAll();
 
-            // Obtener repostajes activos ordenados cronológicamente
+            // Obtener repostajes activos ordenados cronológicamente (filtrados por vehículos accesibles)
+            $params = array();
+            $repAccess = buildVehicleAccessClause('v', $userId, $isAdmin, $params);
             $sqlRep = "
                 SELECT r.*, v.nombre AS vehiculo_nombre, v.matricula AS vehiculo_matricula
                 FROM `veh_repostajes` r
                 INNER JOIN `veh_vehiculos` v ON v.id = r.vehiculo_id AND v.activo = 1
-                WHERE r.activo = 1
+                WHERE r.activo = 1 AND {$repAccess}
             ";
-            $params = array();
-
-            if (!$isAdmin) {
-                $sqlRep .= " AND r.usuario_id = ?";
-                $params[] = $userId;
-            }
 
             if ($vehiculoId > 0) {
                 $sqlRep .= " AND r.vehiculo_id = ?";
@@ -826,23 +916,17 @@ try {
             ");
             $estaciones = $stmtEst->fetchAll();
 
-            // Obtener último odómetro registrado por cada vehículo del usuario
-            if ($isAdmin) {
-                $stmtLastKm = $pdo->query("
-                    SELECT vehiculo_id, MAX(km_odometro) AS ultimo_km
-                    FROM `veh_repostajes`
-                    WHERE activo = 1
-                    GROUP BY vehiculo_id
-                ");
-            } else {
-                $stmtLastKm = $pdo->prepare("
-                    SELECT vehiculo_id, MAX(km_odometro) AS ultimo_km
-                    FROM `veh_repostajes`
-                    WHERE usuario_id = ? AND activo = 1
-                    GROUP BY vehiculo_id
-                ");
-                $stmtLastKm->execute(array($userId));
-            }
+            // Obtener último odómetro registrado por cada vehículo accesible
+            $lkParams = array();
+            $lkAccess = buildVehicleAccessClause('v', $userId, $isAdmin, $lkParams);
+            $stmtLastKm = $pdo->prepare("
+                SELECT r.vehiculo_id, MAX(r.km_odometro) AS ultimo_km
+                FROM `veh_repostajes` r
+                INNER JOIN `veh_vehiculos` v ON v.id = r.vehiculo_id AND v.activo = 1
+                WHERE r.activo = 1 AND {$lkAccess}
+                GROUP BY r.vehiculo_id
+            ");
+            $stmtLastKm->execute($lkParams);
             $ultimoKmPorVehiculo = array();
             while ($lk = $stmtLastKm->fetch()) {
                 $ultimoKmPorVehiculo[(int)$lk['vehiculo_id']] = (float)$lk['ultimo_km'];
@@ -864,10 +948,13 @@ try {
                 ORDER BY tipo ASC, nombre ASC
             ")->fetchAll();
 
+            $parques = getAccessibleParques($pdo, $userId, $isAdmin);
+
             echo json_encode(array(
                 'success'                  => true,
                 'user'                     => $user,
                 'vehiculos'                => $vehiculos,
+                'parques'                  => $parques,
                 'estaciones'               => $estaciones,
                 'proveedores'              => $proveedores,
                 'tareas_maestro'           => $tareasMaestro,
@@ -911,14 +998,7 @@ try {
                 exit;
             }
 
-            if ($isAdmin) {
-                $stmtCheck = $pdo->prepare("SELECT id, usuario_id, nombre FROM `veh_vehiculos` WHERE id = ? AND activo = 1");
-                $stmtCheck->execute(array($vehiculoId));
-            } else {
-                $stmtCheck = $pdo->prepare("SELECT id, usuario_id, nombre FROM `veh_vehiculos` WHERE id = ? AND usuario_id = ? AND activo = 1");
-                $stmtCheck->execute(array($vehiculoId, $userId));
-            }
-            $vehRow = $stmtCheck->fetch();
+            $vehRow = canAccessVehicle($pdo, $vehiculoId, $userId, $isAdmin);
             if (!$vehRow) {
                 http_response_code(403);
                 echo json_encode(array('success' => false, 'error' => 'Vehículo no válido o sin permisos.'));
@@ -927,21 +1007,20 @@ try {
             $ownerUserId = (int)$vehRow['usuario_id'];
 
             if ($id > 0) {
-                if ($isAdmin) {
-                    $stmt = $pdo->prepare("
-                        UPDATE `veh_repostajes`
-                        SET vehiculo_id = ?, usuario_id = ?, fecha = ?, litros = ?, precio_litro = ?, importe_total = ?, km_odometro = ?, estacion_servicio = ?, notas = ?, foto_ticket_path = ?, foto_odometro_path = ?
-                        WHERE id = ? AND activo = 1
-                    ");
-                    $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $fotoTicketPath, $fotoOdometroPath, $id));
-                } else {
-                    $stmt = $pdo->prepare("
-                        UPDATE `veh_repostajes`
-                        SET vehiculo_id = ?, fecha = ?, litros = ?, precio_litro = ?, importe_total = ?, km_odometro = ?, estacion_servicio = ?, notas = ?, foto_ticket_path = ?, foto_odometro_path = ?
-                        WHERE id = ? AND usuario_id = ? AND activo = 1
-                    ");
-                    $stmt->execute(array($vehiculoId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $fotoTicketPath, $fotoOdometroPath, $id, $userId));
+                $stmtRepCheck = $pdo->prepare("SELECT id, vehiculo_id FROM `veh_repostajes` WHERE id = ? AND activo = 1 LIMIT 1");
+                $stmtRepCheck->execute(array($id));
+                $repExisting = $stmtRepCheck->fetch();
+                if (!$repExisting || !canAccessVehicle($pdo, (int)$repExisting['vehiculo_id'], $userId, $isAdmin)) {
+                    http_response_code(403);
+                    echo json_encode(array('success' => false, 'error' => 'Repostaje no encontrado o sin permisos.'));
+                    exit;
                 }
+                $stmt = $pdo->prepare("
+                    UPDATE `veh_repostajes`
+                    SET vehiculo_id = ?, usuario_id = ?, fecha = ?, litros = ?, precio_litro = ?, importe_total = ?, km_odometro = ?, estacion_servicio = ?, notas = ?, foto_ticket_path = ?, foto_odometro_path = ?
+                    WHERE id = ? AND activo = 1
+                ");
+                $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $fotoTicketPath, $fotoOdometroPath, $id));
                 $savedId = $id;
             } else {
                 $stmt = $pdo->prepare("
@@ -999,13 +1078,16 @@ try {
                 echo json_encode(array('success' => false, 'error' => 'ID de repostaje inválido.'));
                 exit;
             }
-            if ($isAdmin) {
-                $stmt = $pdo->prepare("UPDATE `veh_repostajes` SET activo = 0 WHERE id = ?");
-                $stmt->execute(array($id));
-            } else {
-                $stmt = $pdo->prepare("UPDATE `veh_repostajes` SET activo = 0 WHERE id = ? AND usuario_id = ?");
-                $stmt->execute(array($id, $userId));
+            $stmtRepCheck = $pdo->prepare("SELECT id, vehiculo_id FROM `veh_repostajes` WHERE id = ? AND activo = 1 LIMIT 1");
+            $stmtRepCheck->execute(array($id));
+            $repExisting = $stmtRepCheck->fetch();
+            if (!$repExisting || !canAccessVehicle($pdo, (int)$repExisting['vehiculo_id'], $userId, $isAdmin)) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Repostaje no encontrado o sin permisos.'));
+                exit;
             }
+            $stmt = $pdo->prepare("UPDATE `veh_repostajes` SET activo = 0 WHERE id = ?");
+            $stmt->execute(array($id));
 
             echo json_encode(array(
                 'success' => true,
@@ -1347,14 +1429,7 @@ try {
             }
 
             // Verificar que el vehículo existe y el usuario tiene permiso
-            if ($isAdmin) {
-                $stmtV = $pdo->prepare("SELECT id, usuario_id FROM `veh_vehiculos` WHERE id = ? AND activo = 1");
-                $stmtV->execute(array($vehiculoId));
-            } else {
-                $stmtV = $pdo->prepare("SELECT id, usuario_id FROM `veh_vehiculos` WHERE id = ? AND usuario_id = ? AND activo = 1");
-                $stmtV->execute(array($vehiculoId, $userId));
-            }
-            $vRow = $stmtV->fetch();
+            $vRow = canAccessVehicle($pdo, $vehiculoId, $userId, $isAdmin);
             if (!$vRow) {
                 http_response_code(403);
                 echo json_encode(array('success' => false, 'error' => 'Vehículo no encontrado o sin permisos.'));
@@ -1577,14 +1652,7 @@ try {
                 exit;
             }
 
-            if ($isAdmin) {
-                $stmtV = $pdo->prepare("SELECT id, usuario_id FROM `veh_vehiculos` WHERE id = ? AND activo = 1");
-                $stmtV->execute(array($vehiculoId));
-            } else {
-                $stmtV = $pdo->prepare("SELECT id, usuario_id FROM `veh_vehiculos` WHERE id = ? AND usuario_id = ? AND activo = 1");
-                $stmtV->execute(array($vehiculoId, $userId));
-            }
-            $vehRow = $stmtV->fetch();
+            $vehRow = canAccessVehicle($pdo, $vehiculoId, $userId, $isAdmin);
             if (!$vehRow) {
                 http_response_code(403);
                 echo json_encode(array('success' => false, 'error' => 'Vehículo no válido o sin permisos.'));
@@ -1656,7 +1724,7 @@ try {
             ");
             $stmtGet->execute(array($id));
             $task = $stmtGet->fetch();
-            if (!$task || (!$isAdmin && (int)$task['veh_owner'] !== $userId)) {
+            if (!$task || !canAccessVehicle($pdo, (int)$task['vehiculo_id'], $userId, $isAdmin)) {
                 http_response_code(403);
                 echo json_encode(array('success' => false, 'error' => 'Tarea no encontrada o sin permisos.'));
                 exit;
@@ -1736,14 +1804,14 @@ try {
                 exit;
             }
             $stmtGet = $pdo->prepare("
-                SELECT vt.id, v.usuario_id AS veh_owner
+                SELECT vt.id, vt.vehiculo_id, v.usuario_id AS veh_owner
                 FROM `veh_vehiculo_tareas` vt
                 INNER JOIN `veh_vehiculos` v ON v.id = vt.vehiculo_id
                 WHERE vt.id = ? AND vt.activo = 1
             ");
             $stmtGet->execute(array($id));
             $task = $stmtGet->fetch();
-            if (!$task || (!$isAdmin && (int)$task['veh_owner'] !== $userId)) {
+            if (!$task || !canAccessVehicle($pdo, (int)$task['vehiculo_id'], $userId, $isAdmin)) {
                 http_response_code(403);
                 echo json_encode(array('success' => false, 'error' => 'Tarea no encontrada o sin permisos.'));
                 exit;
@@ -1764,18 +1832,16 @@ try {
                 echo json_encode(array('success' => false, 'error' => 'ID inválido.'));
                 exit;
             }
-            if ($isAdmin) {
-                $stmt = $pdo->prepare("UPDATE `veh_vehiculo_tareas` SET activo = 0 WHERE id = ?");
-                $stmt->execute(array($id));
-            } else {
-                $stmt = $pdo->prepare("
-                    UPDATE `veh_vehiculo_tareas` vt
-                    INNER JOIN `veh_vehiculos` v ON v.id = vt.vehiculo_id
-                    SET vt.activo = 0
-                    WHERE vt.id = ? AND v.usuario_id = ?
-                ");
-                $stmt->execute(array($id, $userId));
+            $stmtGet = $pdo->prepare("SELECT id, vehiculo_id FROM `veh_vehiculo_tareas` WHERE id = ? AND activo = 1 LIMIT 1");
+            $stmtGet->execute(array($id));
+            $task = $stmtGet->fetch();
+            if (!$task || !canAccessVehicle($pdo, (int)$task['vehiculo_id'], $userId, $isAdmin)) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Tarea no encontrada o sin permisos.'));
+                exit;
             }
+            $stmt = $pdo->prepare("UPDATE `veh_vehiculo_tareas` SET activo = 0 WHERE id = ?");
+            $stmt->execute(array($id));
             echo json_encode(array('success' => true, 'message' => 'Tarea dada de baja.'));
             break;
 
@@ -1912,6 +1978,171 @@ try {
             $stmtRej = $pdo->prepare("UPDATE `users` SET validado = -1 WHERE id = ?");
             $stmtRej->execute(array($targetId));
             echo json_encode(array('success' => true, 'message' => 'Solicitud de usuario rechazada.'));
+            break;
+
+        case 'list_parques':
+            $parques = getAccessibleParques($pdo, $userId, $isAdmin);
+            $usersList = array();
+            if ($isAdmin) {
+                ensureUsersValidationColumn($pdo);
+                $stmtUsers = $pdo->query("SELECT id, username, email, role, acceso_sistema FROM `users` WHERE validado = 1 ORDER BY username ASC");
+                $usersList = $stmtUsers ? $stmtUsers->fetchAll() : array();
+            }
+            echo json_encode(array(
+                'success' => true,
+                'parques' => $parques,
+                'users'   => $usersList,
+            ));
+            break;
+
+        case 'save_parque':
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede crear o editar parques móviles.'));
+                exit;
+            }
+            $id          = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            $nombre      = trim((string)arr_get($jsonBody, 'nombre', isset($_POST['nombre']) ? $_POST['nombre'] : ''));
+            $descripcion = trim((string)arr_get($jsonBody, 'descripcion', isset($_POST['descripcion']) ? $_POST['descripcion'] : ''));
+
+            if ($nombre === '') {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'El nombre del parque móvil es obligatorio.'));
+                exit;
+            }
+
+            if ($id > 0) {
+                $stmt = $pdo->prepare("UPDATE `veh_parques` SET nombre = ?, descripcion = ? WHERE id = ? AND activo = 1");
+                $stmt->execute(array($nombre, $descripcion !== '' ? $descripcion : null, $id));
+                $savedId = $id;
+            } else {
+                $stmt = $pdo->prepare("INSERT INTO `veh_parques` (nombre, descripcion, creado_por, activo) VALUES (?, ?, ?, 1)");
+                $stmt->execute(array($nombre, $descripcion !== '' ? $descripcion : null, $userId));
+                $savedId = (int)$pdo->lastInsertId();
+            }
+
+            echo json_encode(array(
+                'success'   => true,
+                'parque_id' => $savedId,
+                'message'   => $id > 0 ? 'Parque móvil actualizado.' : 'Parque móvil creado correctamente.',
+            ));
+            break;
+
+        case 'assign_parque_user':
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede asignar usuarios a un parque móvil.'));
+                exit;
+            }
+            $parqueId     = (int)arr_get($jsonBody, 'parque_id', isset($_POST['parque_id']) ? $_POST['parque_id'] : 0);
+            $targetUserId = (int)arr_get($jsonBody, 'usuario_id', isset($_POST['usuario_id']) ? $_POST['usuario_id'] : 0);
+            $rolParque    = trim((string)arr_get($jsonBody, 'rol_parque', isset($_POST['rol_parque']) ? $_POST['rol_parque'] : 'gestor'));
+            if (!in_array($rolParque, array('gestor', 'conductor', 'admin'), true)) {
+                $rolParque = 'gestor';
+            }
+            if ($parqueId <= 0 || $targetUserId <= 0) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'Parque móvil y usuario son obligatorios.'));
+                exit;
+            }
+            $stmtAss = $pdo->prepare("
+                INSERT INTO `veh_parque_usuarios` (parque_id, usuario_id, rol_parque, activo)
+                VALUES (?, ?, ?, 1)
+                ON DUPLICATE KEY UPDATE rol_parque = VALUES(rol_parque), activo = 1
+            ");
+            $stmtAss->execute(array($parqueId, $targetUserId, $rolParque));
+            echo json_encode(array('success' => true, 'message' => 'Usuario asignado al parque móvil.'));
+            break;
+
+        case 'remove_parque_user':
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede quitar usuarios de un parque móvil.'));
+                exit;
+            }
+            $parqueId     = (int)arr_get($jsonBody, 'parque_id', isset($_POST['parque_id']) ? $_POST['parque_id'] : 0);
+            $targetUserId = (int)arr_get($jsonBody, 'usuario_id', isset($_POST['usuario_id']) ? $_POST['usuario_id'] : 0);
+            if ($parqueId <= 0 || $targetUserId <= 0) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'Parque móvil y usuario son obligatorios.'));
+                exit;
+            }
+            $stmtRem = $pdo->prepare("UPDATE `veh_parque_usuarios` SET activo = 0 WHERE parque_id = ? AND usuario_id = ?");
+            $stmtRem->execute(array($parqueId, $targetUserId));
+            echo json_encode(array('success' => true, 'message' => 'Usuario retirado del parque móvil (baja lógica).'));
+            break;
+
+        case 'deactivate_parque':
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede dar de baja un parque móvil.'));
+                exit;
+            }
+            $id = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            if ($id <= 0) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'ID de parque inválido.'));
+                exit;
+            }
+            $stmt = $pdo->prepare("UPDATE `veh_parques` SET activo = 0 WHERE id = ?");
+            $stmt->execute(array($id));
+            echo json_encode(array('success' => true, 'message' => 'Parque móvil dado de baja lógica (activo = 0).'));
+            break;
+
+        case 'list_inactive_records':
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede consultar registros inactivos.'));
+                exit;
+            }
+            $inVeh = $pdo->query("
+                SELECT v.id, v.usuario_id, u.username AS propietario, v.nombre, v.matricula
+                FROM `veh_vehiculos` v
+                LEFT JOIN `users` u ON u.id = v.usuario_id
+                WHERE v.activo = 0
+                ORDER BY v.id DESC
+            ")->fetchAll();
+            $inRep = $pdo->query("
+                SELECT r.id, r.vehiculo_id, r.usuario_id, u.username AS propietario, v.nombre AS vehiculo_nombre, r.fecha, r.litros, r.importe_total, r.km_odometro
+                FROM `veh_repostajes` r
+                LEFT JOIN `veh_vehiculos` v ON v.id = r.vehiculo_id
+                LEFT JOIN `users` u ON u.id = r.usuario_id
+                WHERE r.activo = 0
+                ORDER BY r.id DESC
+                LIMIT 200
+            ")->fetchAll();
+            echo json_encode(array(
+                'success'    => true,
+                'vehiculos'  => $inVeh,
+                'repostajes' => $inRep,
+            ));
+            break;
+
+        case 'reactivate_records':
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede reactivar registros.'));
+                exit;
+            }
+            $tipo = trim((string)arr_get($jsonBody, 'tipo', isset($_POST['tipo']) ? $_POST['tipo'] : ''));
+            $id   = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+
+            if ($tipo === 'all_repostajes') {
+                $stmt = $pdo->prepare("UPDATE `veh_repostajes` SET activo = 1 WHERE activo = 0");
+                $stmt->execute();
+                echo json_encode(array('success' => true, 'affected' => $stmt->rowCount(), 'message' => 'Todos los repostajes inactivos reactivados (activo = 1).'));
+            } elseif ($tipo === 'repostaje' && $id > 0) {
+                $stmt = $pdo->prepare("UPDATE `veh_repostajes` SET activo = 1 WHERE id = ?");
+                $stmt->execute(array($id));
+                echo json_encode(array('success' => true, 'affected' => $stmt->rowCount(), 'message' => 'Repostaje reactivado (activo = 1).'));
+            } elseif ($tipo === 'vehiculo' && $id > 0) {
+                $stmt = $pdo->prepare("UPDATE `veh_vehiculos` SET activo = 1 WHERE id = ?");
+                $stmt->execute(array($id));
+                echo json_encode(array('success' => true, 'affected' => $stmt->rowCount(), 'message' => 'Vehículo reactivado (activo = 1).'));
+            } else {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'Parámetros de reactivación inválidos.'));
+            }
             break;
 
         default:
