@@ -1778,7 +1778,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           final r = chrono[idx];
                           if (spot.bar.color == const Color(0xFF0F766E)) {
                             return LineTooltipItem(
-                              '${r.fecha}\nConsumo: ${r.litrosPor100?.toStringAsFixed(2) ?? "-"} L/100',
+                              '${_fmtDateEs(r.fecha)}\nConsumo: ${r.litrosPor100?.toStringAsFixed(2) ?? "-"} L/100',
                               const TextStyle(color: Color(0xFF5EEAD4), fontSize: 11.5, fontWeight: FontWeight.w600),
                             );
                           }
@@ -1847,6 +1847,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  String _fmtDateEs(String val) {
+    final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2})').firstMatch(val.trim());
+    return m != null ? '${m.group(3)}-${m.group(2)}-${m.group(1)}' : val;
+  }
+
   Widget _buildRepostajeCard(Repostaje r) {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1854,7 +1859,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(r.fecha, style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text(_fmtDateEs(r.fecha), style: const TextStyle(fontWeight: FontWeight.bold)),
             Text(
               '${r.importeTotal.toStringAsFixed(2)} €${r.esPesetas && r.importeTotalPesetas != null ? " (${r.importeTotalPesetas!.toStringAsFixed(0)} pts)" : ""}',
               style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF0F766E)),

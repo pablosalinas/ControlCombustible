@@ -901,7 +901,7 @@ try {
                 $params[] = $vehiculoId;
             }
 
-            $sqlRep .= " ORDER BY r.vehiculo_id ASC, r.km_odometro ASC, r.fecha ASC, r.id ASC";
+            $sqlRep .= " ORDER BY r.vehiculo_id ASC, r.fecha ASC, r.km_odometro ASC, r.id ASC";
             $stmtRep = $pdo->prepare($sqlRep);
             $stmtRep->execute($params);
             $allRows = $stmtRep->fetchAll();

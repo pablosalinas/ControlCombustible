@@ -1526,6 +1526,11 @@ function fmtNum(val, dec = 2) {
     if (val === null || val === undefined || isNaN(val)) return '-';
     return Number(val).toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 }
+function fmtDate(val) {
+    if (!val) return '-';
+    const m = String(val).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}-${m[2]}-${m[1]}` : String(val);
+}
 
 async function apiCall(action, payload = {}, method = 'POST') {
     const headers = { 'Content-Type': 'application/json' };
@@ -1744,7 +1749,7 @@ function renderTable() {
 
     const filtered = (currentData.repostajes || []).filter(r => {
         if (!q) return true;
-        return (r.fecha && r.fecha.toLowerCase().includes(q)) ||
+        return (r.fecha && (r.fecha.toLowerCase().includes(q) || fmtDate(r.fecha).toLowerCase().includes(q))) ||
                (String(r.km_odometro).includes(q)) ||
                (r.notas && r.notas.toLowerCase().includes(q)) ||
                (r.vehiculo_nombre && r.vehiculo_nombre.toLowerCase().includes(q));
@@ -1753,7 +1758,7 @@ function renderTable() {
     filtered.forEach(r => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td style="font-weight:600;">${r.fecha}</td>
+            <td style="font-weight:600;">${fmtDate(r.fecha)}</td>
             <td><span class="badge badge-teal">${r.vehiculo_nombre || 'Vehículo'}</span></td>
             <td>${fmtNum(r.litros, 2)}</td>
             <td>${fmtNum(r.precio_litro, 3)} €${r.es_pesetas ? `<br><small style="color:var(--muted);">${fmtNum(r.precio_litro_pesetas, 1)} pts</small>` : ''}</td>
@@ -1781,7 +1786,7 @@ function renderTable() {
         card.innerHTML = `
             <div class="rep-mobile-top">
                 <div>
-                    <strong style="font-size:0.92rem;">${r.fecha}</strong>
+                    <strong style="font-size:0.92rem;">${fmtDate(r.fecha)}</strong>
                     <span class="badge badge-teal" style="margin-left:0.35rem;">${r.vehiculo_nombre || 'Vehículo'}</span>
                 </div>
                 <div style="font-weight:800; font-size:1.05rem; color:var(--primary-dark);">${fmtNum(r.importe_total, 2)} €${r.es_pesetas ? ` <small style="font-weight:500; color:var(--muted);">(${fmtNum(r.importe_total_pesetas, 0)} pts)</small>` : ''}</div>
@@ -1813,7 +1818,7 @@ function renderTable() {
 function renderChart() {
     const ctx = document.getElementById('evolutionChart').getContext('2d');
     const chronological = [...(currentData.repostajes || [])].reverse().slice(-40);
-    const labels = chronological.map(r => r.fecha);
+    const labels = chronological.map(r => fmtDate(r.fecha));
     const dataConsumo = chronological.map(r => r.litros_por_100);
     const dataPrecio = chronological.map(r => r.precio_litro);
 
@@ -3009,7 +3014,7 @@ async function exportPDFReport(sendByEmail = false) {
     );
 
     const rows = filteredList.map(r => [
-        r.fecha,
+        fmtDate(r.fecha),
         fmtNum(r.litros, 2),
         fmtNum(r.precio_litro, 3),
         fmtNum(r.importe_total, 2) + ' €',
