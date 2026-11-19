@@ -11,7 +11,7 @@ import 'services/api_service.dart';
 import 'services/ocr_service.dart';
 import 'services/pdf_service.dart';
 
-const String kAppVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'V1.261118');
+const String kAppVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'V1.2611191308');
 const String kApkDownloadUrl = 'https://github.com/pablosalinas/ControlCombustible/releases/latest/download/ControlCombustible.apk';
 
 void main() {

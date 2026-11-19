@@ -66,12 +66,14 @@ jobs:
           }
           EOF
 
-      - name: 📅 Calcular versión Vx.aammdd
+      - name: 📅 Calcular versión Vx.aammddhhmm
         run: |
-          AAMMDD=$(date +%y%m%d)
-          BUILD_NUM=$(date +%y%m%d%H)
+          AAMMDD=$(TZ='Europe/Madrid' date +%y%m%d)
+          HHMM=$(TZ='Europe/Madrid' date +%H%M)
+          BUILD_NUM=$(( $(date -u +%s) / 60 ))
           echo "AAMMDD=$AAMMDD" >> $GITHUB_ENV
-          echo "APP_VERSION_NAME=V1.${AAMMDD}" >> $GITHUB_ENV
+          echo "HHMM=$HHMM" >> $GITHUB_ENV
+          echo "APP_VERSION_NAME=V1.${AAMMDD}${HHMM}" >> $GITHUB_ENV
           echo "APP_BUILD_NUMBER=${BUILD_NUM}" >> $GITHUB_ENV
 
       - name: 🔐 Preparar Keystore de Firma Persistente
