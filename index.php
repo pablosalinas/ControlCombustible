@@ -3780,6 +3780,8 @@ async function openParquesModal() {
         return;
     }
     cachedAllUsers = res.users || [];
+    const allVehs = res.all_vehiculos || [];
+    const currentUserId = parseInt((currentData.user && currentData.user.id) || '0', 10);
     const list = res.parques || [];
     if (list.length === 0) {
         box.innerHTML = '<div style="color:#64748b; font-size:0.85rem; padding:0.5rem 0;">No hay parques móviles creados o asignados todavía.</div>';
@@ -3793,6 +3795,33 @@ async function openParquesModal() {
                 ${isAdmin ? `<button type="button" onclick="removeParqueUser(${pq.id}, ${m.usuario_id})" style="border:none; background:none; color:#dc2626; cursor:pointer; font-weight:700;" title="Quitar usuario">×</button>` : ''}
             </span>
         `).join('') || '<span style="font-size:0.78rem; color:#94a3b8;">Sin usuarios asignados</span>';
+
+        const vehiculosChips = (pq.vehiculos || []).map(v => {
+            const canRemove = isAdmin || parseInt(v.usuario_id, 10) === currentUserId;
+            return `
+                <span class="badge" style="background:#e0f2fe; color:#0369a1; display:inline-flex; align-items:center; gap:0.35rem; margin:2px;">
+                    <i class="fa-solid fa-car"></i> ${v.nombre}${v.matricula ? ` (${v.matricula})` : ''}
+                    ${canRemove ? `<button type="button" onclick="removeParqueVehiculo(${pq.id}, ${v.id})" style="border:none; background:none; color:#dc2626; cursor:pointer; font-weight:700;" title="Quitar vehículo del parque">×</button>` : ''}
+                </span>
+            `;
+        }).join('') || '<span style="font-size:0.78rem; color:#94a3b8;">Sin vehículos asignados</span>';
+
+        const vehOpts = allVehs
+            .filter(v => parseInt(v.parque_id || '0', 10) !== parseInt(pq.id, 10) && (isAdmin || parseInt(v.usuario_id, 10) === currentUserId))
+            .map(v => `<option value="${v.id}">${v.nombre}${v.matricula ? ` (${v.matricula})` : ''}${isAdmin && v.propietario ? ` · ${v.propietario}` : ''}</option>`)
+            .join('');
+
+        const assignVehRow = vehOpts ? `
+            <div style="display:flex; gap:0.4rem; margin-top:0.45rem; align-items:center; flex-wrap:wrap;">
+                <select id="assign-veh-parque-${pq.id}" class="form-control" style="flex:1; min-width:170px; padding:0.35rem 0.5rem; font-size:0.8rem;">
+                    <option value="">-- Añadir vehículo al parque --</option>
+                    ${vehOpts}
+                </select>
+                <button type="button" class="btn btn-outline" style="padding:0.35rem 0.65rem; font-size:0.78rem;" onclick="assignParqueVehiculo(${pq.id})">
+                    <i class="fa-solid fa-car"></i> Añadir vehículo
+                </button>
+            </div>
+        ` : '';
 
         const userOpts = cachedAllUsers
             .filter(u => !(pq.miembros || []).some(m => parseInt(m.usuario_id, 10) === parseInt(u.id, 10)))
@@ -3824,7 +3853,9 @@ async function openParquesModal() {
                     <span class="badge badge-teal">${pq.num_vehiculos || 0} vehículos</span>
                 </div>
                 ${pq.descripcion ? `<div style="font-size:0.8rem; color:var(--muted); margin-top:0.2rem;">${pq.descripcion}</div>` : ''}
-                <div style="margin-top:0.45rem;">${miembros}</div>
+                <div style="margin-top:0.45rem;"><span style="font-size:0.74rem; color:var(--muted); font-weight:600;">Usuarios:</span> ${miembros}</div>
+                <div style="margin-top:0.35rem;"><span style="font-size:0.74rem; color:var(--muted); font-weight:600;">Vehículos:</span> ${vehiculosChips}</div>
+                ${assignVehRow}
                 ${assignRow}
             </div>
         `;
@@ -3878,6 +3909,28 @@ async function removeParqueUser(parqueId, usuarioId) {
         await openParquesModal();
     } else {
         alert(res.error || 'Error retirando usuario');
+    }
+}
+async function assignParqueVehiculo(parqueId) {
+    const sel = document.getElementById(`assign-veh-parque-${parqueId}`);
+    const vehiculoId = sel ? parseInt(sel.value || '0', 10) : 0;
+    if (!vehiculoId) return;
+    const res = await apiCall('assign_parque_vehiculo', { parque_id: parqueId, vehiculo_id: vehiculoId });
+    if (res.success) {
+        await loadDashboard();
+        await openParquesModal();
+    } else {
+        alert(res.error || 'Error añadiendo vehículo');
+    }
+}
+async function removeParqueVehiculo(parqueId, vehiculoId) {
+    if (!confirm('¿Retirar este vehículo del parque móvil? Pasará a ser personal de su propietario.')) return;
+    const res = await apiCall('remove_parque_vehiculo', { parque_id: parqueId, vehiculo_id: vehiculoId });
+    if (res.success) {
+        await loadDashboard();
+        await openParquesModal();
+    } else {
+        alert(res.error || 'Error retirando vehículo');
     }
 }
 async function deactivateParque(id) {

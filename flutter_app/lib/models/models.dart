@@ -439,6 +439,7 @@ class ParqueMovil {
   final String descripcion;
   final int numVehiculos;
   final List<ParqueMiembro> miembros;
+  final List<Map<String, dynamic>> vehiculos;
 
   ParqueMovil({
     required this.id,
@@ -446,11 +447,15 @@ class ParqueMovil {
     required this.descripcion,
     required this.numVehiculos,
     required this.miembros,
+    this.vehiculos = const [],
   });
 
   factory ParqueMovil.fromJson(Map<String, dynamic> j) {
     final memList = (j['miembros'] as List? ?? [])
         .map((e) => ParqueMiembro.fromJson(e as Map<String, dynamic>))
+        .toList();
+    final vehList = (j['vehiculos'] as List? ?? [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
     return ParqueMovil(
       id: int.tryParse((j['id'] ?? 0).toString()) ?? 0,
@@ -458,6 +463,7 @@ class ParqueMovil {
       descripcion: (j['descripcion'] ?? '').toString(),
       numVehiculos: int.tryParse((j['num_vehiculos'] ?? 0).toString()) ?? 0,
       miembros: memList,
+      vehiculos: vehList,
     );
   }
 }

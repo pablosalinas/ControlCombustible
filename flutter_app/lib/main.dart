@@ -600,6 +600,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Repostaje> _repostajes = [];
   ResumenEstadisticas? _resumen;
   String _userEmail = '';
+  int _currentUserId = 0;
   bool _loading = true;
   String _searchQuery = '';
   String _fechaDesde = '';
@@ -663,6 +664,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _tareasMaestro = tmList;
             _vehiculoTareas = vtList;
             _userEmail = (userMap['email'] ?? '').toString();
+            _currentUserId = int.tryParse((userMap['id'] ?? 0).toString()) ?? 0;
             _ultimoKmPorVehiculo = parsedLastKm;
             _repostajes = rList;
             _resumen = ResumenEstadisticas.fromJson(sumMap);
@@ -1096,19 +1098,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.amber.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.amber.shade300),
-                  ),
-                  child: const Text(
-                    'A partir de V1.261118, las actualizaciones se instalan directamente sin necesidad de desinstalar.',
-                    style: TextStyle(fontSize: 12, color: Colors.black87),
-                  ),
-                ),
               ],
             ),
             actions: [
@@ -1318,7 +1307,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 case 'parques':
                   await Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => ParquesMovilesScreen(api: widget.api),
+                      builder: (_) => ParquesMovilesScreen(api: widget.api, currentUserId: _currentUserId),
                     ),
                   );
                   _loadData();
@@ -4241,8 +4230,9 @@ class _TareasMaestroScreenState extends State<TareasMaestroScreen> {
 
 class ParquesMovilesScreen extends StatefulWidget {
   final ApiService api;
+  final int currentUserId;
 
-  const ParquesMovilesScreen({super.key, required this.api});
+  const ParquesMovilesScreen({super.key, required this.api, this.currentUserId = 0});
 
   @override
   State<ParquesMovilesScreen> createState() => _ParquesMovilesScreenState();
@@ -4255,7 +4245,9 @@ class _ParquesMovilesScreenState extends State<ParquesMovilesScreen> {
   bool _loading = true;
   List<ParqueMovil> _parques = [];
   List<Map<String, dynamic>> _users = [];
+  List<Map<String, dynamic>> _allVehiculos = [];
   final Map<int, int?> _selectedUserByParque = {};
+  final Map<int, int?> _selectedVehByParque = {};
 
   @override
   void initState() {
@@ -4274,6 +4266,9 @@ class _ParquesMovilesScreenState extends State<ParquesMovilesScreen> {
               .map((e) => ParqueMovil.fromJson(e as Map<String, dynamic>))
               .toList();
           _users = (res['users'] as List? ?? [])
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
+          _allVehiculos = (res['all_vehiculos'] as List? ?? [])
               .map((e) => Map<String, dynamic>.from(e as Map))
               .toList();
         }
@@ -4338,6 +4333,37 @@ class _ParquesMovilesScreenState extends State<ParquesMovilesScreen> {
     }
   }
 
+  Future<void> _assignVehiculo(int parqueId) async {
+    final vid = _selectedVehByParque[parqueId];
+    if (vid == null || vid <= 0) return;
+    final res = await widget.api.post('assign_parque_vehiculo', {
+      'parque_id': parqueId,
+      'vehiculo_id': vid,
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Vehículo añadido').toString())),
+      );
+      if (res['success'] == true) {
+        _selectedVehByParque[parqueId] = null;
+        await _load();
+      }
+    }
+  }
+
+  Future<void> _removeVehiculo(int parqueId, int vehiculoId) async {
+    final res = await widget.api.post('remove_parque_vehiculo', {
+      'parque_id': parqueId,
+      'vehiculo_id': vehiculoId,
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Vehículo retirado').toString())),
+      );
+      if (res['success'] == true) await _load();
+    }
+  }
+
   Future<void> _deactivateParque(ParqueMovil pq) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -4386,6 +4412,11 @@ class _ParquesMovilesScreenState extends State<ParquesMovilesScreen> {
                   final availableUsers = _users
                       .where((u) => !pq.miembros.any((m) => m.usuarioId == int.tryParse(u['id'].toString())))
                       .toList();
+                  final availableVehs = _allVehiculos.where((v) {
+                    final vParque = int.tryParse((v['parque_id'] ?? '').toString()) ?? 0;
+                    final vOwner = int.tryParse((v['usuario_id'] ?? 0).toString()) ?? 0;
+                    return vParque != pq.id && (isAdmin || vOwner == widget.currentUserId);
+                  }).toList();
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
                     child: Padding(
@@ -4446,6 +4477,63 @@ class _ParquesMovilesScreenState extends State<ParquesMovilesScreen> {
                                     )
                                     .toList(),
                           ),
+                          const SizedBox(height: 8),
+                          const Text('Vehículos del parque:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: pq.vehiculos.isEmpty
+                                ? [const Text('Sin vehículos asignados', style: TextStyle(color: Colors.black45, fontSize: 12))]
+                                : pq.vehiculos.map((v) {
+                                    final vid = int.tryParse((v['id'] ?? 0).toString()) ?? 0;
+                                    final vOwner = int.tryParse((v['usuario_id'] ?? 0).toString()) ?? 0;
+                                    final canRem = isAdmin || vOwner == widget.currentUserId;
+                                    final mat = (v['matricula'] ?? '').toString();
+                                    return InputChip(
+                                      avatar: const Icon(Icons.directions_car, size: 16),
+                                      label: Text('${v['nombre']}${mat.isNotEmpty ? " ($mat)" : ""}'),
+                                      onDeleted: canRem ? () => _removeVehiculo(pq.id, vid) : null,
+                                    );
+                                  }).toList(),
+                          ),
+                          if (availableVehs.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: DropdownButtonFormField<int>(
+                                    value: availableVehs.any((v) => int.tryParse(v['id'].toString()) == _selectedVehByParque[pq.id])
+                                        ? _selectedVehByParque[pq.id]
+                                        : null,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Añadir vehículo al parque',
+                                      border: OutlineInputBorder(),
+                                      isDense: true,
+                                    ),
+                                    items: availableVehs.map((v) {
+                                      final mat = (v['matricula'] ?? '').toString();
+                                      final prop = (v['propietario'] ?? '').toString();
+                                      return DropdownMenuItem<int>(
+                                        value: int.tryParse(v['id'].toString()) ?? 0,
+                                        child: Text(
+                                          '${v['nombre']}${mat.isNotEmpty ? " ($mat)" : ""}${isAdmin && prop.isNotEmpty ? " · $prop" : ""}',
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      );
+                                    }).toList(),
+                                    onChanged: (v) => setState(() => _selectedVehByParque[pq.id] = v),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                FilledButton.icon(
+                                  onPressed: () => _assignVehiculo(pq.id),
+                                  icon: const Icon(Icons.add, size: 18),
+                                  label: const Text('Añadir'),
+                                ),
+                              ],
+                            ),
+                          ],
                           if (isAdmin && availableUsers.isNotEmpty) ...[
                             const SizedBox(height: 10),
                             Row(
