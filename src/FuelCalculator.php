@@ -9,6 +9,55 @@
 
 class FuelCalculator {
 
+    const PESETAS_PER_EURO = 166.386;
+    const PESETA_CUTOFF_DATE = '2001-01-01';
+
+    /**
+     * Normaliza un repostaje a Euros.
+     * Cualquier repostaje anterior a 2001 cuyos importes estén en pesetas se convierte
+     * usando 1 € = 166,386 pesetas para unificar toda la serie en la misma moneda (€).
+     */
+    public static function normalizeRowAmounts($fecha, $precio, $importe) {
+        $fechaStr = substr(trim((string)$fecha), 0, 10);
+        $isPre2001 = ($fechaStr !== '' && strcmp($fechaStr, self::PESETA_CUTOFF_DATE) < 0);
+        $precioF = (float)$precio;
+        $importeF = (float)$importe;
+
+        if ($isPre2001) {
+            $storedInPesetas = ($precioF >= 10.0 || ($precioF <= 0.0 && $importeF >= 100.0));
+            if ($storedInPesetas) {
+                return array(
+                    'precio_eur'  => $precioF / self::PESETAS_PER_EURO,
+                    'importe_eur' => $importeF / self::PESETAS_PER_EURO,
+                    'es_pesetas'  => true,
+                    'precio_pts'  => $precioF,
+                    'importe_pts' => $importeF,
+                    'precio_raw'  => $precioF,
+                    'importe_raw' => $importeF,
+                );
+            }
+            return array(
+                'precio_eur'  => $precioF,
+                'importe_eur' => $importeF,
+                'es_pesetas'  => true,
+                'precio_pts'  => $precioF * self::PESETAS_PER_EURO,
+                'importe_pts' => $importeF * self::PESETAS_PER_EURO,
+                'precio_raw'  => $precioF,
+                'importe_raw' => $importeF,
+            );
+        }
+
+        return array(
+            'precio_eur'  => $precioF,
+            'importe_eur' => $importeF,
+            'es_pesetas'  => false,
+            'precio_pts'  => null,
+            'importe_pts' => null,
+            'precio_raw'  => $precioF,
+            'importe_raw' => $importeF,
+        );
+    }
+
     /**
      * Procesa una lista de repostajes activos de un vehículo (ordenados cronológicamente por km/fecha)
      * y añade todas las columnas calculadas referenciadas al repostaje anterior.
@@ -32,8 +81,9 @@ class FuelCalculator {
         for ($i = 0; $i < $count; $i++) {
             $r = $rows[$i];
             $litros  = (float)$r['litros'];
-            $precio  = (float)$r['precio_litro'];
-            $importe = (float)$r['importe_total'];
+            $norm    = self::normalizeRowAmounts(isset($r['fecha']) ? $r['fecha'] : '', $r['precio_litro'], $r['importe_total']);
+            $precio  = $norm['precio_eur'];
+            $importe = $norm['importe_eur'];
             $km      = (float)$r['km_odometro'];
 
             if ($kmInicial === null) {
@@ -62,8 +112,9 @@ class FuelCalculator {
                 $prev = $rows[$i - 1];
                 $prevKm      = (float)$prev['km_odometro'];
                 $prevLitros  = (float)$prev['litros'];
-                $prevPrecio  = (float)$prev['precio_litro'];
-                $prevImporte = (float)$prev['importe_total'];
+                $prevNorm    = self::normalizeRowAmounts(isset($prev['fecha']) ? $prev['fecha'] : '', $prev['precio_litro'], $prev['importe_total']);
+                $prevPrecio  = $prevNorm['precio_eur'];
+                $prevImporte = $prevNorm['importe_eur'];
 
                 $difKm = $km - $prevKm;
                 if ($difKm > 0 && $prevLitros > 0) {
@@ -98,6 +149,11 @@ class FuelCalculator {
                 'litros'                  => round($litros, 3),
                 'precio_litro'            => round($precio, 4),
                 'importe_total'           => round($importe, 2),
+                'es_pesetas'              => $norm['es_pesetas'],
+                'precio_litro_pesetas'    => $norm['precio_pts'] !== null ? round($norm['precio_pts'], 2) : null,
+                'importe_total_pesetas'   => $norm['importe_pts'] !== null ? round($norm['importe_pts'], 0) : null,
+                'precio_litro_raw'        => $norm['precio_raw'],
+                'importe_total_raw'       => $norm['importe_raw'],
                 'km_odometro'             => round($km, 2),
                 'dif_km'                  => round($difKm, 2),
                 'total_litros_acum'       => round($totalLitrosAcum, 3),

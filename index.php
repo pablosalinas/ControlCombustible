@@ -1756,8 +1756,8 @@ function renderTable() {
             <td style="font-weight:600;">${r.fecha}</td>
             <td><span class="badge badge-teal">${r.vehiculo_nombre || 'Vehículo'}</span></td>
             <td>${fmtNum(r.litros, 2)}</td>
-            <td>${fmtNum(r.precio_litro, 3)} €</td>
-            <td style="font-weight:700; color:var(--primary-dark);">${fmtNum(r.importe_total, 2)} €</td>
+            <td>${fmtNum(r.precio_litro, 3)} €${r.es_pesetas ? `<br><small style="color:var(--muted);">${fmtNum(r.precio_litro_pesetas, 1)} pts</small>` : ''}</td>
+            <td style="font-weight:700; color:var(--primary-dark);">${fmtNum(r.importe_total, 2)} €${r.es_pesetas ? `<br><small style="color:var(--muted); font-weight:500;">${fmtNum(r.importe_total_pesetas, 0)} pts</small>` : ''}</td>
             <td style="font-weight:600;">${fmtNum(r.km_odometro, 0)}</td>
             <td>${r.dif_km > 0 ? '+' + fmtNum(r.dif_km, 0) : '-'}</td>
             <td>${r.litros_por_100 !== null ? `<span class="badge badge-amber">${fmtNum(r.litros_por_100, 2)}</span>` : '-'}</td>
@@ -1784,11 +1784,11 @@ function renderTable() {
                     <strong style="font-size:0.92rem;">${r.fecha}</strong>
                     <span class="badge badge-teal" style="margin-left:0.35rem;">${r.vehiculo_nombre || 'Vehículo'}</span>
                 </div>
-                <div style="font-weight:800; font-size:1.05rem; color:var(--primary-dark);">${fmtNum(r.importe_total, 2)} €</div>
+                <div style="font-weight:800; font-size:1.05rem; color:var(--primary-dark);">${fmtNum(r.importe_total, 2)} €${r.es_pesetas ? ` <small style="font-weight:500; color:var(--muted);">(${fmtNum(r.importe_total_pesetas, 0)} pts)</small>` : ''}</div>
             </div>
             <div style="display:flex; justify-content:space-between; font-size:0.82rem; color:var(--muted);">
                 <span><strong>${fmtNum(r.km_odometro, 0)} km</strong> (${r.dif_km > 0 ? '+' + fmtNum(r.dif_km, 0) + ' km' : 'Inicio'})</span>
-                <span>${fmtNum(r.litros, 2)} L × ${fmtNum(r.precio_litro, 3)} €/L</span>
+                <span>${fmtNum(r.litros, 2)} L × ${fmtNum(r.precio_litro, 3)} €/L${r.es_pesetas ? ` (${fmtNum(r.precio_litro_pesetas, 1)} pts)` : ''}</span>
             </div>
             <div class="rep-mobile-grid">
                 <div><span>Consumo L/100</span><strong>${r.litros_por_100 !== null ? fmtNum(r.litros_por_100, 2) : '-'}</strong></div>
@@ -1960,8 +1960,8 @@ function editRepostaje(r) {
     document.getElementById('rep-fecha').value = r.fecha;
     document.getElementById('rep-km').value = r.km_odometro;
     document.getElementById('rep-litros').value = r.litros;
-    document.getElementById('rep-precio').value = r.precio_litro;
-    document.getElementById('rep-importe').value = r.importe_total;
+    document.getElementById('rep-precio').value = (r.precio_litro_raw !== undefined && r.precio_litro_raw !== null) ? r.precio_litro_raw : r.precio_litro;
+    document.getElementById('rep-importe').value = (r.importe_total_raw !== undefined && r.importe_total_raw !== null) ? r.importe_total_raw : r.importe_total;
     const estSel = document.getElementById('rep-estacion');
     const estVal = r.estacion_servicio || '';
     if (estVal && !Array.from(estSel.options).some(o => o.value === estVal)) {

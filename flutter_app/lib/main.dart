@@ -1834,11 +1834,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(r.fecha, style: const TextStyle(fontWeight: FontWeight.bold)),
-            Text('${r.importeTotal.toStringAsFixed(2)} €', style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF0F766E))),
+            Text(
+              '${r.importeTotal.toStringAsFixed(2)} €${r.esPesetas && r.importeTotalPesetas != null ? " (${r.importeTotalPesetas!.toStringAsFixed(0)} pts)" : ""}',
+              style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF0F766E)),
+            ),
           ],
         ),
         subtitle: Text(
-          '${r.kmOdometro.toStringAsFixed(0)} km (${r.difKm > 0 ? "+${r.difKm.toStringAsFixed(0)} km" : "Inicio"}) · ${r.litros.toStringAsFixed(2)} L a ${r.precioLitro.toStringAsFixed(3)} €/L'
+          '${r.kmOdometro.toStringAsFixed(0)} km (${r.difKm > 0 ? "+${r.difKm.toStringAsFixed(0)} km" : "Inicio"}) · ${r.litros.toStringAsFixed(2)} L a ${r.precioLitro.toStringAsFixed(3)} €/L${r.esPesetas && r.precioLitroPesetas != null ? " (${r.precioLitroPesetas!.toStringAsFixed(1)} pts)" : ""}'
           '${r.litrosPor100 != null ? " · ${r.litrosPor100!.toStringAsFixed(2)} L/100" : ""}',
           style: const TextStyle(fontSize: 12),
         ),

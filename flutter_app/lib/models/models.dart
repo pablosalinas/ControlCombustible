@@ -73,6 +73,11 @@ class Repostaje {
   final double? consumoMedioL100Acum;
   final String estacionServicio;
   final String notas;
+  final bool esPesetas;
+  final double? precioLitroPesetas;
+  final double? importeTotalPesetas;
+  final double? precioLitroRaw;
+  final double? importeTotalRaw;
 
   Repostaje({
     required this.id,
@@ -98,6 +103,11 @@ class Repostaje {
     this.consumoMedioL100Acum,
     required this.estacionServicio,
     required this.notas,
+    this.esPesetas = false,
+    this.precioLitroPesetas,
+    this.importeTotalPesetas,
+    this.precioLitroRaw,
+    this.importeTotalRaw,
   });
 
   static double? _toNullableDouble(dynamic v) {
@@ -130,6 +140,11 @@ class Repostaje {
       consumoMedioL100Acum: _toNullableDouble(j['consumo_medio_l100_acum']),
       estacionServicio: (j['estacion_servicio'] ?? '').toString(),
       notas: (j['notas'] ?? '').toString(),
+      esPesetas: j['es_pesetas'] == true || j['es_pesetas'].toString() == '1',
+      precioLitroPesetas: _toNullableDouble(j['precio_litro_pesetas']),
+      importeTotalPesetas: _toNullableDouble(j['importe_total_pesetas']),
+      precioLitroRaw: _toNullableDouble(j['precio_litro_raw']),
+      importeTotalRaw: _toNullableDouble(j['importe_total_raw']),
     );
   }
 }
