@@ -1,11 +1,29 @@
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
 
+class DetectedStation {
+  final String nombre;
+  final String marca;
+  final String cif;
+  final String direccion;
+  final String localidad;
+
+  DetectedStation({
+    required this.nombre,
+    this.marca = '',
+    this.cif = '',
+    this.direccion = '',
+    this.localidad = '',
+  });
+}
+
 class TicketScanResult {
   final String? fecha;
   final double? litros;
   final double? precioLitro;
   final double? importeTotal;
+  final DetectedStation? estacion;
+  final String? imagePath;
   final String rawText;
 
   TicketScanResult({
@@ -13,8 +31,17 @@ class TicketScanResult {
     this.litros,
     this.precioLitro,
     this.importeTotal,
+    this.estacion,
+    this.imagePath,
     required this.rawText,
   });
+}
+
+class OdometerScanResult {
+  final double? km;
+  final String? imagePath;
+
+  OdometerScanResult({this.km, this.imagePath});
 }
 
 class OcrService {
@@ -98,11 +125,15 @@ class OcrService {
         }
       }
 
+      final DetectedStation? detectedStation = _extractStationFromText(text);
+
       return TicketScanResult(
         fecha: detectedDate,
         litros: litros,
         precioLitro: precioLitro,
         importeTotal: importeTotal,
+        estacion: detectedStation,
+        imagePath: image.path,
         rawText: text,
       );
     } finally {
@@ -110,9 +141,90 @@ class OcrService {
     }
   }
 
+  DetectedStation? _extractStationFromText(String text) {
+    final rawLines = text
+        .split(RegExp(r'\r?\n'))
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+    if (rawLines.isEmpty) return null;
+
+    int stopIdx = rawLines.indexWhere(
+      (l) =>
+          RegExp(r'^CLIENTE\b', caseSensitive: false).hasMatch(l) ||
+          RegExp(r'\b(ARTICULO|PRODUCTO|CANTIDAD)\b', caseSensitive: false).hasMatch(l),
+    );
+    final headerLines = stopIdx > 0
+        ? rawLines.sublist(0, stopIdx)
+        : rawLines.sublist(0, rawLines.length > 18 ? 18 : rawLines.length);
+
+    String nombre = '';
+    final brandRe = RegExp(
+      r'\b(E\.?[ \t]*S\.?[ \t]+[A-ZÁÉÍÓÚÑ0-9\.\,\- \t]{3,45}|ESTACI[ÓO]N[ \t]+DE[ \t]+SERVICIO[ \t]+[A-ZÁÉÍÓÚÑ0-9\.\,\- \t]{3,45}|REPSOL|CEPSA|BP|GALP|SHELL|PLENOIL|BALLENOIL|PETROPRIX|MOEVE|AVIA|ALCAMPO|CARREFOUR|BONAREA|Q8|TAMOIL)',
+      caseSensitive: false,
+    );
+
+    for (final l in headerLines) {
+      final m = brandRe.firstMatch(l);
+      if (m != null) {
+        nombre = (m.group(1) ?? '').replaceAll(RegExp(r'\s+'), ' ').trim();
+        nombre = nombre.replaceAll(RegExp(r'\s+Inv\.?Des\.?.*$', caseSensitive: false), '').trim();
+        break;
+      }
+    }
+    if (nombre.isEmpty) {
+      for (final l in headerLines) {
+        if (l.length >= 4 &&
+            !RegExp(r'^(FACTURA|NUM\.|FECHA|EMISOR|PAG|ALBARAN)', caseSensitive: false).hasMatch(l) &&
+            !RegExp(r'^\d+$').hasMatch(l)) {
+          nombre = l;
+          break;
+        }
+      }
+    }
+
+    final headerBlock = headerLines.join('\n');
+    final cifMatch = RegExp(r'\b([A-Z]\-?\d{8}|[A-Z]\d{7}[A-Z])\b').firstMatch(headerBlock);
+    final cif = cifMatch != null ? (cifMatch.group(1) ?? '').replaceAll('-', '') : '';
+
+    String direccion = '';
+    for (final l in headerLines) {
+      if (RegExp(r'\b(CTRA|CARRETERA|AVDA|AVENIDA|C\/|CALLE|POLIGONO|POL\.|KM\.?)\b', caseSensitive: false).hasMatch(l)) {
+        direccion = l.replaceAll(RegExp(r'\s+\d{5}\s+.*$'), '').trim();
+        break;
+      }
+    }
+
+    String localidad = '';
+    for (final l in headerLines) {
+      final cpMatch = RegExp(r'\b(\d{5})[ \t]+([A-ZÁÉÍÓÚÑ]+(?:[ \t]+[A-ZÁÉÍÓÚÑ]+)?)', caseSensitive: false).firstMatch(l);
+      if (cpMatch != null) {
+        localidad = '${cpMatch.group(1)} ${(cpMatch.group(2) ?? '').trim()}';
+        break;
+      }
+    }
+    if (localidad.isEmpty) {
+      for (final l in headerLines) {
+        if (RegExp(r'\b(TOTANA|MURCIA|LORCA|CARAVACA|MORATALLA)\b', caseSensitive: false).hasMatch(l)) {
+          localidad = l.trim();
+          break;
+        }
+      }
+    }
+
+    if (nombre.isEmpty && cif.isEmpty && direccion.isEmpty) return null;
+    return DetectedStation(
+      nombre: nombre.isNotEmpty ? nombre : 'Estación $cif',
+      marca: nombre,
+      cif: cif,
+      direccion: direccion,
+      localidad: localidad,
+    );
+  }
+
   /// Captura una fotografía del cuentakilómetros (odómetro) del vehículo
-  /// y extrae la lectura de kilómetros.
-  Future<double?> scanOdometer({ImageSource source = ImageSource.camera}) async {
+  /// y extrae la lectura de kilómetros junto con la ruta de la imagen.
+  Future<OdometerScanResult?> scanOdometerWithImage({ImageSource source = ImageSource.camera}) async {
     final XFile? image = await _picker.pickImage(source: source, imageQuality: 90);
     if (image == null) return null;
 
@@ -126,14 +238,23 @@ class OcrService {
       final matches = kmReg
           .allMatches(compact)
           .map((m) => m.group(1) ?? '')
-          .where((s) => s.isNotEmpty)
+          .where((s) => s.isNotEmpty && !RegExp(r'^202\d$').hasMatch(s))
           .toList();
 
-      if (matches.isEmpty) return null;
-      matches.sort((a, b) => b.length.compareTo(a.length));
-      return double.tryParse(matches.first);
+      double? km;
+      if (matches.isNotEmpty) {
+        matches.sort((a, b) => b.length.compareTo(a.length));
+        km = double.tryParse(matches.first);
+      }
+      return OdometerScanResult(km: km, imagePath: image.path);
     } finally {
       await recognizer.close();
     }
+  }
+
+  /// Compatibilidad: devuelve solo el número de kilómetros.
+  Future<double?> scanOdometer({ImageSource source = ImageSource.camera}) async {
+    final res = await scanOdometerWithImage(source: source);
+    return res?.km;
   }
 }

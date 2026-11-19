@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -1776,21 +1777,54 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
   late TextEditingController _precioCtrl;
   late TextEditingController _importeCtrl;
   String _selectedEstacion = '';
+  late List<EstacionServicio> _localEstaciones;
+  String _fotoTicketPath = '';
+  String _fotoOdometroPath = '';
   late TextEditingController _notasCtrl;
   bool _saving = false;
   String? _ocrMessage;
+
+  String _isoToDisplayDate(String iso) {
+    final s = iso.trim();
+    final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(s);
+    if (m != null) return '${m.group(3)}-${m.group(2)}-${m.group(1)}';
+    return s;
+  }
+
+  String _displayToIsoDate(String disp) {
+    final s = disp.trim();
+    final m = RegExp(r'^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$').firstMatch(s);
+    if (m != null) return '${m.group(3)}-${m.group(2)}-${m.group(1)}';
+    return s;
+  }
+
+  String _normStation(String s) {
+    return s
+        .toLowerCase()
+        .replaceAll(RegExp(r'[áàä]'), 'a')
+        .replaceAll(RegExp(r'[éèë]'), 'e')
+        .replaceAll(RegExp(r'[íìï]'), 'i')
+        .replaceAll(RegExp(r'[óòö]'), 'o')
+        .replaceAll(RegExp(r'[úùü]'), 'u')
+        .replaceAll('ñ', 'n')
+        .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
 
   @override
   void initState() {
     super.initState();
     final e = widget.editItem;
     _vehiculoId = e?.vehiculoId ?? widget.initialVehiculoId;
-    _fechaCtrl = TextEditingController(text: e?.fecha ?? DateTime.now().toIso8601String().substring(0, 10));
+    final isoFecha = e?.fecha ?? DateTime.now().toIso8601String().substring(0, 10);
+    _fechaCtrl = TextEditingController(text: _isoToDisplayDate(isoFecha));
     _kmCtrl = TextEditingController(text: e != null ? e.kmOdometro.toStringAsFixed(0) : '');
     _litrosCtrl = TextEditingController(text: e != null ? e.litros.toStringAsFixed(2) : '');
     _precioCtrl = TextEditingController(text: e != null ? e.precioLitro.toStringAsFixed(3) : '');
     _importeCtrl = TextEditingController(text: e != null ? e.importeTotal.toStringAsFixed(2) : '');
     _selectedEstacion = e?.estacionServicio ?? '';
+    _localEstaciones = List<EstacionServicio>.from(widget.estaciones);
     _notasCtrl = TextEditingController(text: e?.notas ?? '');
   }
 
@@ -1829,6 +1863,134 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
     }
   }
 
+  Future<void> _uploadPhotoInBackground(String filePath, String tipo) async {
+    try {
+      final bytes = await File(filePath).readAsBytes();
+      final b64 = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+      final res = await widget.api.post('upload_repostaje_foto', {
+        'tipo': tipo,
+        'foto_base64': b64,
+      });
+      if (res['success'] == true && mounted) {
+        final savedPath = (res['path'] ?? '').toString();
+        setState(() {
+          if (tipo == 'odometro') {
+            _fotoOdometroPath = savedPath;
+          } else {
+            _fotoTicketPath = savedPath;
+          }
+        });
+      }
+    } catch (_) {
+      // Silencioso en segundo plano para no interrumpir el registro
+    }
+  }
+
+  Future<void> _createStationInBackground(DetectedStation st) async {
+    try {
+      final notas = [
+        if (st.cif.isNotEmpty) 'CIF: ${st.cif}',
+      ].join(' · ');
+      final res = await widget.api.post('save_estacion', {
+        'id': 0,
+        'nombre': st.nombre,
+        'marca': st.marca.isNotEmpty ? st.marca : st.nombre,
+        'localidad': st.localidad,
+        'direccion': st.direccion,
+        'notas': notas,
+      });
+      if (res['success'] == true && mounted) {
+        final newId = int.tryParse((res['estacion_id'] ?? 0).toString()) ?? 0;
+        setState(() {
+          _localEstaciones.add(EstacionServicio(
+            id: newId,
+            nombre: st.nombre,
+            marca: st.marca,
+            localidad: st.localidad,
+            direccion: st.direccion,
+            notas: notas,
+          ));
+          _selectedEstacion = st.nombre;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Estación "${st.nombre}" creada y asociada al repostaje.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo crear la estación en segundo plano.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleDetectedStation(DetectedStation st) async {
+    final normTarget = _normStation(st.nombre);
+    EstacionServicio? matched;
+    for (final est in _localEstaciones) {
+      final normEst = _normStation(est.nombre);
+      if (normEst.isEmpty) continue;
+      if (normEst == normTarget || normEst.contains(normTarget) || normTarget.contains(normEst)) {
+        matched = est;
+        break;
+      }
+      final wordsT = normTarget.split(' ').where((w) => w.length >= 3 && w != 'estacion' && w != 'servicio' && w != 'slu').toList();
+      final wordsE = normEst.split(' ').where((w) => w.length >= 3).toSet();
+      final commonCount = wordsT.where((w) => wordsE.contains(w)).length;
+      if (commonCount >= 2) {
+        matched = est;
+        break;
+      }
+    }
+
+    if (matched != null) {
+      setState(() {
+        _selectedEstacion = matched!.nombre;
+        _ocrMessage = 'Datos y estación (${matched.nombre}) extraídos del ticket.';
+      });
+      return;
+    }
+
+    if (!mounted) return;
+    final details = [
+      if (st.localidad.isNotEmpty) 'Localidad: ${st.localidad}',
+      if (st.direccion.isNotEmpty) 'Dirección: ${st.direccion}',
+      if (st.cif.isNotEmpty) 'CIF/NIF: ${st.cif}',
+    ].join('\n');
+
+    final create = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Estación de servicio no registrada'),
+        content: Text(
+          'Se ha detectado la estación:\n\n${st.nombre}'
+          '${details.isNotEmpty ? '\n$details' : ''}\n\n'
+          'No existe todavía en tu lista de estaciones. ¿Quieres crearla en segundo plano y asociarla a este repostaje?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Omitir'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Crear y asociar'),
+          ),
+        ],
+      ),
+    );
+
+    if (create == true) {
+      setState(() {
+        _selectedEstacion = st.nombre;
+        _ocrMessage = 'Creando estación "${st.nombre}" en segundo plano...';
+      });
+      // Lanzar en segundo plano sin bloquear la edición del repostaje
+      unawaited(_createStationInBackground(st));
+    }
+  }
+
   Future<void> _scanTicket() async {
     setState(() => _ocrMessage = 'Escaneando ticket de combustible...');
     final res = await _ocr.scanFuelTicket();
@@ -1836,26 +1998,56 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
       setState(() => _ocrMessage = null);
       return;
     }
+    if (res.imagePath != null) {
+      unawaited(_uploadPhotoInBackground(res.imagePath!, 'ticket'));
+    }
     setState(() {
-      if (res.fecha != null) _fechaCtrl.text = res.fecha!;
+      if (res.fecha != null) _fechaCtrl.text = _isoToDisplayDate(res.fecha!);
       if (res.litros != null) _litrosCtrl.text = res.litros!.toStringAsFixed(2);
       if (res.precioLitro != null) _precioCtrl.text = res.precioLitro!.toStringAsFixed(3);
       if (res.importeTotal != null) _importeCtrl.text = res.importeTotal!.toStringAsFixed(2);
       _ocrMessage = 'Datos extraídos del ticket correctamente. Revisa y confirma.';
     });
+    if (res.estacion != null) {
+      await _handleDetectedStation(res.estacion!);
+    }
   }
 
   Future<void> _scanOdometer() async {
     setState(() => _ocrMessage = 'Capturando lectura de cuentakilómetros...');
-    final km = await _ocr.scanOdometer();
-    if (km == null) {
-      setState(() => _ocrMessage = 'No se detectaron dígitos claros en el cuentakilómetros.');
+    final res = await _ocr.scanOdometerWithImage();
+    if (res == null) {
+      setState(() => _ocrMessage = null);
+      return;
+    }
+    if (res.imagePath != null) {
+      unawaited(_uploadPhotoInBackground(res.imagePath!, 'odometro'));
+    }
+    if (res.km == null) {
+      setState(() => _ocrMessage = 'Foto guardada. No se detectaron dígitos claros en el cuentakilómetros.');
       return;
     }
     setState(() {
-      _kmCtrl.text = km.toStringAsFixed(0);
-      _ocrMessage = 'Kilometraje capturado: ${km.toStringAsFixed(0)} km';
+      _kmCtrl.text = res.km!.toStringAsFixed(0);
+      _ocrMessage = 'Kilometraje capturado: ${res.km!.toStringAsFixed(0)} km';
     });
+  }
+
+  Future<void> _pickFechaForm() async {
+    final iso = _displayToIsoDate(_fechaCtrl.text);
+    final initial = DateTime.tryParse(iso) ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) {
+      setState(() {
+        _fechaCtrl.text =
+            '${picked.day.toString().padLeft(2, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.year.toString().padLeft(4, '0')}';
+      });
+    }
   }
 
   Future<void> _save() async {
@@ -1870,13 +2062,15 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
       final res = await widget.api.post('save_repostaje', {
         'id': widget.editItem?.id ?? 0,
         'vehiculo_id': _vehiculoId,
-        'fecha': _fechaCtrl.text.trim(),
+        'fecha': _displayToIsoDate(_fechaCtrl.text.trim()),
         'km_odometro': _kmCtrl.text.trim(),
         'litros': _litrosCtrl.text.trim(),
         'precio_litro': _precioCtrl.text.trim(),
         'importe_total': _importeCtrl.text.trim(),
         'estacion_servicio': _selectedEstacion,
         'notas': _notasCtrl.text.trim(),
+        if (_fotoTicketPath.isNotEmpty) 'foto_ticket_path': _fotoTicketPath,
+        if (_fotoOdometroPath.isNotEmpty) 'foto_odometro_path': _fotoOdometroPath,
       });
       if (res['success'] == true && mounted) {
         if (res['email_sent'] == true) {
@@ -1955,8 +2149,12 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
           TextField(
             controller: _fechaCtrl,
             decoration: InputDecoration(
-              labelText: widget.api.isAdmin ? 'Fecha. (YYYY-MM-DD)' : 'Fecha (YYYY-MM-DD)',
+              labelText: widget.api.isAdmin ? 'Fecha. (dd-mm-aaaa)' : 'Fecha (dd-mm-aaaa)',
               border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.calendar_today),
+                onPressed: _pickFechaForm,
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -2016,7 +2214,7 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
                   child: Text('-- Sin especificar (Opcional) --'),
                 ),
               ];
-              for (final est in widget.estaciones) {
+              for (final est in _localEstaciones) {
                 if (est.nombre.isNotEmpty && seen.add(est.nombre)) {
                   final label = est.localidad.isNotEmpty ? '${est.nombre} (${est.localidad})' : est.nombre;
                   stationItems.add(DropdownMenuItem<String>(
