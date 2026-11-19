@@ -1599,8 +1599,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildEvolutionChartCard() {
+    final hasDateFilter = _fechaDesde.isNotEmpty || _fechaHasta.isNotEmpty;
     final reversed = _repostajes.reversed.toList();
-    final chrono = reversed.length > 40 ? reversed.sublist(reversed.length - 40) : reversed;
+    final chrono = (!hasDateFilter && reversed.length > 50)
+        ? reversed.sublist(reversed.length - 50)
+        : reversed;
 
     final consSpots = <FlSpot>[];
     final priceValues = <double>[];

@@ -1832,7 +1832,9 @@ function renderTable() {
 
 function renderChart() {
     const ctx = document.getElementById('evolutionChart').getContext('2d');
-    const chronological = [...(currentData.repostajes || [])].reverse().slice(-40);
+    const hasDateFilter = Boolean(document.getElementById('filter-from')?.value || document.getElementById('filter-to')?.value);
+    const allChrono = [...(currentData.repostajes || [])].reverse();
+    const chronological = hasDateFilter ? allChrono : allChrono.slice(-50);
     const labels = chronological.map(r => fmtDate(r.fecha));
     const dataConsumo = chronological.map(r => r.litros_por_100);
     const dataPrecio = chronological.map(r => r.precio_litro);
