@@ -252,15 +252,37 @@
             width: 100%;
             border-collapse: separate;
             border-spacing: 0;
-            font-size: 0.81rem;
+            font-size: 0.78rem;
         }
         th, td {
-            padding: 0.55rem 0.5rem;
+            padding: 0.45rem 0.36rem;
             text-align: right;
             border-bottom: 1px solid var(--border);
             white-space: nowrap;
             font-variant-numeric: tabular-nums;
         }
+        td.wrap-col {
+            white-space: normal;
+            min-width: 115px;
+            max-width: 210px;
+            line-height: 1.28;
+            word-break: break-word;
+        }
+        th.col-actions, td.col-actions {
+            position: sticky;
+            right: 0;
+            z-index: 5;
+            text-align: right;
+            white-space: nowrap;
+            box-shadow: -3px 0 6px rgba(15, 23, 42, 0.06);
+        }
+        thead th.col-actions {
+            background: #0f172a;
+            z-index: 12;
+        }
+        tbody tr:nth-child(odd) td.col-actions { background: #fff; }
+        tbody tr:nth-child(even) td.col-actions { background: #f8fafc; }
+        tbody tr:hover td.col-actions { background: #f0fdfa; }
         th:first-child, td:first-child,
         th:nth-child(2), td:nth-child(2) {
             text-align: left;
@@ -661,7 +683,7 @@
                             <th>Último / Próx. Km</th>
                             <th>Proveedor / Coste</th>
                             <th>Estado / Margen</th>
-                            <th style="text-align:right">Acciones</th>
+                            <th style="text-align:right" class="col-actions">Acciones</th>
                         </tr>
                     </thead>
                     <tbody id="tareas-tbody"></tbody>
@@ -704,7 +726,7 @@
                             <th>Total €</th>
                             <th>Media €</th>
                             <th>Notas</th>
-                            <th>Acciones</th>
+                            <th class="col-actions">Acciones</th>
                         </tr>
                     </thead>
                     <tbody id="repostajes-tbody"></tbody>
@@ -1684,8 +1706,8 @@ function renderTable() {
             <td>${fmtNum(r.total_litros_acum, 1)}</td>
             <td>${fmtNum(r.total_euros_acum, 2)} €</td>
             <td>${r.coste_medio_100_acum !== null ? fmtNum(r.coste_medio_100_acum, 2) : '-'}</td>
-            <td style="text-align:left; max-width:160px; overflow:hidden; text-overflow:ellipsis;">${r.notas || ''}</td>
-            <td>
+            <td class="wrap-col" style="text-align:left; max-width:130px;">${r.notas || ''}</td>
+            <td class="col-actions">
                 ${r.foto_ticket_path ? `<button class="btn btn-outline" style="padding:0.25rem 0.45rem; font-size:0.75rem; color:var(--primary);" onclick="openPhotoLightbox('${r.foto_ticket_path}', 'Factura / Surtidor (${r.fecha})')" title="Ver foto factura/surtidor"><i class="fa-solid fa-receipt"></i></button>` : ''}
                 ${r.foto_odometro_path ? `<button class="btn btn-outline" style="padding:0.25rem 0.45rem; font-size:0.75rem; color:var(--accent);" onclick="openPhotoLightbox('${r.foto_odometro_path}', 'Odómetro (${r.fecha})')" title="Ver foto odómetro"><i class="fa-solid fa-gauge-high"></i></button>` : ''}
                 <button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem;" onclick='editRepostaje(${JSON.stringify(r)})' title="Modificar"><i class="fa-solid fa-pen"></i></button>
@@ -3076,13 +3098,13 @@ function renderTareasTable() {
 
         tr.innerHTML = `
             <td><strong>${t.vehiculo_nombre || ''}</strong></td>
-            <td><strong>${t.descripcion}</strong>${garantiaHtml}${t.notas ? `<br><small style="color:var(--muted)">${t.notas}</small>` : ''}</td>
+            <td class="wrap-col"><strong>${t.descripcion}</strong>${garantiaHtml}${t.notas ? `<br><small style="color:var(--muted)">${t.notas}</small>` : ''}</td>
             <td>${perText}${t.tipo_periodicidad === 'ambos' && t.avisar_por_tiempo_si_no_km ? '<br><small style="color:var(--primary)">Aviso por tiempo sin km</small>' : ''}</td>
             <td>${t.ultima_fecha || '-'}<br><strong>Próx: ${t.proxima_fecha || '-'}</strong></td>
             <td>${t.ultimo_km !== null ? fmtNum(t.ultimo_km, 0) + ' km' : '-'}<br><strong>Próx: ${t.proximo_km !== null ? fmtNum(t.proximo_km, 0) + ' km' : '-'}</strong></td>
-            <td>${provCostHtml}</td>
-            <td>${badgeHtml}</td>
-            <td style="text-align:right; white-space:nowrap;">${actionsHtml}</td>
+            <td class="wrap-col">${provCostHtml}</td>
+            <td class="wrap-col">${badgeHtml}</td>
+            <td class="col-actions">${actionsHtml}</td>
         `;
         tbody.appendChild(tr);
     });
