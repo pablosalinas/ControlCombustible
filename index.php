@@ -356,13 +356,46 @@
         }
         .ocr-bar {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0.6rem;
-            margin-bottom: 1rem;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.55rem;
+            margin-bottom: 0.75rem;
             background: #f8fafc;
-            padding: 0.75rem;
+            padding: 0.7rem;
             border-radius: 12px;
             border: 1px dashed #cbd5e1;
+        }
+        .photo-preview-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.65rem;
+            margin-bottom: 0.85rem;
+        }
+        .photo-thumb-card {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+            background: #f1f5f9;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 0.35rem 0.55rem;
+            font-size: 0.78rem;
+        }
+        .photo-thumb-card img {
+            width: 44px;
+            height: 44px;
+            object-fit: cover;
+            border-radius: 6px;
+            cursor: pointer;
+            border: 1px solid #cbd5e1;
+        }
+        .detected-station-box {
+            margin-top: 0.45rem;
+            padding: 0.55rem 0.7rem;
+            border-radius: 8px;
+            background: #ecfdf5;
+            border: 1px solid #a7f3d0;
+            font-size: 0.78rem;
+            color: #065f46;
         }
         .fab {
             position: fixed;
@@ -695,21 +728,28 @@
             <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closeRepostajeModal()"><i class="fa-solid fa-xmark"></i></button>
         </div>
 
-        <!-- Barra de Escaneo OCR (Ticket y Cuentakilómetros) -->
+        <!-- Barra de Escaneo OCR (Factura/Ticket, Surtidor y Cuentakilómetros) -->
         <div class="ocr-bar">
-            <label class="btn btn-outline" style="font-size:0.8rem; cursor:pointer;">
-                <i class="fa-solid fa-receipt" style="color:var(--primary)"></i> Escanear Ticket (OCR)
-                <input type="file" accept="image/*" capture="environment" class="hidden" onchange="scanTicketOCR(this)">
+            <label class="btn btn-outline" style="font-size:0.78rem; cursor:pointer; justify-content:center; text-align:center;">
+                <i class="fa-solid fa-receipt" style="color:var(--primary)"></i> Foto Factura / Ticket
+                <input type="file" accept="image/*" capture="environment" class="hidden" onchange="scanFuelPhoto(this, 'factura')">
             </label>
-            <label class="btn btn-outline" style="font-size:0.8rem; cursor:pointer;">
-                <i class="fa-solid fa-gauge-high" style="color:var(--accent)"></i> Foto Odómetro (OCR)
+            <label class="btn btn-outline" style="font-size:0.78rem; cursor:pointer; justify-content:center; text-align:center;">
+                <i class="fa-solid fa-gas-pump" style="color:#0284c7"></i> Foto Surtidor
+                <input type="file" accept="image/*" capture="environment" class="hidden" onchange="scanFuelPhoto(this, 'surtidor')">
+            </label>
+            <label class="btn btn-outline" style="font-size:0.78rem; cursor:pointer; justify-content:center; text-align:center;">
+                <i class="fa-solid fa-gauge-high" style="color:var(--accent)"></i> Foto Odómetro
                 <input type="file" accept="image/*" capture="environment" class="hidden" onchange="scanOdometerOCR(this)">
             </label>
         </div>
-        <div id="ocr-status" class="hidden" style="font-size:0.8rem; padding:0.55rem 0.75rem; border-radius:8px; background:#e0f2fe; color:#0369a1; margin-bottom:0.85rem;"></div>
+        <div id="ocr-status" class="hidden" style="font-size:0.8rem; padding:0.55rem 0.75rem; border-radius:8px; background:#e0f2fe; color:#0369a1; margin-bottom:0.75rem;"></div>
+        <div id="rep-photos-preview" class="photo-preview-row hidden"></div>
 
         <form id="repostaje-form">
             <input type="hidden" id="rep-id" value="0">
+            <input type="hidden" id="rep-foto-ticket" value="">
+            <input type="hidden" id="rep-foto-odometro" value="">
             <div class="grid-2">
                 <div class="form-group">
                     <label>Vehículo *</label>
@@ -752,6 +792,7 @@
                             <i class="fa-solid fa-gear"></i>
                         </button>
                     </div>
+                    <div id="detected-station-banner" class="detected-station-box hidden"></div>
                 </div>
                 <div class="form-group">
                     <label>Notas / Mantenimiento</label>
@@ -763,6 +804,19 @@
                 <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Guardar Repostaje</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- MODAL LIGHTBOX PARA FOTOS DE REPOSTAJE -->
+<div class="modal-backdrop" id="photo-lightbox-modal" onclick="if(event.target===this) closePhotoLightbox()">
+    <div class="modal-content" style="max-width:720px; padding:1rem;">
+        <div class="card-header" style="margin-bottom:0.65rem;">
+            <div class="card-title" id="lightbox-title"><i class="fa-solid fa-image" style="color:var(--primary)"></i> Foto adjunta</div>
+            <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closePhotoLightbox()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div style="text-align:center; background:#0f172a; border-radius:10px; padding:0.5rem;">
+            <img id="lightbox-img" src="" alt="Foto repostaje" style="max-width:100%; max-height:75vh; border-radius:6px; object-fit:contain;">
+        </div>
     </div>
 </div>
 
@@ -1632,6 +1686,8 @@ function renderTable() {
             <td>${r.coste_medio_100_acum !== null ? fmtNum(r.coste_medio_100_acum, 2) : '-'}</td>
             <td style="text-align:left; max-width:160px; overflow:hidden; text-overflow:ellipsis;">${r.notas || ''}</td>
             <td>
+                ${r.foto_ticket_path ? `<button class="btn btn-outline" style="padding:0.25rem 0.45rem; font-size:0.75rem; color:var(--primary);" onclick="openPhotoLightbox('${r.foto_ticket_path}', 'Factura / Surtidor (${r.fecha})')" title="Ver foto factura/surtidor"><i class="fa-solid fa-receipt"></i></button>` : ''}
+                ${r.foto_odometro_path ? `<button class="btn btn-outline" style="padding:0.25rem 0.45rem; font-size:0.75rem; color:var(--accent);" onclick="openPhotoLightbox('${r.foto_odometro_path}', 'Odómetro (${r.fecha})')" title="Ver foto odómetro"><i class="fa-solid fa-gauge-high"></i></button>` : ''}
                 <button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem;" onclick='editRepostaje(${JSON.stringify(r)})' title="Modificar"><i class="fa-solid fa-pen"></i></button>
                 <button class="btn btn-danger" style="padding:0.25rem 0.5rem; font-size:0.75rem;" onclick="deleteRepostaje(${r.id})" title="Baja lógica"><i class="fa-solid fa-trash"></i></button>
             </td>
@@ -1661,7 +1717,9 @@ function renderTable() {
                 <div><span>Media €/100</span><strong>${r.coste_medio_100_acum !== null ? fmtNum(r.coste_medio_100_acum, 2) + ' €' : '-'}</strong></div>
             </div>
             ${r.notas ? `<div style="margin-top:0.45rem; font-size:0.78rem; color:#92400e; background:#fef3c7; padding:0.3rem 0.55rem; border-radius:6px;"><i class="fa-solid fa-screwdriver-wrench"></i> ${r.notas}</div>` : ''}
-            <div style="display:flex; justify-content:flex-end; gap:0.4rem; margin-top:0.55rem;">
+            <div style="display:flex; justify-content:flex-end; gap:0.4rem; margin-top:0.55rem; flex-wrap:wrap;">
+                ${r.foto_ticket_path ? `<button class="btn btn-outline" style="padding:0.3rem 0.55rem; font-size:0.76rem; color:var(--primary);" onclick="openPhotoLightbox('${r.foto_ticket_path}', 'Factura / Surtidor (${r.fecha})')"><i class="fa-solid fa-receipt"></i> Ticket</button>` : ''}
+                ${r.foto_odometro_path ? `<button class="btn btn-outline" style="padding:0.3rem 0.55rem; font-size:0.76rem; color:var(--accent);" onclick="openPhotoLightbox('${r.foto_odometro_path}', 'Odómetro (${r.fecha})')"><i class="fa-solid fa-gauge-high"></i> Odómetro</button>` : ''}
                 <button class="btn btn-outline" style="padding:0.3rem 0.65rem; font-size:0.76rem;" onclick='editRepostaje(${JSON.stringify(r)})'><i class="fa-solid fa-pen"></i> Editar</button>
                 <button class="btn btn-danger" style="padding:0.3rem 0.65rem; font-size:0.76rem;" onclick="deleteRepostaje(${r.id})"><i class="fa-solid fa-trash"></i> Baja</button>
             </div>
@@ -1802,6 +1860,12 @@ function openRepostajeModal() {
     document.getElementById('rep-importe').value = '';
     document.getElementById('rep-estacion').value = '';
     document.getElementById('rep-notas').value = '';
+    document.getElementById('rep-foto-ticket').value = '';
+    document.getElementById('rep-foto-odometro').value = '';
+    document.getElementById('ocr-status').classList.add('hidden');
+    document.getElementById('detected-station-banner').classList.add('hidden');
+    lastDetectedStation = null;
+    renderRepostajePhotosPreview();
     updateParcialKmPreview();
     document.getElementById('repostaje-modal').classList.add('active');
 }
@@ -1826,6 +1890,12 @@ function editRepostaje(r) {
     }
     estSel.value = estVal;
     document.getElementById('rep-notas').value = r.notas || '';
+    document.getElementById('rep-foto-ticket').value = r.foto_ticket_path || '';
+    document.getElementById('rep-foto-odometro').value = r.foto_odometro_path || '';
+    document.getElementById('ocr-status').classList.add('hidden');
+    document.getElementById('detected-station-banner').classList.add('hidden');
+    lastDetectedStation = null;
+    renderRepostajePhotosPreview();
     updateParcialKmPreview();
     document.getElementById('repostaje-modal').classList.add('active');
 }
@@ -1845,7 +1915,9 @@ document.getElementById('repostaje-form').addEventListener('submit', async (e) =
         precio_litro: document.getElementById('rep-precio').value,
         importe_total: document.getElementById('rep-importe').value,
         estacion_servicio: document.getElementById('rep-estacion').value,
-        notas: document.getElementById('rep-notas').value
+        notas: document.getElementById('rep-notas').value,
+        foto_ticket_path: document.getElementById('rep-foto-ticket').value,
+        foto_odometro_path: document.getElementById('rep-foto-odometro').value
     };
     const res = await apiCall('save_repostaje', payload);
     if (res.success) {
@@ -1866,60 +1938,488 @@ async function deleteRepostaje(id) {
     if (res.success) await loadDashboard();
 }
 
-// ESCANEO OCR DE TICKET Y CUENTAKILÓMETROS
-async function scanTicketOCR(input) {
+// GESTIÓN DE FOTOS Y ESCANEO OCR INTELIGENTE (FACTURA/TICKET, SURTIDOR, ODÓMETRO)
+let lastDetectedStation = null;
+
+function openPhotoLightbox(path, title) {
+    if (!path) return;
+    document.getElementById('lightbox-title').innerHTML = `<i class="fa-solid fa-image" style="color:var(--primary)"></i> ${title || 'Foto adjunta'}`;
+    document.getElementById('lightbox-img').src = path;
+    document.getElementById('photo-lightbox-modal').classList.add('active');
+}
+
+function closePhotoLightbox() {
+    document.getElementById('photo-lightbox-modal').classList.remove('active');
+    document.getElementById('lightbox-img').src = '';
+}
+
+function renderRepostajePhotosPreview() {
+    const container = document.getElementById('rep-photos-preview');
+    const ticketPath = document.getElementById('rep-foto-ticket').value;
+    const odoPath = document.getElementById('rep-foto-odometro').value;
+    container.innerHTML = '';
+
+    if (!ticketPath && !odoPath) {
+        container.classList.add('hidden');
+        return;
+    }
+    container.classList.remove('hidden');
+
+    if (ticketPath) {
+        const card = document.createElement('div');
+        card.className = 'photo-thumb-card';
+        card.innerHTML = `
+            <img src="${ticketPath}" alt="Factura/Surtidor" onclick="openPhotoLightbox('${ticketPath}', 'Factura / Surtidor')">
+            <div>
+                <div style="font-weight:700;">Factura / Surtidor</div>
+                <div style="display:flex; gap:0.4rem; margin-top:0.2rem;">
+                    <a href="javascript:void(0)" onclick="openPhotoLightbox('${ticketPath}', 'Factura / Surtidor')" style="color:var(--primary); font-weight:600;">Ver</a>
+                    <a href="javascript:void(0)" onclick="removeRepostajePhoto('ticket')" style="color:var(--danger);">Quitar</a>
+                </div>
+            </div>
+        `;
+        container.appendChild(card);
+    }
+
+    if (odoPath) {
+        const card = document.createElement('div');
+        card.className = 'photo-thumb-card';
+        card.innerHTML = `
+            <img src="${odoPath}" alt="Odómetro" onclick="openPhotoLightbox('${odoPath}', 'Odómetro')">
+            <div>
+                <div style="font-weight:700;">Odómetro</div>
+                <div style="display:flex; gap:0.4rem; margin-top:0.2rem;">
+                    <a href="javascript:void(0)" onclick="openPhotoLightbox('${odoPath}', 'Odómetro')" style="color:var(--primary); font-weight:600;">Ver</a>
+                    <a href="javascript:void(0)" onclick="removeRepostajePhoto('odometro')" style="color:var(--danger);">Quitar</a>
+                </div>
+            </div>
+        `;
+        container.appendChild(card);
+    }
+}
+
+function removeRepostajePhoto(tipo) {
+    if (tipo === 'odometro') {
+        document.getElementById('rep-foto-odometro').value = '';
+    } else {
+        document.getElementById('rep-foto-ticket').value = '';
+    }
+    renderRepostajePhotosPreview();
+}
+
+async function uploadRepostajePhoto(file, tipo) {
+    const fd = new FormData();
+    fd.append('tipo', tipo);
+    fd.append('foto', file);
+    const headers = {};
+    if (apiToken) headers['Authorization'] = 'Bearer ' + apiToken;
+    const res = await fetch(`api.php?action=upload_repostaje_foto`, {
+        method: 'POST',
+        headers,
+        body: fd
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Error subiendo foto');
+    return data.path;
+}
+
+async function tryGeminiExtract(file, tipo) {
+    try {
+        const fd = new FormData();
+        fd.append('tipo', tipo);
+        fd.append('foto', file);
+        const headers = {};
+        if (apiToken) headers['Authorization'] = 'Bearer ' + apiToken;
+        const res = await fetch(`api.php?action=extract_repostaje_ocr`, {
+            method: 'POST',
+            headers,
+            body: fd
+        });
+        const json = await res.json();
+        if (json && json.success && json.data) {
+            return json.data;
+        }
+    } catch (err) {
+        console.warn('Gemini OCR fallback:', err);
+    }
+    return null;
+}
+
+function normalizeStr(s) {
+    return (s || '')
+        .toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function parseLocalizedNumber(raw) {
+    if (!raw) return NaN;
+    let s = String(raw).trim().replace(/[€\s]/g, '');
+    if (s.includes(',') && s.includes('.')) {
+        if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+            s = s.replace(/\./g, '').replace(',', '.');
+        } else {
+            s = s.replace(/,/g, '');
+        }
+    } else {
+        s = s.replace(',', '.');
+    }
+    return parseFloat(s);
+}
+
+function findBestFuelTriplet(candidates, hintImporte) {
+    let best = null;
+    let bestScore = -Infinity;
+    const prices = candidates.filter(n => n >= 0.75 && n <= 3.00);
+    const others = candidates.filter(n => n > 2.50 && n <= 500.0);
+
+    for (const p of prices) {
+        for (const l of others) {
+            for (const imp of others) {
+                if (l === imp) continue;
+                const prod = l * p;
+                const diff = Math.abs(prod - imp);
+                const tol = Math.max(0.12, imp * 0.015);
+                if (diff <= tol && (p < 1.05 ? imp > l * 0.5 : imp > l)) {
+                    let score = 100 - diff * 100;
+                    if (hintImporte && Math.abs(imp - hintImporte) < 0.05) score += 80;
+                    if (String(p).includes('.') && p.toFixed(3) === String(p)) score += 10;
+                    if (score > bestScore) {
+                        bestScore = score;
+                        best = { litros: l, precio_litro: p, importe_total: imp };
+                    }
+                }
+            }
+        }
+    }
+    return best;
+}
+
+function extractStationFromText(text) {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    // Limitar búsqueda al bloque del emisor (antes de CLIENTE solo si CLIENTE está en su propia línea, o antes de ARTICULO/PRODUCTO)
+    let stopIdx = lines.findIndex(l => /^CLIENTE\b/i.test(l) || /\b(ARTICULO|PRODUCTO|CANTIDAD)\b/i.test(l));
+    const headerLines = stopIdx > 0 ? lines.slice(0, stopIdx) : lines.slice(0, 18);
+
+    let nombre = '';
+    const brandRe = /\b(E\.?[ \t]*S\.?[ \t]+[A-ZÁÉÍÓÚÑ0-9\.\,\- \t]{3,45}|ESTACI[ÓO]N[ \t]+DE[ \t]+SERVICIO[ \t]+[A-ZÁÉÍÓÚÑ0-9\.\,\- \t]{3,45}|REPSOL|CEPSA|BP|GALP|SHELL|PLENOIL|BALLENOIL|PETROPRIX|MOEVE|AVIA|ALCAMPO|CARREFOUR|BONAREA|Q8|TAMOIL)/i;
+    for (const l of headerLines) {
+        const m = l.match(brandRe);
+        if (m) {
+            nombre = m[1].replace(/\s+/g, ' ').trim();
+            // Si la línea tiene columnas (Emisor | Cliente), cortar si aparece el nombre del cliente
+            nombre = nombre.replace(/\s+Inv\.?Des\.?.*$/i, '').trim();
+            break;
+        }
+    }
+    if (!nombre) {
+        const candidateLine = headerLines.find(l => l.length >= 4 && !/^(FACTURA|NUM\.|FECHA|EMISOR|PAG|ALBARAN)/i.test(l) && !/^\d+$/.test(l));
+        if (candidateLine) nombre = candidateLine;
+    }
+
+    const headerBlock = headerLines.join('\n');
+    const cifMatch = headerBlock.match(/\b([A-Z]\-?\d{8}|[A-Z]\d{7}[A-Z])\b/);
+    const cif = cifMatch ? cifMatch[1].replace('-', '') : '';
+
+    const dirLine = headerLines.find(l => /\b(CTRA|CARRETERA|AVDA|AVENIDA|C\/|CALLE|POLIGONO|POL\.|KM\.?)\b/i.test(l)) || '';
+    const direccion = dirLine.replace(/\s+\d{5}\s+.*$/, '').trim();
+
+    let localidad = '';
+    for (const l of headerLines) {
+        const cpMatch = l.match(/\b(\d{5})[ \t]+([A-ZÁÉÍÓÚÑ]+(?:[ \t]+[A-ZÁÉÍÓÚÑ]+)?)/i);
+        if (cpMatch) {
+            localidad = `${cpMatch[1]} ${cpMatch[2].trim()}`;
+            break;
+        }
+    }
+    if (!localidad) {
+        const locLine = headerLines.find(l => /\b(TOTANA|MURCIA|LORCA|CARAVACA|MORATALLA)\b/i.test(l));
+        if (locLine) localidad = locLine.trim();
+    }
+
+    if (!nombre && !cif && !direccion) return null;
+    return {
+        nombre: nombre || ('Estación ' + cif),
+        marca: nombre,
+        cif,
+        direccion,
+        localidad
+    };
+}
+
+function parseFuelInvoiceText(text) {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+    // 1. Fecha (priorizar línea FECHA, evitar VENCIMIENTO)
+    let fecha = null;
+    const fechaLine = lines.find(l => /\bFECHA\b/i.test(l) && !/VENCIMIENTO/i.test(l));
+    const dateRegex = /(\d{2})[\/\-\.](\d{2})[\/\-\.](20\d{2})/;
+    const mLine = fechaLine ? fechaLine.match(dateRegex) : null;
+    const mAny = text.match(dateRegex);
+    const dm = mLine || mAny;
+    if (dm) {
+        fecha = `${dm[3]}-${dm[2]}-${dm[1]}`;
+    }
+
+    // 2. Importe Total por palabra clave (evitando BASE, IVA, ESTATALES)
+    let hintImporte = null;
+    for (const l of lines) {
+        if (/\b(TOTAL\s*EUROS|TOTAL\s*FACTURA|TOTAL\s*PAGAR|IMPORTE\s*TOTAL|TOTAL\s*COBRADO|IMPORTE\s*PAGADO)\b/i.test(l)) {
+            const nums = [...l.matchAll(/(\d{1,3}(?:[,\.]\d{2}))/g)].map(m => parseLocalizedNumber(m[1])).filter(n => !isNaN(n) && n > 0);
+            if (nums.length > 0) {
+                hintImporte = nums[nums.length - 1];
+                break;
+            }
+        }
+    }
+
+    // 3. Recoger números candidatos excluyendo líneas fiscales/ruido
+    const ignoredLineRe = /\b(BASE|IMPONIBLE|IVA|CUOTA|ESTATALES|AUTONOMIC|IMPUESTO|EUX1000|TURNO|TELF|TELEFONO|N\.?I\.?F|C\.?I\.?F|KM\.?\s*\d|REGISTRO|TOMO|FOLIO|HOJA)\b/i;
+    const candidateNums = [];
+    for (const l of lines) {
+        if (ignoredLineRe.test(l)) continue;
+        const matches = [...l.matchAll(/(\d{1,3}[,\.]\d{2,3})/g)];
+        for (const m of matches) {
+            const val = parseLocalizedNumber(m[1]);
+            if (!isNaN(val) && val > 0) candidateNums.push(val);
+        }
+    }
+
+    let triplet = findBestFuelTriplet(candidateNums, hintImporte);
+
+    // Fallback: intentar con todos los decimales si no hubo match estricto
+    if (!triplet) {
+        const allNums = [...text.matchAll(/(\d{1,3}[,\.]\d{2,3})/g)]
+            .map(m => parseLocalizedNumber(m[1]))
+            .filter(n => !isNaN(n) && n > 0);
+        triplet = findBestFuelTriplet(allNums, hintImporte);
+    }
+
+    // 4. Estación de servicio
+    const estacion = extractStationFromText(text);
+
+    return {
+        fecha,
+        litros: triplet ? triplet.litros : null,
+        precio_litro: triplet ? triplet.precio_litro : null,
+        importe_total: triplet ? triplet.importe_total : hintImporte,
+        estacion
+    };
+}
+
+function parsePumpDisplayText(text) {
+    const rawNums = [...text.matchAll(/(\d{1,4}[,\.]\d{1,3})/g)]
+        .map(m => parseLocalizedNumber(m[1]))
+        .filter(n => !isNaN(n) && n > 0 && n < 1000);
+
+    // En surtidores el precio/L puede venir en €/L (1.699) o en céntimos/L (169.9 o 212.9)
+    const expanded = [...rawNums];
+    for (const n of rawNums) {
+        if (n >= 75 && n <= 300) {
+            expanded.push(parseFloat((n / 100).toFixed(4)));
+        }
+    }
+
+    const triplet = findBestFuelTriplet(expanded, null);
+    if (triplet) return triplet;
+
+    // Si solo hay 2 números (Importe y Litros), inferir precio/L en rango [0.75, 3.00]
+    const sorted = [...rawNums].sort((a, b) => b - a);
+    for (let i = 0; i < sorted.length; i++) {
+        for (let j = i + 1; j < sorted.length; j++) {
+            const imp = sorted[i];
+            const lit = sorted[j];
+            if (lit > 1 && imp > lit) {
+                const ratio = imp / lit;
+                if (ratio >= 0.75 && ratio <= 3.00) {
+                    return {
+                        importe_total: imp,
+                        litros: lit,
+                        precio_litro: parseFloat(ratio.toFixed(3))
+                    };
+                }
+            }
+        }
+    }
+    return { litros: null, precio_litro: null, importe_total: null };
+}
+
+function parseOdometerText(text) {
+    const clean = text.replace(/(\d)\s+(\d)/g, '$1$2');
+    const matches = [...clean.matchAll(/\b(\d{4,7})\b/g)]
+        .map(m => m[1])
+        .filter(s => !/^202\d$/.test(s)); // evitar confundir años 2020-2029 si hay otro número
+    if (matches.length === 0) return null;
+    matches.sort((a, b) => b.length - a.length);
+    return parseFloat(matches[0]);
+}
+
+function matchOrOfferStation(stationInfo) {
+    const banner = document.getElementById('detected-station-banner');
+    banner.classList.add('hidden');
+    lastDetectedStation = null;
+
+    if (!stationInfo || !stationInfo.nombre) return;
+
+    const normTarget = normalizeStr(stationInfo.nombre);
+    const estaciones = currentData.estaciones || [];
+    let matched = null;
+
+    for (const est of estaciones) {
+        const normEst = normalizeStr(est.nombre);
+        if (!normEst) continue;
+        if (normEst === normTarget || normEst.includes(normTarget) || normTarget.includes(normEst)) {
+            matched = est;
+            break;
+        }
+        // Coincidencia por palabras clave (>=2 palabras significativas)
+        const wordsT = normTarget.split(' ').filter(w => w.length >= 3 && !['estacion', 'servicio', 'slu'].includes(w));
+        const wordsE = normEst.split(' ').filter(w => w.length >= 3);
+        const common = wordsT.filter(w => wordsE.includes(w));
+        if (common.length >= 2) {
+            matched = est;
+            break;
+        }
+    }
+
+    const estSel = document.getElementById('rep-estacion');
+    if (matched) {
+        estSel.value = matched.nombre;
+        return;
+    }
+
+    // No existe todavía en veh_estaciones: ofrecer crear y asociar en 1 clic
+    lastDetectedStation = stationInfo;
+    const details = [stationInfo.localidad, stationInfo.direccion, stationInfo.cif ? `CIF: ${stationInfo.cif}` : ''].filter(Boolean).join(' · ');
+    banner.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+            <div>
+                <strong><i class="fa-solid fa-shop"></i> Estación detectada:</strong> ${stationInfo.nombre}
+                ${details ? `<div style="font-size:0.74rem; opacity:0.85;">${details}</div>` : ''}
+            </div>
+            <button type="button" class="btn btn-primary" style="padding:0.3rem 0.65rem; font-size:0.75rem;" onclick="createAndSelectDetectedStation()">
+                <i class="fa-solid fa-plus"></i> Crear y asociar
+            </button>
+        </div>
+    `;
+    banner.classList.remove('hidden');
+}
+
+async function createAndSelectDetectedStation() {
+    if (!lastDetectedStation || !lastDetectedStation.nombre) return;
+    const s = lastDetectedStation;
+    const notas = [s.cif ? `CIF: ${s.cif}` : '', s.telefono ? `Tel: ${s.telefono}` : ''].filter(Boolean).join(' · ');
+    const res = await apiCall('save_estacion', {
+        id: 0,
+        nombre: s.nombre,
+        marca: s.marca || s.nombre,
+        localidad: s.localidad || '',
+        direccion: s.direccion || '',
+        notas
+    });
+    if (res.success) {
+        const estSel = document.getElementById('rep-estacion');
+        const opt = document.createElement('option');
+        opt.value = s.nombre;
+        opt.textContent = s.nombre + (s.localidad ? ` (${s.localidad})` : '');
+        estSel.appendChild(opt);
+        estSel.value = s.nombre;
+        currentData.estaciones = currentData.estaciones || [];
+        currentData.estaciones.push({ id: res.estacion_id, nombre: s.nombre, localidad: s.localidad || '', direccion: s.direccion || '' });
+        document.getElementById('detected-station-banner').classList.add('hidden');
+    } else {
+        alert(res.error || 'No se pudo crear la estación.');
+    }
+}
+
+async function scanFuelPhoto(input, modo) {
     if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
     const status = document.getElementById('ocr-status');
     status.classList.remove('hidden');
-    status.textContent = '🔍 Escaneando ticket de combustible con OCR...';
+    status.textContent = modo === 'surtidor'
+        ? '⛽ Subiendo foto del surtidor y extrayendo datos...'
+        : '🧾 Subiendo factura/ticket y extrayendo datos...';
 
     try {
-        const result = await Tesseract.recognize(input.files[0], 'spa');
-        const text = result.data.text;
+        // 1. Subir y guardar la foto asociada al repostaje
+        const savedPath = await uploadRepostajePhoto(file, 'ticket');
+        document.getElementById('rep-foto-ticket').value = savedPath;
+        renderRepostajePhotosPreview();
 
-        // Extraer Fecha (DD/MM/YYYY o YYYY-MM-DD)
-        const dateMatch = text.match(/(\d{2})[\/\-](\d{2})[\/\-](20\d{2})/);
-        if (dateMatch) {
-            document.getElementById('rep-fecha').value = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`;
+        // 2. Intentar extracción con Gemini Vision (si está configurado) o Tesseract inteligente
+        let extracted = await tryGeminiExtract(file, modo);
+        let engineLabel = 'IA Vision';
+
+        if (!extracted) {
+            engineLabel = 'OCR';
+            const lang = modo === 'surtidor' ? 'eng' : 'spa';
+            const result = await Tesseract.recognize(file, lang);
+            const text = result.data.text || '';
+            extracted = (modo === 'surtidor') ? parsePumpDisplayText(text) : parseFuelInvoiceText(text);
         }
 
-        // Extraer números decimales para Precio/L (1.xxx), Litros e Importe
-        const decimals = [...text.matchAll(/(\d{1,3}[,\.]\d{2,3})/g)].map(m => parseFloat(m[1].replace(',', '.')));
-        const unitPrice = decimals.find(n => n >= 0.85 && n <= 2.60);
-        if (unitPrice) document.getElementById('rep-precio').value = unitPrice.toFixed(3);
-
-        const largerNums = decimals.filter(n => n > 3.0).sort((a, b) => b - a);
-        if (largerNums.length >= 2) {
-            const importe = largerNums[0];
-            const litros = largerNums[1];
-            document.getElementById('rep-importe').value = importe.toFixed(2);
-            document.getElementById('rep-litros').value = litros.toFixed(2);
+        if (extracted.fecha) {
+            document.getElementById('rep-fecha').value = extracted.fecha;
         }
-        status.textContent = '✅ Datos extraídos del ticket. Revisa y confirma los valores.';
+        if (extracted.precio_litro) {
+            document.getElementById('rep-precio').value = Number(extracted.precio_litro).toFixed(3);
+        }
+        if (extracted.litros) {
+            document.getElementById('rep-litros').value = Number(extracted.litros).toFixed(2);
+        }
+        if (extracted.importe_total) {
+            document.getElementById('rep-importe').value = Number(extracted.importe_total).toFixed(2);
+        }
+        if (extracted.estacion) {
+            matchOrOfferStation(extracted.estacion);
+        }
+
+        const gotAny = extracted.litros || extracted.precio_litro || extracted.importe_total;
+        status.textContent = gotAny
+            ? `✅ Foto guardada y datos extraídos (${engineLabel}). Revisa y confirma los valores.`
+            : `📸 Foto guardada. No se pudieron leer todos los números automáticamente; complétalos manualmente.`;
     } catch (e) {
-        status.textContent = '⚠️ No se pudo leer el ticket automáticamente: ' + e.message;
+        status.textContent = '⚠️ Error procesando la foto: ' + e.message;
+    } finally {
+        input.value = '';
     }
 }
 
 async function scanOdometerOCR(input) {
     if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
     const status = document.getElementById('ocr-status');
     status.classList.remove('hidden');
-    status.textContent = '🔍 Leyendo kilómetros del cuentakilómetros...';
+    status.textContent = '🔍 Subiendo foto del odómetro y leyendo kilómetros...';
 
     try {
-        const result = await Tesseract.recognize(input.files[0], 'eng');
-        const digits = result.data.text.replace(/\s+/g, '').match(/\d{4,7}/g);
-        if (digits && digits.length > 0) {
-            const bestKm = digits.sort((a, b) => b.length - a.length)[0];
-            document.getElementById('rep-km').value = bestKm;
-            updateParcialKmPreview();
-            status.textContent = `✅ Kilometraje detectado: ${bestKm} km`;
+        const savedPath = await uploadRepostajePhoto(file, 'odometro');
+        document.getElementById('rep-foto-odometro').value = savedPath;
+        renderRepostajePhotosPreview();
+
+        let km = null;
+        const gem = await tryGeminiExtract(file, 'odometro');
+        if (gem && gem.km_odometro) {
+            km = gem.km_odometro;
         } else {
-            status.textContent = '⚠️ No se detectaron dígitos claros en el odómetro.';
+            const result = await Tesseract.recognize(file, 'eng');
+            km = parseOdometerText(result.data.text || '');
+        }
+
+        if (km) {
+            document.getElementById('rep-km').value = km;
+            updateParcialKmPreview();
+            status.textContent = `✅ Foto guardada y kilometraje detectado: ${km} km`;
+        } else {
+            status.textContent = '📸 Foto del odómetro guardada. No se detectaron dígitos claros; introdúcelos manualmente.';
         }
     } catch (e) {
-        status.textContent = '⚠️ Error al procesar imagen del odómetro.';
+        status.textContent = '⚠️ Error al procesar imagen del odómetro: ' + e.message;
+    } finally {
+        input.value = '';
     }
 }
 

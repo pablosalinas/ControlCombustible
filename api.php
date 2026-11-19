@@ -54,6 +54,166 @@ function arr_get(array $arr, $key, $default = null) {
 }
 
 /**
+ * Sanitiza una ruta relativa de foto de repostaje (solo uploads/tickets/ o uploads/odometros/).
+ */
+function sanitizeRepostajeFotoPath($path) {
+    $path = trim((string)$path);
+    if ($path === '') return null;
+    $path = str_replace('\\', '/', $path);
+    if (strpos($path, '..') !== false) return null;
+    if (!preg_match('#^uploads/(tickets|odometros)/[A-Za-z0-9_.\-]+$#', $path)) {
+        return null;
+    }
+    return $path;
+}
+
+/**
+ * Guarda una foto subida (multipart $_FILES o base64) en uploads/tickets/ o uploads/odometros/.
+ */
+function saveUploadedRepostajeFoto($tipo, $fileInfo = null, $base64Data = '') {
+    $subDir = ($tipo === 'odometro') ? 'odometros' : 'tickets';
+    $relDir = 'uploads/' . $subDir;
+    $absDir = __DIR__ . '/' . $relDir;
+    if (!is_dir($absDir)) {
+        if (!@mkdir($absDir, 0755, true)) {
+            throw new Exception('No se pudo crear el directorio de subida.');
+        }
+    }
+
+    $allowedExts = array('jpg', 'jpeg', 'png', 'webp');
+    $ext = 'jpg';
+    $binary = null;
+
+    if ($fileInfo && isset($fileInfo['tmp_name']) && is_uploaded_file($fileInfo['tmp_name'])) {
+        if (!empty($fileInfo['error']) && (int)$fileInfo['error'] !== UPLOAD_ERR_OK) {
+            throw new Exception('Error al subir el archivo (código ' . (int)$fileInfo['error'] . ').');
+        }
+        if (isset($fileInfo['size']) && (int)$fileInfo['size'] > 12 * 1024 * 1024) {
+            throw new Exception('La imagen supera el tamaño máximo permitido (12 MB).');
+        }
+        $origExt = strtolower(pathinfo(isset($fileInfo['name']) ? $fileInfo['name'] : 'foto.jpg', PATHINFO_EXTENSION));
+        if (in_array($origExt, $allowedExts, true)) {
+            $ext = ($origExt === 'jpeg') ? 'jpg' : $origExt;
+        }
+        $binary = file_get_contents($fileInfo['tmp_name']);
+    } elseif ($base64Data !== '') {
+        if (preg_match('/^data:image\/(jpeg|jpg|png|webp);base64,(.+)$/i', $base64Data, $m)) {
+            $ext = strtolower($m[1]);
+            if ($ext === 'jpeg') $ext = 'jpg';
+            $base64Data = $m[2];
+        }
+        $binary = base64_decode($base64Data);
+    }
+
+    if ($binary === false || $binary === null || strlen($binary) < 64) {
+        throw new Exception('No se recibió una imagen válida.');
+    }
+    if (strlen($binary) > 12 * 1024 * 1024) {
+        throw new Exception('La imagen supera el tamaño máximo permitido (12 MB).');
+    }
+
+    // Validar que realmente sea una imagen
+    if (function_exists('getimagesizefromstring')) {
+        $imgInfo = @getimagesizefromstring($binary);
+        if (!$imgInfo) {
+            throw new Exception('El archivo no es una imagen válida.');
+        }
+    }
+
+    $prefix = ($tipo === 'odometro') ? 'odo_' : 'tkt_';
+    $filename = $prefix . date('Ymd_His') . '_' . substr(md5(uniqid('', true)), 0, 8) . '.' . $ext;
+    $absPath = $absDir . '/' . $filename;
+    if (file_put_contents($absPath, $binary) === false) {
+        throw new Exception('No se pudo guardar la imagen en el servidor.');
+    }
+
+    return $relDir . '/' . $filename;
+}
+
+/**
+ * Extrae datos de factura/surtidor/odómetro usando Gemini Vision si GEMINI_API_KEY está configurada.
+ */
+function extractRepostajeWithGemini($tipo, $binary, $mimeType = 'image/jpeg') {
+    $apiKey = veh_env('GEMINI_API_KEY', '');
+    if ($apiKey === '') {
+        return array('available' => false);
+    }
+    if (!function_exists('curl_init')) {
+        return array('available' => false);
+    }
+
+    $model = veh_env('GEMINI_MODEL', 'gemini-2.5-flash');
+    $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode($model) . ':generateContent?key=' . urlencode($apiKey);
+
+    if ($tipo === 'odometro') {
+        $prompt = "Analiza esta fotografía del cuadro de instrumentos / odómetro de un vehículo. "
+                . "Extrae el kilometraje total actual (número de kilómetros del odómetro, NO el parcial/trip ni la hora ni las revoluciones). "
+                . "Responde ÚNICAMENTE con un JSON válido con esta estructura: "
+                . "{\"km_odometro\": number_or_null, \"confianza\": \"alta\"|\"media\"|\"baja\"}";
+    } else {
+        $prompt = "Analiza esta fotografía que puede ser una FACTURA/TICKET de combustible o una foto del MARCADOR DE UN SURTIDOR de gasolina/diésel. "
+                . "Extrae los datos del repostaje con precisión numérica (verifica que litros * precio_litro ≈ importe_total; si el precio en el surtidor está en céntimos/peniques por litro como 212.9 o 99.9, conviértelo a euros/unidad dividiendo entre 100, ej. 2.129 o 0.999). "
+                . "Si es una factura o ticket, extrae también los datos de la estación de servicio emisora (NO los datos del cliente). "
+                . "Responde ÚNICAMENTE con un JSON válido (sin markdown) con esta estructura exacta: "
+                . "{\"tipo_origen\": \"factura\"|\"surtidor\", "
+                . "\"fecha\": \"YYYY-MM-DD\"_or_null, "
+                . "\"litros\": number_or_null, "
+                . "\"precio_litro\": number_or_null, "
+                . "\"importe_total\": number_or_null, "
+                . "\"combustible\": string_or_null, "
+                . "\"num_factura\": string_or_null, "
+                . "\"estacion\": {\"nombre\": string_or_null, \"marca\": string_or_null, \"cif\": string_or_null, \"direccion\": string_or_null, \"localidad\": string_or_null, \"telefono\": string_or_null}}";
+    }
+
+    $payload = array(
+        'contents' => array(
+            array(
+                'parts' => array(
+                    array('text' => $prompt),
+                    array(
+                        'inline_data' => array(
+                            'mime_type' => $mimeType,
+                            'data'      => base64_encode($binary),
+                        )
+                    )
+                )
+            )
+        ),
+        'generationConfig' => array(
+            'temperature'      => 0.1,
+            'responseMimeType' => 'application/json',
+        )
+    );
+
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+    curl_setopt($ch, CURLOPT_TIMEOUT, 25);
+    $resp = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($resp === false || $httpCode < 200 || $httpCode >= 300) {
+        return array('available' => true, 'success' => false, 'error' => 'Error HTTP ' . $httpCode . ' en Gemini API');
+    }
+
+    $decoded = json_decode($resp, true);
+    $text = '';
+    if (isset($decoded['candidates'][0]['content']['parts'][0]['text'])) {
+        $text = trim($decoded['candidates'][0]['content']['parts'][0]['text']);
+    }
+    $text = preg_replace('/^```json\s*|\s*```$/i', '', $text);
+    $data = json_decode($text, true);
+    if (!is_array($data)) {
+        return array('available' => true, 'success' => false, 'error' => 'Respuesta JSON inválida de Gemini');
+    }
+
+    return array('available' => true, 'success' => true, 'data' => $data);
+}
+
+/**
  * Asegura la existencia de la columna aditiva `validado` en `users`
  * (1 = validado por defecto para usuarios existentes, 0 = pendiente, -1 = rechazado/baja).
  */
@@ -730,6 +890,8 @@ try {
             $kmOdometro       = (float)str_replace(',', '.', (string)arr_get($jsonBody, 'km_odometro', isset($_POST['km_odometro']) ? $_POST['km_odometro'] : 0));
             $estacionServicio = trim((string)arr_get($jsonBody, 'estacion_servicio', isset($_POST['estacion_servicio']) ? $_POST['estacion_servicio'] : ''));
             $notas            = trim((string)arr_get($jsonBody, 'notas', isset($_POST['notas']) ? $_POST['notas'] : ''));
+            $fotoTicketPath   = sanitizeRepostajeFotoPath(arr_get($jsonBody, 'foto_ticket_path', isset($_POST['foto_ticket_path']) ? $_POST['foto_ticket_path'] : ''));
+            $fotoOdometroPath = sanitizeRepostajeFotoPath(arr_get($jsonBody, 'foto_odometro_path', isset($_POST['foto_odometro_path']) ? $_POST['foto_odometro_path'] : ''));
 
             // Autocalcular el tercer valor si se proporcionan dos
             if ($importeTotal <= 0 && $litros > 0 && $precioLitro > 0) {
@@ -768,26 +930,26 @@ try {
                 if ($isAdmin) {
                     $stmt = $pdo->prepare("
                         UPDATE `veh_repostajes`
-                        SET vehiculo_id = ?, usuario_id = ?, fecha = ?, litros = ?, precio_litro = ?, importe_total = ?, km_odometro = ?, estacion_servicio = ?, notas = ?
+                        SET vehiculo_id = ?, usuario_id = ?, fecha = ?, litros = ?, precio_litro = ?, importe_total = ?, km_odometro = ?, estacion_servicio = ?, notas = ?, foto_ticket_path = ?, foto_odometro_path = ?
                         WHERE id = ? AND activo = 1
                     ");
-                    $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $id));
+                    $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $fotoTicketPath, $fotoOdometroPath, $id));
                 } else {
                     $stmt = $pdo->prepare("
                         UPDATE `veh_repostajes`
-                        SET vehiculo_id = ?, fecha = ?, litros = ?, precio_litro = ?, importe_total = ?, km_odometro = ?, estacion_servicio = ?, notas = ?
+                        SET vehiculo_id = ?, fecha = ?, litros = ?, precio_litro = ?, importe_total = ?, km_odometro = ?, estacion_servicio = ?, notas = ?, foto_ticket_path = ?, foto_odometro_path = ?
                         WHERE id = ? AND usuario_id = ? AND activo = 1
                     ");
-                    $stmt->execute(array($vehiculoId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $id, $userId));
+                    $stmt->execute(array($vehiculoId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $fotoTicketPath, $fotoOdometroPath, $id, $userId));
                 }
                 $savedId = $id;
             } else {
                 $stmt = $pdo->prepare("
                     INSERT INTO `veh_repostajes`
-                    (vehiculo_id, usuario_id, fecha, litros, precio_litro, importe_total, km_odometro, estacion_servicio, notas, activo)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    (vehiculo_id, usuario_id, fecha, litros, precio_litro, importe_total, km_odometro, estacion_servicio, notas, foto_ticket_path, foto_odometro_path, activo)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                 ");
-                $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas));
+                $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $fotoTicketPath, $fotoOdometroPath));
                 $savedId = (int)$pdo->lastInsertId();
             }
 
@@ -849,6 +1011,72 @@ try {
                 'success' => true,
                 'message' => 'Repostaje dado de baja lógicamente (activo = 0).',
             ));
+            break;
+
+        case 'upload_repostaje_foto':
+            $tipo = trim((string)arr_get($jsonBody, 'tipo', isset($_POST['tipo']) ? $_POST['tipo'] : 'ticket'));
+            if ($tipo !== 'odometro') $tipo = 'ticket';
+            $fileInfo = isset($_FILES['foto']) ? $_FILES['foto'] : null;
+            $base64Data = (string)arr_get($jsonBody, 'foto_base64', isset($_POST['foto_base64']) ? $_POST['foto_base64'] : '');
+            try {
+                $savedPath = saveUploadedRepostajeFoto($tipo, $fileInfo, $base64Data);
+                echo json_encode(array(
+                    'success' => true,
+                    'tipo'    => $tipo,
+                    'path'    => $savedPath,
+                ));
+            } catch (Exception $upEx) {
+                http_response_code(400);
+                echo json_encode(array(
+                    'success' => false,
+                    'error'   => $upEx->getMessage(),
+                ));
+            }
+            break;
+
+        case 'extract_repostaje_ocr':
+            $tipo = trim((string)arr_get($jsonBody, 'tipo', isset($_POST['tipo']) ? $_POST['tipo'] : 'factura'));
+            if (!in_array($tipo, array('factura', 'surtidor', 'odometro'), true)) {
+                $tipo = 'factura';
+            }
+            $binary = null;
+            $mimeType = 'image/jpeg';
+            if (isset($_FILES['foto']) && isset($_FILES['foto']['tmp_name']) && is_uploaded_file($_FILES['foto']['tmp_name'])) {
+                $binary = file_get_contents($_FILES['foto']['tmp_name']);
+                if (!empty($_FILES['foto']['type'])) $mimeType = $_FILES['foto']['type'];
+            } else {
+                $b64 = (string)arr_get($jsonBody, 'image_base64', isset($_POST['image_base64']) ? $_POST['image_base64'] : '');
+                if (preg_match('/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/', $b64, $m)) {
+                    $mimeType = $m[1];
+                    $b64 = $m[2];
+                }
+                if ($b64 !== '') $binary = base64_decode($b64);
+            }
+            if (!$binary) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'Imagen requerida.'));
+                break;
+            }
+            $gem = extractRepostajeWithGemini($tipo, $binary, $mimeType);
+            if (empty($gem['available'])) {
+                echo json_encode(array(
+                    'success'         => false,
+                    'fallback_client' => true,
+                    'reason'          => 'no_api_key',
+                ));
+            } elseif (!empty($gem['success'])) {
+                echo json_encode(array(
+                    'success' => true,
+                    'engine'  => 'gemini',
+                    'data'    => $gem['data'],
+                ));
+            } else {
+                echo json_encode(array(
+                    'success'         => false,
+                    'fallback_client' => true,
+                    'reason'          => isset($gem['error']) ? $gem['error'] : 'gemini_error',
+                ));
+            }
             break;
 
         case 'list_estaciones':
