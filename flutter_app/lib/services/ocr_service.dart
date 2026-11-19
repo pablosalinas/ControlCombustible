@@ -284,6 +284,96 @@ class OcrService {
     );
   }
 
+  /// Captura una fotografía del marcador del surtidor
+  /// y extrae Litros, Precio/L e Importe Total (incluyendo céntimos/L).
+  Future<TicketScanResult?> scanPumpDisplay({ImageSource source = ImageSource.camera}) async {
+    final XFile? image = await _picker.pickImage(source: source, imageQuality: 90);
+    if (image == null) return null;
+
+    final inputImage = InputImage.fromFilePath(image.path);
+    final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+
+    try {
+      final RecognizedText recognized = await recognizer.processImage(inputImage);
+      final String text = recognized.text.replaceAllMapped(
+        RegExp(r'(\d)\s*([,\.])\s*(\d)'),
+        (m) => '${m.group(1)}${m.group(2)}${m.group(3)}',
+      );
+
+      final numReg = RegExp(r'(\d{1,4}[,\.]\d{1,3})');
+      final List<double> rawNums = [];
+      for (final m in numReg.allMatches(text)) {
+        final v = double.tryParse((m.group(1) ?? '').replaceAll(',', '.'));
+        if (v != null && v > 0 && v < 1000) rawNums.add(v);
+      }
+
+      final List<double> expanded = List<double>.from(rawNums);
+      for (final n in rawNums) {
+        if (n >= 75 && n <= 300) {
+          expanded.add(double.parse((n / 100).toStringAsFixed(4)));
+        }
+      }
+
+      double? precioLitro;
+      double? importeTotal;
+      double? litros;
+      double bestScore = -999999;
+
+      final prices = expanded.where((d) => d >= 0.75 && d <= 3.00).toList();
+      final others = expanded.where((d) => d > 2.50 && d <= 500.0).toList();
+
+      for (final p in prices) {
+        for (final l in others) {
+          for (final imp in others) {
+            if (l == imp) continue;
+            if (p < 1.05 ? imp <= l * 0.5 : imp <= l) continue;
+            final diff = (l * p - imp).abs();
+            final tol = (imp * 0.015) > 0.12 ? (imp * 0.015) : 0.12;
+            if (diff <= tol) {
+              final score = 100 - diff * 100;
+              if (score > bestScore) {
+                bestScore = score;
+                precioLitro = p;
+                litros = l;
+                importeTotal = imp;
+              }
+            }
+          }
+        }
+      }
+
+      if (importeTotal == null) {
+        final sorted = List<double>.from(rawNums)..sort((a, b) => b.compareTo(a));
+        for (int i = 0; i < sorted.length; i++) {
+          for (int j = i + 1; j < sorted.length; j++) {
+            final imp = sorted[i];
+            final lit = sorted[j];
+            if (lit > 1 && imp > lit) {
+              final ratio = imp / lit;
+              if (ratio >= 0.75 && ratio <= 3.00) {
+                importeTotal = imp;
+                litros = lit;
+                precioLitro = double.parse(ratio.toStringAsFixed(3));
+                break;
+              }
+            }
+          }
+          if (importeTotal != null) break;
+        }
+      }
+
+      return TicketScanResult(
+        litros: litros,
+        precioLitro: precioLitro,
+        importeTotal: importeTotal,
+        imagePath: image.path,
+        rawText: text,
+      );
+    } finally {
+      await recognizer.close();
+    }
+  }
+
   /// Captura una fotografía del cuentakilómetros (odómetro) del vehículo
   /// y extrae la lectura de kilómetros junto con la ruta de la imagen.
   Future<OdometerScanResult?> scanOdometerWithImage({ImageSource source = ImageSource.camera}) async {

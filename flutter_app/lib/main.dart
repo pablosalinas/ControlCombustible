@@ -2142,6 +2142,27 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
     }
   }
 
+  Future<void> _scanPumpDisplay() async {
+    setState(() => _ocrMessage = 'Escaneando marcador del surtidor...');
+    final res = await _ocr.scanPumpDisplay();
+    if (res == null) {
+      setState(() => _ocrMessage = null);
+      return;
+    }
+    if (res.imagePath != null) {
+      unawaited(_uploadPhotoInBackground(res.imagePath!, 'ticket'));
+    }
+    setState(() {
+      if (res.litros != null) _litrosCtrl.text = res.litros!.toStringAsFixed(2);
+      if (res.precioLitro != null) _precioCtrl.text = res.precioLitro!.toStringAsFixed(3);
+      if (res.importeTotal != null) _importeCtrl.text = res.importeTotal!.toStringAsFixed(2);
+      final gotAny = res.litros != null || res.precioLitro != null || res.importeTotal != null;
+      _ocrMessage = gotAny
+          ? 'Datos extraídos del surtidor. Revisa y confirma.'
+          : 'Foto del surtidor guardada. No se pudieron leer todos los dígitos; complétalos manualmente.';
+    });
+  }
+
   Future<void> _scanOdometer() async {
     setState(() => _ocrMessage = 'Capturando lectura de cuentakilómetros...');
     final res = await _ocr.scanOdometerWithImage();
@@ -2234,16 +2255,27 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: _scanTicket,
-                  icon: const Icon(Icons.receipt_long),
-                  label: const Text('Escanear Ticket'),
+                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10)),
+                  icon: const Icon(Icons.receipt_long, size: 18),
+                  label: const Text('Factura', style: TextStyle(fontSize: 12.5), overflow: TextOverflow.ellipsis),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 6),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _scanPumpDisplay,
+                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10)),
+                  icon: const Icon(Icons.local_gas_station, size: 18),
+                  label: const Text('Surtidor', style: TextStyle(fontSize: 12.5), overflow: TextOverflow.ellipsis),
+                ),
+              ),
+              const SizedBox(width: 6),
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: _scanOdometer,
-                  icon: const Icon(Icons.speed),
-                  label: const Text('Foto Odómetro'),
+                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10)),
+                  icon: const Icon(Icons.speed, size: 18),
+                  label: const Text('Odómetro', style: TextStyle(fontSize: 12.5), overflow: TextOverflow.ellipsis),
                 ),
               ),
             ],
