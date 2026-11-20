@@ -404,6 +404,38 @@ function buildVehicleAccessClause($alias, $userId, $isAdmin, array &$params)
     return "({$alias}.usuario_id = ? OR {$alias}.parque_id IN (SELECT pu.parque_id FROM `veh_parque_usuarios` pu INNER JOIN `veh_parques` pq ON pq.id = pu.parque_id AND pq.activo = 1 WHERE pu.usuario_id = ? AND pu.activo = 1))";
 }
 
+/**
+ * Construye la cláusula SQL combinada de acceso + filtro opcional por usuario o parque móvil.
+ * - Superusuario: puede ver todo o filtrar por cualquier usuario o parque móvil.
+ * - Usuario estándar: solo sus vehículos accesibles, pudiendo filtrar por su usuario o un parque móvil al que pertenezca.
+ */
+function buildVehicleScopeClause(PDO $pdo, $alias, $userId, $isAdmin, $filterUsuarioId, $filterParqueId, array &$params)
+{
+    $clause = buildVehicleAccessClause($alias, $userId, $isAdmin, $params);
+    $filterParqueId = (int)$filterParqueId;
+    $filterUsuarioId = (int)$filterUsuarioId;
+
+    if ($filterParqueId > 0) {
+        if (!userBelongsToParque($pdo, $filterParqueId, $userId, $isAdmin)) {
+            http_response_code(403);
+            echo json_encode(array('success' => false, 'error' => 'No tienes permisos para filtrar por ese parque móvil.'));
+            exit;
+        }
+        $clause .= " AND {$alias}.parque_id = ?";
+        $params[] = $filterParqueId;
+    } elseif ($filterUsuarioId > 0) {
+        if (!$isAdmin && $filterUsuarioId !== (int)$userId) {
+            http_response_code(403);
+            echo json_encode(array('success' => false, 'error' => 'No tienes permisos para ver vehículos de otro usuario.'));
+            exit;
+        }
+        $clause .= " AND {$alias}.usuario_id = ?";
+        $params[] = $filterUsuarioId;
+    }
+
+    return $clause;
+}
+
 function canAccessVehicle(PDO $pdo, $vehiculoId, $userId, $isAdmin)
 {
     $params = array((int)$vehiculoId);
@@ -522,7 +554,7 @@ function getAccessibleParques(PDO $pdo, $userId, $isAdmin)
     return $parques;
 }
 
-function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $estadoFilter = 'todas')
+function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $estadoFilter = 'todas', $filterUsuarioId = 0, $filterParqueId = 0)
 {
     $sql = "
         SELECT vt.*, v.nombre AS vehiculo_nombre, v.matricula AS vehiculo_matricula,
@@ -534,7 +566,7 @@ function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $es
         WHERE vt.activo = 1
     ";
     $params = array();
-    $sql .= " AND " . buildVehicleAccessClause('v', $userId, $isAdmin, $params);
+    $sql .= " AND " . buildVehicleScopeClause($pdo, 'v', $userId, $isAdmin, $filterUsuarioId, $filterParqueId, $params);
     if ($vehiculoId > 0) {
         $sql .= " AND vt.vehiculo_id = ?";
         $params[] = $vehiculoId;
@@ -559,7 +591,7 @@ function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $es
         WHERE vt.activo = 1 AND vt.coste IS NOT NULL
     ";
     $costParams = array();
-    $costSql .= " AND " . buildVehicleAccessClause('v', $userId, $isAdmin, $costParams);
+    $costSql .= " AND " . buildVehicleScopeClause($pdo, 'v', $userId, $isAdmin, $filterUsuarioId, $filterParqueId, $costParams);
     if ($vehiculoId > 0) {
         $costSql .= " AND vt.vehiculo_id = ?";
         $costParams[] = $vehiculoId;
@@ -765,8 +797,10 @@ try {
             break;
 
         case 'list_vehiculos':
+            $filterUsuarioId = isset($_GET['filter_usuario_id']) ? (int)$_GET['filter_usuario_id'] : (int)arr_get($jsonBody, 'filter_usuario_id', 0);
+            $filterParqueId  = isset($_GET['filter_parque_id']) ? (int)$_GET['filter_parque_id'] : (int)arr_get($jsonBody, 'filter_parque_id', 0);
             $vParams = array();
-            $vAccess = buildVehicleAccessClause('v', $userId, $isAdmin, $vParams);
+            $vAccess = buildVehicleScopeClause($pdo, 'v', $userId, $isAdmin, $filterUsuarioId, $filterParqueId, $vParams);
             $stmt = $pdo->prepare("
                 SELECT v.id, v.usuario_id, v.parque_id, pq.nombre AS parque_nombre, u.username AS propietario, v.nombre, v.matricula, v.marca, v.modelo, v.tipo_combustible, v.km_iniciales, v.notas, v.created_at
                 FROM `veh_vehiculos` v
@@ -868,13 +902,15 @@ try {
 
         case 'dashboard':
         case 'list_repostajes':
-            $vehiculoId = isset($_GET['vehiculo_id']) ? (int)$_GET['vehiculo_id'] : (int)arr_get($jsonBody, 'vehiculo_id', 0);
-            $fechaDesde = trim((string)(isset($_GET['fecha_desde']) ? $_GET['fecha_desde'] : arr_get($jsonBody, 'fecha_desde', '')));
-            $fechaHasta = trim((string)(isset($_GET['fecha_hasta']) ? $_GET['fecha_hasta'] : arr_get($jsonBody, 'fecha_hasta', '')));
+            $vehiculoId      = isset($_GET['vehiculo_id']) ? (int)$_GET['vehiculo_id'] : (int)arr_get($jsonBody, 'vehiculo_id', 0);
+            $filterUsuarioId = isset($_GET['filter_usuario_id']) ? (int)$_GET['filter_usuario_id'] : (int)arr_get($jsonBody, 'filter_usuario_id', 0);
+            $filterParqueId  = isset($_GET['filter_parque_id']) ? (int)$_GET['filter_parque_id'] : (int)arr_get($jsonBody, 'filter_parque_id', 0);
+            $fechaDesde      = trim((string)(isset($_GET['fecha_desde']) ? $_GET['fecha_desde'] : arr_get($jsonBody, 'fecha_desde', '')));
+            $fechaHasta      = trim((string)(isset($_GET['fecha_hasta']) ? $_GET['fecha_hasta'] : arr_get($jsonBody, 'fecha_hasta', '')));
 
-            // Obtener vehículos activos accesibles (todos si es superusuario, o propios + parques móviles asignados)
+            // Obtener vehículos activos accesibles (todos si es superusuario, o propios + parques móviles asignados), aplicando filtro opcional por usuario o parque móvil
             $vParams = array();
-            $vAccess = buildVehicleAccessClause('v', $userId, $isAdmin, $vParams);
+            $vAccess = buildVehicleScopeClause($pdo, 'v', $userId, $isAdmin, $filterUsuarioId, $filterParqueId, $vParams);
             $stmtVeh = $pdo->prepare("
                 SELECT v.id, v.usuario_id, v.parque_id, pq.nombre AS parque_nombre, u.username AS propietario, v.nombre, v.matricula, v.marca, v.modelo, v.tipo_combustible, v.km_iniciales, v.notas
                 FROM `veh_vehiculos` v
@@ -886,9 +922,22 @@ try {
             $stmtVeh->execute($vParams);
             $vehiculos = $stmtVeh->fetchAll();
 
-            // Obtener repostajes activos ordenados cronológicamente (filtrados por vehículos accesibles)
+            if ($vehiculoId > 0) {
+                $vehiculoInScope = false;
+                foreach ($vehiculos as $vhItem) {
+                    if ((int)$vhItem['id'] === $vehiculoId) {
+                        $vehiculoInScope = true;
+                        break;
+                    }
+                }
+                if (!$vehiculoInScope) {
+                    $vehiculoId = 0;
+                }
+            }
+
+            // Obtener repostajes activos ordenados cronológicamente (filtrados por vehículos accesibles y ámbito seleccionado)
             $params = array();
-            $repAccess = buildVehicleAccessClause('v', $userId, $isAdmin, $params);
+            $repAccess = buildVehicleScopeClause($pdo, 'v', $userId, $isAdmin, $filterUsuarioId, $filterParqueId, $params);
             $sqlRep = "
                 SELECT r.*, v.nombre AS vehiculo_nombre, v.matricula AS vehiculo_matricula
                 FROM `veh_repostajes` r
@@ -948,7 +997,7 @@ try {
 
             // Obtener último odómetro registrado por cada vehículo accesible
             $lkParams = array();
-            $lkAccess = buildVehicleAccessClause('v', $userId, $isAdmin, $lkParams);
+            $lkAccess = buildVehicleScopeClause($pdo, 'v', $userId, $isAdmin, $filterUsuarioId, $filterParqueId, $lkParams);
             $stmtLastKm = $pdo->prepare("
                 SELECT r.vehiculo_id, MAX(r.km_odometro) AS ultimo_km
                 FROM `veh_repostajes` r
@@ -969,7 +1018,7 @@ try {
                 ORDER BY nombre ASC
             ")->fetchAll();
 
-            $vehiculoTareas = getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId, 'todas');
+            $vehiculoTareas = getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId, 'todas', $filterUsuarioId, $filterParqueId);
 
             $proveedores = $pdo->query("
                 SELECT id, usuario_id, tipo, nombre, telefono, localidad, direccion, notas, created_at
@@ -980,11 +1029,21 @@ try {
 
             $parques = getAccessibleParques($pdo, $userId, $isAdmin);
 
+            $usuariosFiltro = array();
+            if ($isAdmin) {
+                ensureUsersValidationColumn($pdo);
+                $stmtUsersF = $pdo->query("SELECT id, username FROM `users` WHERE validado = 1 ORDER BY username ASC");
+                $usuariosFiltro = $stmtUsersF ? $stmtUsersF->fetchAll() : array();
+            }
+
             echo json_encode(array(
                 'success'                  => true,
                 'user'                     => $user,
                 'vehiculos'                => $vehiculos,
                 'parques'                  => $parques,
+                'usuarios'                 => $usuariosFiltro,
+                'filtro_usuario_id'        => $filterUsuarioId,
+                'filtro_parque_id'         => $filterParqueId,
                 'estaciones'               => $estaciones,
                 'proveedores'              => $proveedores,
                 'tareas_maestro'           => $tareasMaestro,

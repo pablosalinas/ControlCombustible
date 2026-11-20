@@ -589,9 +589,11 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  String _selectedScope = 'all'; // 'all', 'user:<id>', 'park:<id>'
   int _selectedVehiculoId = 0; // 0 = Todos (Resultado conjunto)
   List<Vehiculo> _vehiculos = [];
   List<ParqueMovil> _parques = [];
+  List<Map<String, dynamic>> _usuariosFiltro = [];
   List<EstacionServicio> _estaciones = [];
   List<Proveedor> _proveedores = [];
   List<TareaMaestro> _tareasMaestro = [];
@@ -600,6 +602,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Repostaje> _repostajes = [];
   ResumenEstadisticas? _resumen;
   String _userEmail = '';
+  String _currentUsername = '';
   int _currentUserId = 0;
   bool _loading = true;
   String _searchQuery = '';
@@ -615,8 +618,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _loadData() async {
     setState(() => _loading = true);
     try {
+      int filterUsuarioId = 0;
+      int filterParqueId = 0;
+      if (_selectedScope.startsWith('park:')) {
+        filterParqueId = int.tryParse(_selectedScope.substring(5)) ?? 0;
+      } else if (_selectedScope.startsWith('user:')) {
+        filterUsuarioId = int.tryParse(_selectedScope.substring(5)) ?? 0;
+      }
       final res = await widget.api.post('dashboard', {
         'vehiculo_id': _selectedVehiculoId,
+        if (filterUsuarioId > 0) 'filter_usuario_id': filterUsuarioId,
+        if (filterParqueId > 0) 'filter_parque_id': filterParqueId,
         if (_fechaDesde.isNotEmpty) 'fecha_desde': _fechaDesde,
         if (_fechaHasta.isNotEmpty) 'fecha_hasta': _fechaHasta,
       });
@@ -626,6 +638,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             .toList();
         final pqList = (res['parques'] as List? ?? [])
             .map((e) => ParqueMovil.fromJson(e as Map<String, dynamic>))
+            .toList();
+        final usrList = (res['usuarios'] as List? ?? [])
+            .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();
         final estList = (res['estaciones'] as List? ?? [])
             .map((e) => EstacionServicio.fromJson(e as Map<String, dynamic>))
@@ -656,6 +671,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           setState(() {
             _vehiculos = vList;
             _parques = pqList;
+            _usuariosFiltro = usrList;
             if (_selectedVehiculoId != 0 && !vList.any((v) => v.id == _selectedVehiculoId)) {
               _selectedVehiculoId = 0;
             }
@@ -664,6 +680,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _tareasMaestro = tmList;
             _vehiculoTareas = vtList;
             _userEmail = (userMap['email'] ?? '').toString();
+            _currentUsername = (userMap['username'] ?? '').toString();
             _currentUserId = int.tryParse((userMap['id'] ?? 0).toString()) ?? 0;
             _ultimoKmPorVehiculo = parsedLastKm;
             _repostajes = rList;
@@ -1437,6 +1454,66 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(12),
                 children: [
+                  // Selector de ámbito (Usuario / Parque Móvil / Todos)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          isExpanded: true,
+                          value: ([
+                            'all',
+                            ..._parques.map((pq) => 'park:${pq.id}'),
+                            if (widget.api.isAdmin)
+                              ..._usuariosFiltro.map((u) => 'user:${u['id']}')
+                            else if (_currentUserId > 0)
+                              'user:$_currentUserId',
+                          ].contains(_selectedScope))
+                              ? _selectedScope
+                              : 'all',
+                          items: [
+                            DropdownMenuItem(
+                              value: 'all',
+                              child: Text(
+                                widget.api.isAdmin
+                                    ? '🌐 Todos los vehículos (Vista Global)'
+                                    : '🌐 Todos mis vehículos (Usuario + Parques)',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            ..._parques.map(
+                              (pq) => DropdownMenuItem(
+                                value: 'park:${pq.id}',
+                                child: Text('🏢 Parque Móvil: ${pq.nombre}'),
+                              ),
+                            ),
+                            if (widget.api.isAdmin)
+                              ..._usuariosFiltro.map(
+                                (u) => DropdownMenuItem(
+                                  value: 'user:${u['id']}',
+                                  child: Text('👤 Usuario: ${u['username']}'),
+                                ),
+                              )
+                            else if (_currentUserId > 0)
+                              DropdownMenuItem(
+                                value: 'user:$_currentUserId',
+                                child: Text('👤 Mis vehículos ($_currentUsername)'),
+                              ),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) {
+                              setState(() {
+                                _selectedScope = val;
+                                _selectedVehiculoId = 0;
+                              });
+                              _loadData();
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
                   // Selector de vehículo / Resultado conjunto
                   Card(
                     child: Padding(

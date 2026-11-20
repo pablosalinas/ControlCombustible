@@ -590,6 +590,9 @@
             </div>
         </div>
         <div class="vehicle-bar">
+            <select id="scope-selector" class="vehicle-select" style="flex: 0 1 260px;" onchange="onScopeFilterChange()" title="Mostrar vehículos por usuario o por parque móvil">
+                <option value="all">🌐 Todos los vehículos</option>
+            </select>
             <select id="vehicle-selector" class="vehicle-select" onchange="loadDashboard()">
                 <option value="0">📊 Todos los vehículos (Resultado Conjunto)</option>
             </select>
@@ -854,6 +857,11 @@
         <div class="card-header">
             <div class="card-title"><i class="fa-solid fa-car" style="color:var(--primary)"></i> Mis Vehículos</div>
             <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closeVehiclesModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="form-group" style="margin-bottom:0.75rem;">
+            <select id="vehicles-modal-filter" class="form-control" style="font-size:0.85rem;" onchange="renderVehiclesList()">
+                <option value="all">🌐 Todos los vehículos mostrados</option>
+            </select>
         </div>
         <div id="vehicles-list" style="margin-bottom:1.2rem;"></div>
         <hr style="border:none; border-top:1px solid var(--border); margin:1rem 0;">
@@ -1656,16 +1664,90 @@ function logout() {
     document.getElementById('login-screen').classList.remove('hidden');
 }
 
+function parseScopeFilter(scopeVal) {
+    const val = String(scopeVal || 'all');
+    if (val.startsWith('park:')) {
+        return { filter_usuario_id: 0, filter_parque_id: parseInt(val.slice(5), 10) || 0 };
+    }
+    if (val.startsWith('user:')) {
+        return { filter_usuario_id: parseInt(val.slice(5), 10) || 0, filter_parque_id: 0 };
+    }
+    return { filter_usuario_id: 0, filter_parque_id: 0 };
+}
+
+function populateScopeSelect(selectEl, selectedVal, user, parques, usuarios) {
+    if (!selectEl) return;
+    const isAdmin = !!(user && user.is_admin);
+    selectEl.innerHTML = '';
+
+    const allOpt = document.createElement('option');
+    allOpt.value = 'all';
+    allOpt.textContent = isAdmin
+        ? '🌐 Todos los vehículos (Vista Global)'
+        : '🌐 Todos mis vehículos (Usuario + Parques)';
+    selectEl.appendChild(allOpt);
+
+    const parqueList = Array.isArray(parques) ? parques : [];
+    const userList = isAdmin && Array.isArray(usuarios) && usuarios.length > 0
+        ? usuarios
+        : (user && user.id ? [{ id: user.id, username: user.username }] : []);
+
+    if (parqueList.length > 0) {
+        const grpP = document.createElement('optgroup');
+        grpP.label = 'Por Parque Móvil';
+        parqueList.forEach(pq => {
+            const opt = document.createElement('option');
+            opt.value = `park:${pq.id}`;
+            opt.textContent = `🏢 Parque Móvil: ${pq.nombre}`;
+            grpP.appendChild(opt);
+        });
+        selectEl.appendChild(grpP);
+    }
+
+    if (userList.length > 0) {
+        const grpU = document.createElement('optgroup');
+        grpU.label = 'Por Usuario';
+        userList.forEach(u => {
+            const opt = document.createElement('option');
+            opt.value = `user:${u.id}`;
+            opt.textContent = isAdmin
+                ? `👤 Usuario: ${u.username}`
+                : `👤 Mis vehículos (${u.username})`;
+            grpU.appendChild(opt);
+        });
+        selectEl.appendChild(grpU);
+    }
+
+    const validValues = Array.from(selectEl.options).map(o => o.value);
+    selectEl.value = validValues.includes(selectedVal) ? selectedVal : 'all';
+}
+
+function onScopeFilterChange() {
+    const vehSel = document.getElementById('vehicle-selector');
+    if (vehSel) vehSel.value = '0';
+    loadDashboard();
+}
+
 async function loadDashboard() {
+    const scopeSel = document.getElementById('scope-selector');
+    const scopeVal = scopeSel ? (scopeSel.value || 'all') : 'all';
+    const scopeFilters = parseScopeFilter(scopeVal);
     const sel = document.getElementById('vehicle-selector');
     const vehiculoId = sel ? parseInt(sel.value || '0', 10) : 0;
     const fechaDesde = document.getElementById('filter-from').value;
     const fechaHasta = document.getElementById('filter-to').value;
 
-    const res = await apiCall('dashboard', { vehiculo_id: vehiculoId, fecha_desde: fechaDesde, fecha_hasta: fechaHasta });
+    const res = await apiCall('dashboard', {
+        vehiculo_id: vehiculoId,
+        filter_usuario_id: scopeFilters.filter_usuario_id,
+        filter_parque_id: scopeFilters.filter_parque_id,
+        fecha_desde: fechaDesde,
+        fecha_hasta: fechaHasta
+    });
     if (!res.success) return;
 
     currentData = res;
+    populateScopeSelect(scopeSel, scopeVal, res.user, res.parques, res.usuarios);
     document.getElementById('user-badge-text').textContent =
         res.user.username + (res.user.is_admin ? ' · Acceso Global (Todos los vehículos)' : '');
 
@@ -1683,6 +1765,7 @@ async function loadDashboard() {
     }
 
     // Poblar selector de vehículos manteniendo selección en el dashboard
+    const activeVehId = parseInt(res.vehiculo_seleccionado || '0', 10);
     sel.innerHTML = '<option value="0">📊 Todos los vehículos (Resultado Conjunto)</option>';
     const formVeh = document.getElementById('rep-vehiculo');
     formVeh.innerHTML = '';
@@ -1697,7 +1780,7 @@ async function loadDashboard() {
         const opt = document.createElement('option');
         opt.value = v.id;
         opt.textContent = `🚗 ${v.nombre}${mat}`;
-        if (parseInt(v.id, 10) === vehiculoId) opt.selected = true;
+        if (parseInt(v.id, 10) === activeVehId) opt.selected = true;
         sel.appendChild(opt);
 
         const opt2 = document.createElement('option');
@@ -2554,18 +2637,38 @@ function populateVehicleParqueSelect(selectedId = '') {
         sel.appendChild(opt);
     });
 }
-function openVehiclesModal() {
+async function openVehiclesModal() {
     populateVehicleParqueSelect();
-    renderVehiclesList();
+    const modalFilter = document.getElementById('vehicles-modal-filter');
+    const dashScope = document.getElementById('scope-selector');
+    populateScopeSelect(
+        modalFilter,
+        dashScope ? dashScope.value : 'all',
+        currentData.user,
+        currentData.parques,
+        currentData.usuarios
+    );
+    await renderVehiclesList();
     document.getElementById('vehicles-modal').classList.add('active');
 }
 function closeVehiclesModal() {
     document.getElementById('vehicles-modal').classList.remove('active');
 }
-function renderVehiclesList() {
+async function renderVehiclesList() {
     const container = document.getElementById('vehicles-list');
+    const modalFilter = document.getElementById('vehicles-modal-filter');
+    const scopeFilters = parseScopeFilter(modalFilter ? modalFilter.value : 'all');
+    const res = await apiCall('list_vehiculos', {
+        filter_usuario_id: scopeFilters.filter_usuario_id,
+        filter_parque_id: scopeFilters.filter_parque_id
+    });
+    const list = (res && res.success) ? (res.vehiculos || []) : (currentData.vehiculos || []);
     container.innerHTML = '';
-    (currentData.vehiculos || []).forEach(v => {
+    if (list.length === 0) {
+        container.innerHTML = '<div style="padding:0.75rem; color:var(--muted); font-size:0.85rem; text-align:center;">No hay vehículos para el filtro seleccionado.</div>';
+        return;
+    }
+    list.forEach(v => {
         const div = document.createElement('div');
         div.style = 'display:flex; justify-content:space-between; align-items:center; padding:0.65rem; border:1px solid var(--border); border-radius:10px; margin-bottom:0.5rem;';
         const parqueBadge = v.parque_nombre
