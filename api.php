@@ -429,7 +429,8 @@ function buildVehicleScopeClause(PDO $pdo, $alias, $userId, $isAdmin, $filterUsu
             echo json_encode(array('success' => false, 'error' => 'No tienes permisos para ver vehículos de otro usuario.'));
             exit;
         }
-        $clause .= " AND {$alias}.usuario_id = ?";
+        $clause .= " AND ({$alias}.usuario_id = ? OR {$alias}.parque_id IN (SELECT pu2.parque_id FROM `veh_parque_usuarios` pu2 INNER JOIN `veh_parques` pq2 ON pq2.id = pu2.parque_id AND pq2.activo = 1 WHERE pu2.usuario_id = ? AND pu2.activo = 1))";
+        $params[] = $filterUsuarioId;
         $params[] = $filterUsuarioId;
     }
 
