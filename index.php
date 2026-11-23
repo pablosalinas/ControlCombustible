@@ -863,6 +863,47 @@
     </div>
 </div>
 
+<!-- MODAL ENTRENADOR VISUAL DE ZONAS OCR -->
+<div class="modal-backdrop" id="ocr-trainer-modal">
+    <div class="modal-content" style="max-width:860px; padding:1rem; max-height:94vh; overflow-y:auto;">
+        <div class="card-header" style="margin-bottom:0.5rem;">
+            <div class="card-title" id="ocr-trainer-title"><i class="fa-solid fa-crop-simple" style="color:var(--primary)"></i> Entrenar / Ajustar Zonas OCR</div>
+            <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closeOcrTrainerModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div style="font-size:0.78rem; color:var(--muted); margin-bottom:0.6rem;">
+            Selecciona un campo abajo y arrastra con el ratón o el dedo sobre la imagen para marcar la zona exacta donde aparece ese dato.
+        </div>
+        <div id="ocr-trainer-fields" style="display:flex; flex-wrap:wrap; gap:0.35rem; margin-bottom:0.65rem;"></div>
+        <div style="display:grid; grid-template-columns:1.25fr 1fr; gap:0.75rem; align-items:start;">
+            <div style="background:#0f172a; border-radius:10px; padding:0.4rem; text-align:center; overflow:auto; max-height:58vh;">
+                <canvas id="ocr-trainer-canvas" style="max-width:100%; cursor:crosshair; touch-action:none; border-radius:6px;"></canvas>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:0.55rem;">
+                <div style="display:flex; gap:0.35rem; align-items:center;">
+                    <select id="ocr-trainer-template-select" class="form-control" style="font-size:0.78rem; padding:0.35rem 0.5rem;" onchange="applySelectedTemplateInTrainer()">
+                        <option value="">-- Cargar formato guardado --</option>
+                    </select>
+                </div>
+                <div id="ocr-trainer-results" style="display:flex; flex-direction:column; gap:0.4rem;"></div>
+                <div style="border-top:1px solid var(--border); padding-top:0.5rem; margin-top:0.2rem;">
+                    <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.78rem; font-weight:600; cursor:pointer; margin-bottom:0.35rem;">
+                        <input type="checkbox" id="ocr-trainer-save-tpl" checked>
+                        <span>Guardar formato para futuras ocasiones</span>
+                    </label>
+                    <input type="text" id="ocr-trainer-tpl-name" class="form-control" style="font-size:0.8rem; padding:0.4rem 0.55rem;" placeholder="Nombre del formato (ej: Coop. Moratalla, Solred...)">
+                </div>
+                <div id="ocr-trainer-status" style="font-size:0.76rem; color:#0369a1; min-height:1.1rem;"></div>
+                <div style="display:flex; gap:0.45rem; justify-content:flex-end; flex-wrap:wrap;">
+                    <button type="button" class="btn btn-outline" style="padding:0.45rem 0.75rem; font-size:0.82rem;" onclick="closeOcrTrainerModal()">Cancelar</button>
+                    <button type="button" class="btn btn-primary" style="padding:0.45rem 0.85rem; font-size:0.82rem;" onclick="applyAndSaveOcrTrainer()">
+                        <i class="fa-solid fa-check"></i> Aplicar datos
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- MODAL GESTIÓN DE VEHÍCULOS -->
 <div class="modal-backdrop" id="vehicles-modal">
     <div class="modal-content">
@@ -2194,6 +2235,7 @@ function renderRepostajePhotosPreview() {
                 <div style="display:flex; gap:0.45rem; margin-top:0.2rem; flex-wrap:wrap;">
                     <a href="javascript:void(0)" onclick="openPhotoLightbox('${s.path}', '${s.title}')" style="color:var(--primary); font-weight:600;">Ver</a>
                     <a href="javascript:void(0)" onclick="reprocessRepostajePhoto('${s.tipo}')" style="color:#0284c7; font-weight:600;">Reprocesar OCR</a>
+                    <a href="javascript:void(0)" onclick="openOcrTrainerModal('${s.tipo}')" style="color:#7c3aed; font-weight:600;">Ajustar zonas</a>
                     <a href="javascript:void(0)" onclick="removeRepostajePhoto('${s.tipo}')" style="color:var(--danger);">Quitar</a>
                 </div>
             </div>
@@ -2698,6 +2740,379 @@ async function preprocessImageForOcr(file) {
     }
 }
 
+// =========================================================
+// ENTRENADOR VISUAL OCR POR ZONAS Y RE-APLICACIÓN DE FORMATOS
+// =========================================================
+const OCR_TRAINER_FIELDS = {
+    factura: [
+        { key: 'estacion', label: 'Estación de servicio', color: '#0f766e' },
+        { key: 'fecha', label: 'Fecha', color: '#2563eb' },
+        { key: 'litros', label: 'Litros', color: '#7c3aed' },
+        { key: 'precio_litro', label: 'Precio / L', color: '#d97706' },
+        { key: 'importe_total', label: 'Importe Total', color: '#dc2626' }
+    ],
+    surtidor: [
+        { key: 'litros', label: 'Litros', color: '#7c3aed' },
+        { key: 'precio_litro', label: 'Precio / L', color: '#d97706' },
+        { key: 'importe_total', label: 'Importe Total', color: '#dc2626' }
+    ],
+    odometro: [
+        { key: 'km_odometro', label: 'Kilómetros', color: '#dc2626' }
+    ]
+};
+
+let ocrTrainerState = {
+    tipo: 'factura',
+    img: null,
+    activeField: 'estacion',
+    zones: {},
+    values: {},
+    drawing: false,
+    startX: 0,
+    startY: 0,
+    currX: 0,
+    currY: 0,
+    fullOcrText: ''
+};
+
+async function ocrCropFromImage(img, normBox, lang = 'spa') {
+    const sx = Math.max(0, Math.round(normBox.x * img.width));
+    const sy = Math.max(0, Math.round(normBox.y * img.height));
+    const sw = Math.max(12, Math.round(normBox.w * img.width));
+    const sh = Math.max(12, Math.round(normBox.h * img.height));
+    const scale = Math.min(3, Math.max(1.5, 320 / Math.max(1, sh)));
+    const cw = Math.round(sw * scale);
+    const ch = Math.round(sh * scale);
+    const c = document.createElement('canvas');
+    c.width = cw;
+    c.height = ch;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
+    const imgData = ctx.getImageData(0, 0, cw, ch);
+    const d = imgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+        const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        const v = Math.max(0, Math.min(255, (gray - 128) * 1.55 + 128));
+        d[i] = d[i + 1] = d[i + 2] = v;
+    }
+    ctx.putImageData(imgData, 0, 0);
+    const blob = await new Promise(res => c.toBlob(b => res(b), 'image/png'));
+    const res = await Tesseract.recognize(blob, lang);
+    return (res.data.text || '').trim();
+}
+
+function parseTrainerFieldValue(fieldKey, rawText) {
+    const clean = String(rawText || '').replace(/(\d)\s*([,\.'’])\s*(\d)/g, '$1$2$3').replace(/(\d)['’](\d)/g, '$1.$2').trim();
+    if (fieldKey === 'estacion') {
+        return clean.split(/\r?\n/).map(s => s.trim()).filter(Boolean).join(' ').slice(0, 90);
+    }
+    if (fieldKey === 'fecha') {
+        const m4 = clean.match(/(\d{2})\s*[\/\-\.]\s*(\d{2})\s*[\/\-\.]\s*(20\d{2})/);
+        if (m4) return `${m4[3]}-${m4[2]}-${m4[1]}`;
+        const m2 = clean.match(/(\d{2})\s*[\/\-\.]\s*(\d{2})\s*[\/\-\.]\s*(\d{2})\b/);
+        if (m2) return `20${m2[3]}-${m2[2]}-${m2[1]}`;
+        return clean;
+    }
+    if (fieldKey === 'km_odometro') {
+        const compact = clean.replace(/[\.\,\s]/g, '');
+        const m = compact.match(/\d{3,7}/);
+        return m ? m[0] : '';
+    }
+    // litros, precio_litro, importe_total
+    const mDec = clean.match(/(\d{1,4}[,\.]\d{1,3})/);
+    if (mDec) return String(parseLocalizedNumber(mDec[1]));
+    const mSp = clean.match(/(\d{1,3})\s+(\d{2,3})/);
+    if (mSp) return `${mSp[1]}.${mSp[2]}`;
+    const mInt = clean.match(/(\d{1,4})/);
+    if (mInt) {
+        const v = parseInt(mInt[1], 10);
+        if (fieldKey === 'precio_litro' && v >= 750 && v <= 3000) return (v / 1000).toFixed(3);
+        if (fieldKey === 'precio_litro' && v >= 75 && v <= 300) return (v / 100).toFixed(3);
+        return String(v);
+    }
+    return '';
+}
+
+function drawOcrTrainerCanvas() {
+    const canvas = document.getElementById('ocr-trainer-canvas');
+    const img = ocrTrainerState.img;
+    if (!canvas || !img) return;
+    const maxW = 500;
+    const scale = Math.min(1, maxW / (img.width || 1));
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    const fields = OCR_TRAINER_FIELDS[ocrTrainerState.tipo] || [];
+    for (const f of fields) {
+        const z = ocrTrainerState.zones[f.key];
+        if (!z) continue;
+        const x = z.x * canvas.width;
+        const y = z.y * canvas.height;
+        const w = z.w * canvas.width;
+        const h = z.h * canvas.height;
+        ctx.strokeStyle = f.color;
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(x, y, w, h);
+        ctx.fillStyle = f.color;
+        ctx.fillRect(x, Math.max(0, y - 16), Math.min(canvas.width - x, 110), 16);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 11px Inter, sans-serif';
+        ctx.fillText(f.label, x + 4, Math.max(12, y - 4));
+    }
+
+    if (ocrTrainerState.drawing) {
+        const rx = Math.min(ocrTrainerState.startX, ocrTrainerState.currX);
+        const ry = Math.min(ocrTrainerState.startY, ocrTrainerState.currY);
+        const rw = Math.abs(ocrTrainerState.currX - ocrTrainerState.startX);
+        const rh = Math.abs(ocrTrainerState.currY - ocrTrainerState.startY);
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 3]);
+        ctx.strokeRect(rx, ry, rw, rh);
+        ctx.setLineDash([]);
+    }
+}
+
+function renderOcrTrainerUI() {
+    const fields = OCR_TRAINER_FIELDS[ocrTrainerState.tipo] || [];
+    const fieldsBox = document.getElementById('ocr-trainer-fields');
+    fieldsBox.innerHTML = fields.map(f => {
+        const active = ocrTrainerState.activeField === f.key;
+        const hasZ = !!ocrTrainerState.zones[f.key];
+        return `<button type="button" class="btn ${active ? 'btn-primary' : 'btn-outline'}" style="padding:0.3rem 0.6rem; font-size:0.76rem; border-color:${f.color};" onclick="ocrTrainerState.activeField='${f.key}'; renderOcrTrainerUI();">
+            ${hasZ ? '✓ ' : ''}${f.label}
+        </button>`;
+    }).join('');
+
+    const resBox = document.getElementById('ocr-trainer-results');
+    resBox.innerHTML = fields.map(f => `
+        <div style="display:flex; flex-direction:column; gap:0.15rem;">
+            <label style="font-size:0.72rem; font-weight:700; color:${f.color};">${f.label}</label>
+            <input type="text" class="form-control" style="padding:0.35rem 0.5rem; font-size:0.8rem;" value="${String(ocrTrainerState.values[f.key] || '').replace(/"/g, '&quot;')}" onchange="ocrTrainerState.values['${f.key}']=this.value">
+        </div>
+    `).join('');
+
+    drawOcrTrainerCanvas();
+}
+
+async function openOcrTrainerModal(tipo) {
+    const normTipo = tipo === 'ticket' ? 'factura' : tipo;
+    const inputId = normTipo === 'odometro'
+        ? 'rep-foto-odometro'
+        : (normTipo === 'surtidor' ? 'rep-foto-surtidor' : 'rep-foto-ticket');
+    const path = document.getElementById(inputId).value;
+    if (!path) return;
+
+    const fields = OCR_TRAINER_FIELDS[normTipo] || OCR_TRAINER_FIELDS.factura;
+    ocrTrainerState = {
+        tipo: normTipo,
+        img: null,
+        activeField: fields[0].key,
+        zones: {},
+        values: {
+            estacion: document.getElementById('rep-estacion')?.value || '',
+            fecha: document.getElementById('rep-fecha')?.value || '',
+            litros: document.getElementById('rep-litros')?.value || '',
+            precio_litro: document.getElementById('rep-precio')?.value || '',
+            importe_total: document.getElementById('rep-importe')?.value || '',
+            km_odometro: document.getElementById('rep-km')?.value || ''
+        },
+        drawing: false,
+        startX: 0, startY: 0, currX: 0, currY: 0,
+        fullOcrText: ''
+    };
+
+    const tplSel = document.getElementById('ocr-trainer-template-select');
+    const tpls = (currentData.ocr_templates || []).filter(t => t.tipo === normTipo);
+    tplSel.innerHTML = '<option value="">-- Cargar formato guardado --</option>' +
+        tpls.map(t => `<option value="${t.id}">${t.nombre_formato}</option>`).join('');
+    document.getElementById('ocr-trainer-tpl-name').value = ocrTrainerState.values.estacion || '';
+    document.getElementById('ocr-trainer-status').textContent = 'Cargando imagen...';
+    document.getElementById('ocr-trainer-modal').classList.add('active');
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+        ocrTrainerState.img = img;
+        document.getElementById('ocr-trainer-status').textContent = 'Listo. Selecciona un campo y dibuja el recuadro.';
+        renderOcrTrainerUI();
+    };
+    img.src = path;
+}
+
+function closeOcrTrainerModal() {
+    document.getElementById('ocr-trainer-modal').classList.remove('active');
+}
+
+async function applySelectedTemplateInTrainer() {
+    const id = parseInt(document.getElementById('ocr-trainer-template-select').value || '0', 10);
+    if (!id || !ocrTrainerState.img) return;
+    const tpl = (currentData.ocr_templates || []).find(t => Number(t.id) === id);
+    if (!tpl) return;
+    let zones = {};
+    try { zones = JSON.parse(tpl.zones_json || '{}'); } catch (_) {}
+    ocrTrainerState.zones = zones;
+    document.getElementById('ocr-trainer-tpl-name').value = tpl.nombre_formato || '';
+    document.getElementById('ocr-trainer-status').textContent = 'Leyendo zonas de la plantilla...';
+    renderOcrTrainerUI();
+    const lang = ocrTrainerState.tipo === 'factura' ? 'spa' : 'eng';
+    for (const [key, z] of Object.entries(zones)) {
+        const raw = await ocrCropFromImage(ocrTrainerState.img, z, lang);
+        const val = parseTrainerFieldValue(key, raw);
+        if (val) ocrTrainerState.values[key] = val;
+    }
+    document.getElementById('ocr-trainer-status').textContent = '✅ Zonas de plantilla leídas.';
+    renderOcrTrainerUI();
+}
+
+async function applyAndSaveOcrTrainer() {
+    const v = ocrTrainerState.values;
+    if (ocrTrainerState.tipo === 'odometro') {
+        if (v.km_odometro) {
+            document.getElementById('rep-km').value = v.km_odometro;
+            updateParcialKmPreview();
+        }
+    } else {
+        if (v.fecha && /^\d{4}-\d{2}-\d{2}$/.test(v.fecha)) document.getElementById('rep-fecha').value = v.fecha;
+        if (v.litros) document.getElementById('rep-litros').value = Number(String(v.litros).replace(',', '.')).toFixed(2);
+        if (v.precio_litro) document.getElementById('rep-precio').value = Number(String(v.precio_litro).replace(',', '.')).toFixed(3);
+        if (v.importe_total) document.getElementById('rep-importe').value = Number(String(v.importe_total).replace(',', '.')).toFixed(2);
+        if (v.estacion) {
+            matchOrOfferStation({ nombre: v.estacion, marca: v.estacion, localidad: '', direccion: '', cif: '' });
+            const detName = document.getElementById('det-est-nombre');
+            if (detName) detName.value = v.estacion;
+        }
+    }
+
+    const shouldSave = document.getElementById('ocr-trainer-save-tpl').checked;
+    const tplName = (document.getElementById('ocr-trainer-tpl-name').value || v.estacion || `Formato ${ocrTrainerState.tipo}`).trim();
+    if (shouldSave && Object.keys(ocrTrainerState.zones).length > 0 && tplName) {
+        const keywords = [];
+        if (v.estacion) {
+            v.estacion.split(/\s+/).filter(w => w.length >= 4).slice(0, 4).forEach(w => keywords.push(w.toUpperCase()));
+        }
+        const res = await apiCall('save_ocr_template', {
+            tipo: ocrTrainerState.tipo,
+            nombre_formato: tplName,
+            keywords_json: keywords,
+            zones_json: ocrTrainerState.zones
+        });
+        if (res && res.success) {
+            currentData.ocr_templates = currentData.ocr_templates || [];
+            currentData.ocr_templates.unshift({
+                id: res.template_id,
+                tipo: ocrTrainerState.tipo,
+                nombre_formato: tplName,
+                keywords_json: JSON.stringify(keywords),
+                zones_json: JSON.stringify(ocrTrainerState.zones)
+            });
+        }
+    }
+    closeOcrTrainerModal();
+}
+
+(function initOcrTrainerCanvasEvents() {
+    const canvas = document.getElementById('ocr-trainer-canvas');
+    if (!canvas) return;
+    const getPos = (ev) => {
+        const rect = canvas.getBoundingClientRect();
+        const sx = canvas.width / Math.max(1, rect.width);
+        const sy = canvas.height / Math.max(1, rect.height);
+        return { x: (ev.clientX - rect.left) * sx, y: (ev.clientY - rect.top) * sy };
+    };
+    canvas.addEventListener('pointerdown', (ev) => {
+        if (!ocrTrainerState.img) return;
+        canvas.setPointerCapture(ev.pointerId);
+        const p = getPos(ev);
+        ocrTrainerState.drawing = true;
+        ocrTrainerState.startX = ocrTrainerState.currX = p.x;
+        ocrTrainerState.startY = ocrTrainerState.currY = p.y;
+        drawOcrTrainerCanvas();
+    });
+    canvas.addEventListener('pointermove', (ev) => {
+        if (!ocrTrainerState.drawing) return;
+        const p = getPos(ev);
+        ocrTrainerState.currX = p.x;
+        ocrTrainerState.currY = p.y;
+        drawOcrTrainerCanvas();
+    });
+    canvas.addEventListener('pointerup', async () => {
+        if (!ocrTrainerState.drawing) return;
+        ocrTrainerState.drawing = false;
+        const rx = Math.min(ocrTrainerState.startX, ocrTrainerState.currX);
+        const ry = Math.min(ocrTrainerState.startY, ocrTrainerState.currY);
+        const rw = Math.abs(ocrTrainerState.currX - ocrTrainerState.startX);
+        const rh = Math.abs(ocrTrainerState.currY - ocrTrainerState.startY);
+        if (rw < 8 || rh < 8) {
+            drawOcrTrainerCanvas();
+            return;
+        }
+        const normBox = {
+            x: rx / canvas.width,
+            y: ry / canvas.height,
+            w: rw / canvas.width,
+            h: rh / canvas.height
+        };
+        const fieldKey = ocrTrainerState.activeField;
+        ocrTrainerState.zones[fieldKey] = normBox;
+        document.getElementById('ocr-trainer-status').textContent = `Leyendo ${fieldKey}...`;
+        drawOcrTrainerCanvas();
+
+        const lang = ocrTrainerState.tipo === 'factura' ? 'spa' : 'eng';
+        const raw = await ocrCropFromImage(ocrTrainerState.img, normBox, lang);
+        const parsed = parseTrainerFieldValue(fieldKey, raw);
+        ocrTrainerState.values[fieldKey] = parsed || raw;
+        if (fieldKey === 'estacion' && parsed && !document.getElementById('ocr-trainer-tpl-name').value) {
+            document.getElementById('ocr-trainer-tpl-name').value = parsed;
+        }
+        document.getElementById('ocr-trainer-status').textContent = `Detectado: "${ocrTrainerState.values[fieldKey]}"`;
+
+        // Avanzar automáticamente al siguiente campo sin marcar
+        const fields = OCR_TRAINER_FIELDS[ocrTrainerState.tipo] || [];
+        const next = fields.find(f => !ocrTrainerState.zones[f.key]);
+        if (next) ocrTrainerState.activeField = next.key;
+        renderOcrTrainerUI();
+    });
+})();
+
+async function tryApplyMatchingOcrTemplate(file, tipo, fullText) {
+    const tpls = (currentData.ocr_templates || []).filter(t => t.tipo === tipo);
+    if (tpls.length === 0) return null;
+    const upperText = String(fullText || '').toUpperCase();
+    let matchedTpl = null;
+    for (const tpl of tpls) {
+        let kws = [];
+        try { kws = JSON.parse(tpl.keywords_json || '[]'); } catch (_) {}
+        if (Array.isArray(kws) && kws.length > 0 && kws.some(k => upperText.includes(String(k).toUpperCase()))) {
+            matchedTpl = tpl;
+            break;
+        }
+    }
+    if (!matchedTpl) return null;
+    let zones = {};
+    try { zones = JSON.parse(matchedTpl.zones_json || '{}'); } catch (_) {}
+    if (Object.keys(zones).length === 0) return null;
+
+    const url = URL.createObjectURL(file);
+    const img = await new Promise((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = reject;
+        i.src = url;
+    });
+    URL.revokeObjectURL(url);
+    const lang = tipo === 'factura' ? 'spa' : 'eng';
+    const out = { template_name: matchedTpl.nombre_formato };
+    for (const [k, z] of Object.entries(zones)) {
+        const raw = await ocrCropFromImage(img, z, lang);
+        const val = parseTrainerFieldValue(k, raw);
+        if (val) out[k] = val;
+    }
+    return out;
+}
+
 async function runFuelOcrOnFile(file, modo) {
     const status = document.getElementById('ocr-status');
     let extracted = await tryGeminiExtract(file, modo);
@@ -2710,6 +3125,15 @@ async function runFuelOcrOnFile(file, modo) {
         const result = await Tesseract.recognize(ocrInput, lang);
         const text = result.data.text || '';
         extracted = (modo === 'surtidor') ? parsePumpDisplayText(text) : parseFuelInvoiceText(text);
+        const tplData = await tryApplyMatchingOcrTemplate(file, modo === 'surtidor' ? 'surtidor' : 'factura', text);
+        if (tplData) {
+            engineLabel = `Plantilla (${tplData.template_name})`;
+            if (tplData.fecha && /^\d{4}-\d{2}-\d{2}$/.test(tplData.fecha)) extracted.fecha = tplData.fecha;
+            if (tplData.litros) extracted.litros = parseFloat(tplData.litros);
+            if (tplData.precio_litro) extracted.precio_litro = parseFloat(tplData.precio_litro);
+            if (tplData.importe_total) extracted.importe_total = parseFloat(tplData.importe_total);
+            if (tplData.estacion) extracted.estacion = { nombre: tplData.estacion, marca: tplData.estacion, localidad: '', direccion: '', cif: '' };
+        }
     }
 
     if (extracted.fecha) {
@@ -2741,8 +3165,14 @@ async function runOdometerOcrOnFile(file) {
     if (gem && gem.km_odometro) {
         km = gem.km_odometro;
     } else {
-        const result = await Tesseract.recognize(file, 'eng');
-        km = parseOdometerText(result.data.text || '');
+        const ocrInput = await preprocessImageForOcr(file);
+        const result = await Tesseract.recognize(ocrInput, 'eng');
+        const text = result.data.text || '';
+        km = parseOdometerText(text);
+        const tplData = await tryApplyMatchingOcrTemplate(file, 'odometro', text);
+        if (tplData && tplData.km_odometro) {
+            km = tplData.km_odometro;
+        }
     }
 
     if (km) {

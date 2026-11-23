@@ -278,6 +278,31 @@ function ensureRepostajeRemolqueColumn(PDO $pdo) {
 }
 
 /**
+ * Garantiza de forma aditiva la tabla `veh_ocr_templates` para plantillas de zonas OCR aprendidas.
+ */
+function ensureOcrTemplatesTable(PDO $pdo) {
+    static $checked = false;
+    if ($checked) return;
+    $checked = true;
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS `veh_ocr_templates` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `usuario_id` INT NOT NULL,
+                `tipo` VARCHAR(20) NOT NULL DEFAULT 'factura',
+                `nombre_formato` VARCHAR(120) NOT NULL,
+                `keywords_json` TEXT NULL,
+                `zones_json` TEXT NOT NULL,
+                `activo` TINYINT(1) NOT NULL DEFAULT 1,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+    } catch (Exception $e) {
+        // Ignorar si no tiene permisos CREATE
+    }
+}
+
+/**
  * Autenticación contra la tabla `users` de Moratalla-Murcia-2026 (SOLO LECTURA)
  * utilizando el sistema de roles (`admin` tiene visión global de todos los vehículos;
  * otros roles gestionan únicamente sus propios vehículos).
@@ -951,6 +976,7 @@ try {
         case 'list_repostajes':
             ensureRepostajeFotoSurtidorColumn($pdo);
             ensureRepostajeRemolqueColumn($pdo);
+            ensureOcrTemplatesTable($pdo);
             $vehiculoId      = isset($_GET['vehiculo_id']) ? (int)$_GET['vehiculo_id'] : (int)arr_get($jsonBody, 'vehiculo_id', 0);
             $filterUsuarioId = isset($_GET['filter_usuario_id']) ? (int)$_GET['filter_usuario_id'] : (int)arr_get($jsonBody, 'filter_usuario_id', 0);
             $filterParqueId  = isset($_GET['filter_parque_id']) ? (int)$_GET['filter_parque_id'] : (int)arr_get($jsonBody, 'filter_parque_id', 0);
@@ -1112,6 +1138,7 @@ try {
                 'resumen'                  => $resumen,
                 'resumen_por_vehiculo'     => empty($resumenPorVehiculo) ? new stdClass() : $resumenPorVehiculo,
                 'repostajes'               => $repostajesCalculados,
+                'ocr_templates'            => $pdo->query("SELECT id, usuario_id, tipo, nombre_formato, keywords_json, zones_json, created_at FROM `veh_ocr_templates` WHERE activo = 1 ORDER BY id DESC")->fetchAll(),
             ));
             break;
 
@@ -2509,6 +2536,63 @@ try {
                 'deleted' => $deleted,
                 'message' => "Borrado definitivo completado ($deleted registros eliminados de la base de datos).",
             ));
+            break;
+
+        case 'list_ocr_templates':
+            ensureOcrTemplatesTable($pdo);
+            $tipo = trim((string)(isset($_GET['tipo']) ? $_GET['tipo'] : arr_get($jsonBody, 'tipo', '')));
+            if ($tipo !== '') {
+                $stmtT = $pdo->prepare("SELECT id, usuario_id, tipo, nombre_formato, keywords_json, zones_json, created_at FROM `veh_ocr_templates` WHERE activo = 1 AND tipo = ? ORDER BY id DESC");
+                $stmtT->execute(array($tipo));
+            } else {
+                $stmtT = $pdo->query("SELECT id, usuario_id, tipo, nombre_formato, keywords_json, zones_json, created_at FROM `veh_ocr_templates` WHERE activo = 1 ORDER BY id DESC");
+            }
+            echo json_encode(array(
+                'success'   => true,
+                'templates' => $stmtT ? $stmtT->fetchAll() : array(),
+            ));
+            break;
+
+        case 'save_ocr_template':
+            ensureOcrTemplatesTable($pdo);
+            $id            = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            $tipo          = trim((string)arr_get($jsonBody, 'tipo', isset($_POST['tipo']) ? $_POST['tipo'] : 'factura'));
+            if (!in_array($tipo, array('factura', 'surtidor', 'odometro'), true)) $tipo = 'factura';
+            $nombreFormato = trim((string)arr_get($jsonBody, 'nombre_formato', isset($_POST['nombre_formato']) ? $_POST['nombre_formato'] : ''));
+            $keywordsJson  = arr_get($jsonBody, 'keywords_json', isset($_POST['keywords_json']) ? $_POST['keywords_json'] : '[]');
+            $zonesJson     = arr_get($jsonBody, 'zones_json', isset($_POST['zones_json']) ? $_POST['zones_json'] : '{}');
+            if (is_array($keywordsJson)) $keywordsJson = json_encode($keywordsJson);
+            if (is_array($zonesJson)) $zonesJson = json_encode($zonesJson);
+
+            if ($nombreFormato === '') {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'El nombre del formato es obligatorio.'));
+                exit;
+            }
+            if ($id > 0) {
+                $stmtT = $pdo->prepare("UPDATE `veh_ocr_templates` SET tipo = ?, nombre_formato = ?, keywords_json = ?, zones_json = ? WHERE id = ? AND activo = 1");
+                $stmtT->execute(array($tipo, $nombreFormato, $keywordsJson, $zonesJson, $id));
+                $savedId = $id;
+            } else {
+                $stmtT = $pdo->prepare("INSERT INTO `veh_ocr_templates` (usuario_id, tipo, nombre_formato, keywords_json, zones_json, activo) VALUES (?, ?, ?, ?, ?, 1)");
+                $stmtT->execute(array($userId, $tipo, $nombreFormato, $keywordsJson, $zonesJson));
+                $savedId = (int)$pdo->lastInsertId();
+            }
+            echo json_encode(array(
+                'success'     => true,
+                'template_id' => $savedId,
+                'message'     => 'Formato OCR guardado correctamente para futuras ocasiones.',
+            ));
+            break;
+
+        case 'deactivate_ocr_template':
+            ensureOcrTemplatesTable($pdo);
+            $id = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            if ($id > 0) {
+                $stmtT = $pdo->prepare("UPDATE `veh_ocr_templates` SET activo = 0 WHERE id = ?");
+                $stmtT->execute(array($id));
+            }
+            echo json_encode(array('success' => true, 'message' => 'Plantilla OCR desactivada.'));
             break;
 
         default:
