@@ -2376,7 +2376,9 @@ function extractStationFromText(text) {
 }
 
 function parseFuelInvoiceText(text) {
-    const normText = String(text || '').replace(/(\d)\s*([,\.])\s*(\d)/g, '$1$2$3');
+    const normText = String(text || '')
+        .replace(/(\d)\s*([,\.'’])\s*(\d)/g, '$1$2$3')
+        .replace(/(\d)['’](\d)/g, '$1.$2');
     const lines = normText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 
     // 1. Fecha (priorizar año 4 dígitos y línea FECHA, evitar VENCIMIENTO)
@@ -2447,10 +2449,21 @@ function parseFuelInvoiceText(text) {
                 if (val >= 0.75 && val <= 3.00) priceCandidates.push(val);
             }
         }
-        // Si un precio de 3 decimales (ej. 1655 -> 1.655) perdió el punto en OCR
+        // Si un precio de 3 decimales (ej. 1655 -> 1.655 o "1 753" -> 1.753) perdió el punto en OCR
         for (const m of l.matchAll(/\b(1\d{3}|2\d{3})\b/g)) {
             const p = parseInt(m[1], 10) / 1000;
             if (p >= 0.80 && p <= 2.999) priceCandidates.push(p);
+        }
+        for (const m of l.matchAll(/\b([12])\s+(\d{3})\b/g)) {
+            const p = parseFloat(`${m[1]}.${m[2]}`);
+            if (p >= 0.80 && p <= 2.999) priceCandidates.push(p);
+        }
+        // Si litros/importe perdió la coma en tipografía matricial (ej. "51 34" -> 51.34)
+        if (/\b(LITROS|CANT|IMPORTE|SUMINISTRADO|TOTAL)\b/i.test(l) || l.match(/^\d{2}\s+\d{2}$/)) {
+            for (const m of l.matchAll(/\b(\d{2,3})\s+(\d{2})\b/g)) {
+                const v = parseFloat(`${m[1]}.${m[2]}`);
+                if (!isNaN(v) && v >= 2 && v <= 500) candidateNums.push(v);
+            }
         }
         if (!/(SURT|POL|N\.|CP|HORA|FECHA)/i.test(l)) {
             const cleaned = l.replace(dateRegex, ' ').replace(/(\d{1,4}[,\.]\d{1,3})/g, ' ');
@@ -2651,6 +2664,40 @@ async function createAndSelectDetectedStation() {
     }
 }
 
+async function preprocessImageForOcr(file) {
+    try {
+        const url = URL.createObjectURL(file);
+        const img = await new Promise((resolve, reject) => {
+            const i = new Image();
+            i.onload = () => resolve(i);
+            i.onerror = reject;
+            i.src = url;
+        });
+        URL.revokeObjectURL(url);
+        const maxDim = 1800;
+        const scale = Math.min(1.5, maxDim / Math.max(img.width || 1, img.height || 1));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        const imgData = ctx.getImageData(0, 0, w, h);
+        const d = imgData.data;
+        // Escala de grises + aumento de contraste para tipografía matricial / térmica
+        for (let i = 0; i < d.length; i += 4) {
+            const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+            const c = Math.max(0, Math.min(255, (gray - 128) * 1.45 + 128));
+            d[i] = d[i + 1] = d[i + 2] = c;
+        }
+        ctx.putImageData(imgData, 0, 0);
+        return await new Promise((res) => canvas.toBlob(b => res(b || file), 'image/png'));
+    } catch (_) {
+        return file;
+    }
+}
+
 async function runFuelOcrOnFile(file, modo) {
     const status = document.getElementById('ocr-status');
     let extracted = await tryGeminiExtract(file, modo);
@@ -2659,7 +2706,8 @@ async function runFuelOcrOnFile(file, modo) {
     if (!extracted) {
         engineLabel = 'OCR';
         const lang = modo === 'surtidor' ? 'eng' : 'spa';
-        const result = await Tesseract.recognize(file, lang);
+        const ocrInput = await preprocessImageForOcr(file);
+        const result = await Tesseract.recognize(ocrInput, lang);
         const text = result.data.text || '';
         extracted = (modo === 'surtidor') ? parsePumpDisplayText(text) : parseFuelInvoiceText(text);
     }

@@ -64,11 +64,10 @@ class OcrService {
     try {
       final RecognizedText recognized = await recognizer.processImage(inputImage);
       final String rawText = recognized.text;
-      // Normalizar espacios alrededor de comas/puntos decimales (ej. "35. 31" -> "35.31")
-      final String text = rawText.replaceAllMapped(
-        RegExp(r'(\d)\s*([,\.])\s*(\d)'),
-        (m) => '${m.group(1)}${m.group(2)}${m.group(3)}',
-      );
+      // Normalizar espacios alrededor de comas/puntos decimales (ej. "35. 31" -> "35.31") y apóstrofos
+      final String text = rawText
+          .replaceAllMapped(RegExp(r"(\d)\s*([,\.'’])\s*(\d)"), (m) => '${m.group(1)}${m.group(2)}${m.group(3)}')
+          .replaceAllMapped(RegExp(r"(\d)['’](\d)"), (m) => '${m.group(1)}.${m.group(2)}');
 
       // 1. Extraer Fecha (priorizando años de 4 dígitos 20xx y línea FECHA, evitando VENCIMIENTO)
       String? detectedDate;
@@ -179,6 +178,17 @@ class OcrService {
           for (final m in RegExp(r'\b(1\d{3}|2\d{3})\b').allMatches(line)) {
             final p = int.parse(m.group(1)!) / 1000.0;
             if (p >= 0.80 && p <= 2.999) priceCandidates.add(p);
+          }
+          for (final m in RegExp(r'\b([12])\s+(\d{3})\b').allMatches(line)) {
+            final p = double.tryParse('${m.group(1)}.${m.group(2)}');
+            if (p != null && p >= 0.80 && p <= 2.999) priceCandidates.add(p);
+          }
+          if (RegExp(r'\b(LITROS|CANT|IMPORTE|SUMINISTRADO|TOTAL)\b', caseSensitive: false).hasMatch(line) ||
+              RegExp(r'^\d{2}\s+\d{2}$').hasMatch(line)) {
+            for (final m in RegExp(r'\b(\d{2,3})\s+(\d{2})\b').allMatches(line)) {
+              final v = double.tryParse('${m.group(1)}.${m.group(2)}');
+              if (v != null && v >= 2 && v <= 500) list.add(v);
+            }
           }
           // También aceptar enteros 2..500 como posibles litros si no es fecha/código postal/surtidor
           if (applyFilter && !RegExp(r'(SURT|POL|N\.|CP|HORA|FECHA)', caseSensitive: false).hasMatch(line)) {
