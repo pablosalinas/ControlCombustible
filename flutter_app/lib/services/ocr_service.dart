@@ -25,6 +25,8 @@ class TicketScanResult {
   final DetectedStation? estacion;
   final String? imagePath;
   final String rawText;
+  final bool isReliable;
+  final int confidencePct;
 
   TicketScanResult({
     this.fecha,
@@ -34,6 +36,8 @@ class TicketScanResult {
     this.estacion,
     this.imagePath,
     required this.rawText,
+    this.isReliable = false,
+    this.confidencePct = 0,
   });
 }
 
@@ -41,8 +45,16 @@ class OdometerScanResult {
   final double? km;
   final String? imagePath;
   final String rawText;
+  final bool isReliable;
+  final int confidencePct;
 
-  OdometerScanResult({this.km, this.imagePath, this.rawText = ''});
+  OdometerScanResult({
+    this.km,
+    this.imagePath,
+    this.rawText = '',
+    this.isReliable = false,
+    this.confidencePct = 0,
+  });
 }
 
 class OcrService {
@@ -297,6 +309,21 @@ class OcrService {
 
       final DetectedStation? detectedStation = _extractStationFromText(text);
 
+      bool reliable = false;
+      int confPct = 55;
+      if (litros != null && precioLitro != null && importeTotal != null && litros! > 0 && precioLitro! > 0) {
+        final diff = (litros! * precioLitro! - importeTotal!).abs();
+        final tol = (importeTotal! * 0.005) > 0.05 ? (importeTotal! * 0.005) : 0.05;
+        if (diff <= tol && detectedDate != null) {
+          reliable = true;
+          confPct = diff <= 0.02 ? 98 : 95;
+        } else if (diff <= tol) {
+          confPct = 88;
+        } else {
+          confPct = 70;
+        }
+      }
+
       return TicketScanResult(
         fecha: detectedDate,
         litros: litros,
@@ -305,6 +332,8 @@ class OcrService {
         estacion: detectedStation,
         imagePath: imagePath,
         rawText: text,
+        isReliable: reliable,
+        confidencePct: confPct,
       );
     } finally {
       await recognizer.close();
@@ -475,12 +504,27 @@ class OcrService {
         }
       }
 
+      bool reliable = false;
+      int confPct = 55;
+      if (litros != null && precioLitro != null && importeTotal != null && litros! > 0 && precioLitro! > 0) {
+        final diff = (litros! * precioLitro! - importeTotal!).abs();
+        final tol = (importeTotal! * 0.005) > 0.05 ? (importeTotal! * 0.005) : 0.05;
+        if (diff <= tol) {
+          reliable = true;
+          confPct = diff <= 0.02 ? 98 : 95;
+        } else {
+          confPct = 75;
+        }
+      }
+
       return TicketScanResult(
         litros: litros,
         precioLitro: precioLitro,
         importeTotal: importeTotal,
         imagePath: imagePath,
         rawText: text,
+        isReliable: reliable,
+        confidencePct: confPct,
       );
     } finally {
       await recognizer.close();
@@ -549,11 +593,29 @@ class OcrService {
       }
 
       double? km;
+      bool reliable = false;
+      int confPct = 40;
       if (candidates.isNotEmpty) {
         candidates.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
         km = candidates.first['val'] as double;
+        final topScore = candidates.first['score'] as int;
+        final hasKmOrderOk = minExpectedKm == null || minExpectedKm <= 0 || km >= minExpectedKm;
+        if (topScore >= 90 && hasKmOrderOk) {
+          reliable = true;
+          confPct = 96;
+        } else if (hasKmOrderOk) {
+          confPct = 80;
+        } else {
+          confPct = 50;
+        }
       }
-      return OdometerScanResult(km: km, imagePath: imagePath, rawText: rawText);
+      return OdometerScanResult(
+        km: km,
+        imagePath: imagePath,
+        rawText: rawText,
+        isReliable: reliable,
+        confidencePct: confPct,
+      );
     } finally {
       await recognizer.close();
     }

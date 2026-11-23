@@ -2162,6 +2162,7 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
   late TextEditingController _notasCtrl;
   bool _saving = false;
   bool _ocrBusy = false;
+  bool _ocrReliable = true;
   String? _ocrMessage;
   String _lastOcrRawText = '';
 
@@ -2458,10 +2459,15 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
       if (res.precioLitro != null) _precioCtrl.text = res.precioLitro!.toStringAsFixed(3);
       if (res.importeTotal != null) _importeCtrl.text = res.importeTotal!.toStringAsFixed(2);
       _lastOcrRawText = res.rawText;
+      _ocrReliable = res.isReliable;
       final gotAny = res.fecha != null || res.litros != null || res.precioLitro != null || res.importeTotal != null || res.estacion != null;
-      _ocrMessage = gotAny
-          ? 'Datos extraídos de la factura/ticket. Revisa y confirma.'
-          : 'Foto guardada. No se pudieron leer todos los datos del ticket; puedes reprocesar o completarlos.';
+      if (!gotAny) {
+        _ocrMessage = '⚠️ Lectura no fiable (< 95% de acierto). No se pudieron leer los datos del ticket; reprocesa o complétalos manualmente.';
+      } else if (!res.isReliable) {
+        _ocrMessage = '⚠️ Lectura NO fiable (${res.confidencePct}% < 95% de acierto). Revisa los valores manualmente o reprocesa la foto.';
+      } else {
+        _ocrMessage = '✅ Lectura fiable (${res.confidencePct}%). Datos extraídos de la factura/ticket.';
+      }
     });
     if (res.estacion != null) {
       await _handleDetectedStation(res.estacion!);
@@ -2474,21 +2480,30 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
       if (res.precioLitro != null) _precioCtrl.text = res.precioLitro!.toStringAsFixed(3);
       if (res.importeTotal != null) _importeCtrl.text = res.importeTotal!.toStringAsFixed(2);
       _lastOcrRawText = res.rawText;
+      _ocrReliable = res.isReliable;
       final gotAny = res.litros != null || res.precioLitro != null || res.importeTotal != null;
-      _ocrMessage = gotAny
-          ? 'Datos extraídos del surtidor (precio/L, litros y total). Revisa y confirma.'
-          : 'Foto del surtidor guardada. No se pudieron leer todos los dígitos; puedes reprocesar o completarlos.';
+      if (!gotAny) {
+        _ocrMessage = '⚠️ Lectura no fiable (< 95% de acierto). No se pudieron leer los dígitos del surtidor.';
+      } else if (!res.isReliable) {
+        _ocrMessage = '⚠️ Lectura NO fiable (${res.confidencePct}% < 95% de acierto). Revisa precio/L, litros y total manualmente.';
+      } else {
+        _ocrMessage = '✅ Lectura fiable (${res.confidencePct}%). Datos extraídos del surtidor.';
+      }
     });
   }
 
   void _applyOdometerOcrResult(OdometerScanResult res) {
     setState(() {
       _lastOcrRawText = res.rawText;
+      _ocrReliable = res.isReliable;
       if (res.km == null) {
-        _ocrMessage = 'Foto guardada. No se detectaron dígitos claros en el cuentakilómetros.';
+        _ocrMessage = '⚠️ Lectura NO fiable (< 95% de acierto). No se detectaron dígitos claros en el cuentakilómetros.';
+      } else if (!res.isReliable) {
+        _kmCtrl.text = res.km!.toStringAsFixed(0);
+        _ocrMessage = '⚠️ Lectura NO fiable (${res.confidencePct}% < 95% de acierto): ${res.km!.toStringAsFixed(0)} km. Verifica el cuentakilómetros manualmente.';
       } else {
         _kmCtrl.text = res.km!.toStringAsFixed(0);
-        _ocrMessage = 'Kilometraje capturado: ${res.km!.toStringAsFixed(0)} km';
+        _ocrMessage = '✅ Lectura fiable (${res.confidencePct}%): ${res.km!.toStringAsFixed(0)} km';
       }
     });
   }
@@ -2964,7 +2979,10 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.teal.shade50,
+                color: _ocrReliable ? Colors.teal.shade50 : Colors.amber.shade50,
+                border: Border.all(
+                  color: _ocrReliable ? Colors.teal.shade200 : Colors.amber.shade400,
+                ),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(

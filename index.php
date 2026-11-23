@@ -3118,15 +3118,19 @@ async function runFuelOcrOnFile(file, modo) {
     let extracted = await tryGeminiExtract(file, modo);
     let engineLabel = 'IA Vision';
 
+    let ocrConf = 96;
+    let usedTemplate = false;
     if (!extracted) {
         engineLabel = 'OCR';
         const lang = modo === 'surtidor' ? 'eng' : 'spa';
         const ocrInput = await preprocessImageForOcr(file);
         const result = await Tesseract.recognize(ocrInput, lang);
         const text = result.data.text || '';
+        ocrConf = Number(result.data.confidence || 0);
         extracted = (modo === 'surtidor') ? parsePumpDisplayText(text) : parseFuelInvoiceText(text);
         const tplData = await tryApplyMatchingOcrTemplate(file, modo === 'surtidor' ? 'surtidor' : 'factura', text);
         if (tplData) {
+            usedTemplate = true;
             engineLabel = `Plantilla (${tplData.template_name})`;
             if (tplData.fecha && /^\d{4}-\d{2}-\d{2}$/.test(tplData.fecha)) extracted.fecha = tplData.fecha;
             if (tplData.litros) extracted.litros = parseFloat(tplData.litros);
@@ -3152,35 +3156,70 @@ async function runFuelOcrOnFile(file, modo) {
         matchOrOfferStation(extracted.estacion);
     }
 
-    const gotAny = extracted.litros || extracted.precio_litro || extracted.importe_total;
-    status.textContent = gotAny
-        ? `✅ Foto guardada y datos extraídos (${engineLabel}). Revisa y confirma los valores.`
-        : `📸 Foto guardada. No se pudieron leer todos los números automáticamente; puedes reprocesar o completarlos.`;
+    const lVal = Number(extracted.litros || 0);
+    const pVal = Number(extracted.precio_litro || 0);
+    const tVal = Number(extracted.importe_total || 0);
+    const mathDiff = (lVal > 0 && pVal > 0 && tVal > 0) ? Math.abs(lVal * pVal - tVal) : 999;
+    const mathTol = Math.max(0.05, tVal * 0.005);
+    const hasFechaOrPump = (modo === 'surtidor') || !!extracted.fecha;
+    const isReliable = (lVal > 0 && pVal > 0 && tVal > 0 && mathDiff <= mathTol && hasFechaOrPump && (engineLabel === 'IA Vision' || usedTemplate || ocrConf >= 75));
+
+    const gotAny = lVal > 0 || pVal > 0 || tVal > 0;
+    if (!gotAny || !isReliable) {
+        status.style.background = '#fef3c7';
+        status.style.color = '#92400e';
+        status.textContent = !gotAny
+            ? '⚠️ Lectura NO fiable (< 95% de acierto). No se pudieron leer los datos; usa "Ajustar zonas" o introdúcelos manualmente.'
+            : `⚠️ Lectura NO fiable (< 95% de acierto · ${engineLabel}). Revisa los valores manualmente o pulsa "Ajustar zonas".`;
+    } else {
+        status.style.background = '#e0f2fe';
+        status.style.color = '#0369a1';
+        status.textContent = `✅ Lectura fiable (${engineLabel}). Revisa y confirma los valores.`;
+    }
 }
 
 async function runOdometerOcrOnFile(file) {
     const status = document.getElementById('ocr-status');
     let km = null;
+    let isReliable = false;
     const gem = await tryGeminiExtract(file, 'odometro');
     if (gem && gem.km_odometro) {
         km = gem.km_odometro;
+        isReliable = true;
     } else {
         const ocrInput = await preprocessImageForOcr(file);
         const result = await Tesseract.recognize(ocrInput, 'eng');
         const text = result.data.text || '';
+        const ocrConf = Number(result.data.confidence || 0);
         km = parseOdometerText(text);
+        let usedTpl = false;
         const tplData = await tryApplyMatchingOcrTemplate(file, 'odometro', text);
         if (tplData && tplData.km_odometro) {
             km = tplData.km_odometro;
+            usedTpl = true;
         }
+        const prevKm = getExpectedMinKm();
+        const kmNum = km ? parseFloat(km) : 0;
+        const orderOk = !prevKm || kmNum >= prevKm;
+        isReliable = !!(km && orderOk && (usedTpl || ocrConf >= 85));
     }
 
-    if (km) {
+    if (km && isReliable) {
         document.getElementById('rep-km').value = km;
         updateParcialKmPreview();
-        status.textContent = `✅ Foto guardada y kilometraje detectado: ${km} km`;
+        status.style.background = '#e0f2fe';
+        status.style.color = '#0369a1';
+        status.textContent = `✅ Lectura fiable del odómetro: ${km} km`;
+    } else if (km) {
+        document.getElementById('rep-km').value = km;
+        updateParcialKmPreview();
+        status.style.background = '#fef3c7';
+        status.style.color = '#92400e';
+        status.textContent = `⚠️ Lectura NO fiable (< 95% de acierto): ${km} km. Verifica el cuentakilómetros o pulsa "Ajustar zonas".`;
     } else {
-        status.textContent = '📸 Foto del odómetro guardada. No se detectaron dígitos claros; puedes reprocesar o introducirlos manualmente.';
+        status.style.background = '#fef3c7';
+        status.style.color = '#92400e';
+        status.textContent = '⚠️ Lectura NO fiable (< 95% de acierto). No se detectaron dígitos claros; pulsa "Ajustar zonas" o introdúcelos manualmente.';
     }
 }
 
