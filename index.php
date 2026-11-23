@@ -2383,38 +2383,82 @@ function parseFuelInvoiceText(text) {
         fecha = `${dm[3]}-${dm[2]}-${dm[1]}`;
     }
 
-    // 2. Importe Total por palabra clave (evitando BASE, IVA, ESTATALES)
+    // 2. Importe Total por palabra clave (evitando BASE, IVA, ESTATALES, PREAUTORIZ, DIFERENCIA)
     let hintImporte = null;
-    for (const l of lines) {
-        if (/\b(TOTAL\s*EUROS|TOTAL\s*FACTURA|TOTAL\s*PAGAR|IMPORTE\s*TOTAL|TOTAL\s*COBRADO|IMPORTE\s*PAGADO)\b/i.test(l)) {
-            const nums = [...l.matchAll(/(\d{1,3}(?:[,\.]\d{2}))/g)].map(m => parseLocalizedNumber(m[1])).filter(n => !isNaN(n) && n > 0);
+    const excludeAmtRe = /\b(PREAUTORIZ|DIFERENCIA|BASE|IVA|CUOTA|ESTATALES)\b/i;
+    const totalKeyRe = /\b(TOTAL\s*EUROS|TOTAL\s*FACTURA|TOTAL\s*A?\s*PAGAR|IMPORTE\s*TOTAL|TOTAL\s*COBRADO|IMPORTE\s*PAGADO|IMPORTE\s*CONFIRMADO|TOTAL\s*TICKET|TOTAL)\b/i;
+    const payKeyRe = /\b(PAGO\s*CON\s*TARJETA|EFECTIVO|CONTADO)\b/i;
+    for (let i = 0; i < lines.length; i++) {
+        const l = lines[i];
+        if (excludeAmtRe.test(l)) continue;
+        if (totalKeyRe.test(l)) {
+            let nums = [...l.matchAll(/(\d{1,4}[,\.]\d{2})/g)].map(m => parseLocalizedNumber(m[1])).filter(n => !isNaN(n) && n > 0 && n < 1000);
+            if (nums.length === 0 && i + 1 < lines.length && !excludeAmtRe.test(lines[i + 1])) {
+                nums = [...lines[i + 1].matchAll(/(\d{1,4}[,\.]\d{2})/g)].map(m => parseLocalizedNumber(m[1])).filter(n => !isNaN(n) && n > 0 && n < 1000);
+            }
             if (nums.length > 0) {
                 hintImporte = nums[nums.length - 1];
                 break;
             }
         }
     }
+    if (hintImporte === null) {
+        for (const l of lines) {
+            if (excludeAmtRe.test(l)) continue;
+            if (payKeyRe.test(l)) {
+                const nums = [...l.matchAll(/(\d{1,4}[,\.]\d{2})/g)].map(m => parseLocalizedNumber(m[1])).filter(n => !isNaN(n) && n > 0 && n < 1000);
+                if (nums.length > 0) {
+                    hintImporte = nums[nums.length - 1];
+                    break;
+                }
+            }
+        }
+    }
 
     // 3. Recoger números candidatos excluyendo líneas fiscales/ruido
-    const ignoredLineRe = /\b(BASE|IMPONIBLE|IVA|CUOTA|ESTATALES|AUTONOMIC|IMPUESTO|EUX1000|TURNO|TELF|TELEFONO|N\.?I\.?F|C\.?I\.?F|KM\.?\s*\d|REGISTRO|TOMO|FOLIO|HOJA)\b/i;
+    const ignoredLineRe = /\b(BASE|IMPONIBLE|IVA|CUOTA|ESTATALES|AUTONOMIC|IMPUESTO|EUX1000|TURNO|TELF|TELEFONO|N\.?I\.?F|C\.?I\.?F|KM\.?\s*\d|REGISTRO|TOMO|FOLIO|HOJA|PREAUTORIZ|DIFERENCIA|OPERACI[ÓO]N|CONCESI[ÓO]N|TERMINAL|NUM\.?\s*TICKET|NUM\.?\s*AUT|DOCUMENTO|HORA)\b/i;
+    const hardIgnoreRe = /\b(PREAUTORIZ|DIFERENCIA|N\.?I\.?F|C\.?I\.?F)\b/i;
     const candidateNums = [];
     for (const l of lines) {
-        if (ignoredLineRe.test(l)) continue;
-        const matches = [...l.matchAll(/(\d{1,3}[,\.]\d{2,3})/g)];
+        if (hardIgnoreRe.test(l) || ignoredLineRe.test(l)) continue;
+        const matches = [...l.matchAll(/(\d{1,4}[,\.]\d{1,3})/g)];
         for (const m of matches) {
             const val = parseLocalizedNumber(m[1]);
-            if (!isNaN(val) && val > 0) candidateNums.push(val);
+            if (!isNaN(val) && val > 0 && val < 1000) candidateNums.push(val);
+        }
+        if (!/\b(SURT|POL|N\.|CP|HORA|FECHA)\b/i.test(l)) {
+            const cleaned = l.replace(dateRegex, ' ').replace(/(\d{1,4}[,\.]\d{1,3})/g, ' ');
+            for (const m of cleaned.matchAll(/\b(\d{1,3})\b/g)) {
+                const val = parseFloat(m[1]);
+                if (!isNaN(val) && val >= 2 && val <= 500) candidateNums.push(val);
+            }
         }
     }
 
     let triplet = findBestFuelTriplet(candidateNums, hintImporte);
 
-    // Fallback: intentar con todos los decimales si no hubo match estricto
+    // Fallback: intentar con todos los decimales (excluyendo preautorizaciones) si no hubo match estricto
     if (!triplet) {
-        const allNums = [...text.matchAll(/(\d{1,3}[,\.]\d{2,3})/g)]
-            .map(m => parseLocalizedNumber(m[1]))
-            .filter(n => !isNaN(n) && n > 0);
+        const allNums = [];
+        for (const l of lines) {
+            if (hardIgnoreRe.test(l)) continue;
+            for (const m of l.matchAll(/(\d{1,4}[,\.]\d{1,3})/g)) {
+                const val = parseLocalizedNumber(m[1]);
+                if (!isNaN(val) && val > 0 && val < 1000) allNums.push(val);
+            }
+        }
         triplet = findBestFuelTriplet(allNums, hintImporte);
+        if (!triplet && hintImporte) {
+            const prices = allNums.filter(n => n >= 0.75 && n <= 3.00);
+            if (prices.length > 0) {
+                const p = prices[0];
+                triplet = {
+                    precio_litro: p,
+                    importe_total: hintImporte,
+                    litros: parseFloat((hintImporte / p).toFixed(2))
+                };
+            }
+        }
     }
 
     // 4. Estación de servicio

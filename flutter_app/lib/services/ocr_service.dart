@@ -94,29 +94,57 @@ class OcrService {
       // 2. Detectar Importe Total por palabras clave (ignorando preautorizaciones y diferencias)
       double? hintImporte;
       final numReg = RegExp(r'(\d{1,4}[,\.]\d{1,3})');
-      for (final l in allLines) {
-        if (RegExp(r'\b(PREAUTORIZ|DIFERENCIA)\b', caseSensitive: false).hasMatch(l)) continue;
-        if (RegExp(r'\b(TOTAL\s*EUROS|TOTAL\s*FACTURA|TOTAL\s*A?\s*PAGAR|IMPORTE\s*TOTAL|TOTAL\s*COBRADO|IMPORTE\s*CONFIRMADO|TOTAL\s*TICKET)\b|^\s*TOTAL\s*:', caseSensitive: false).hasMatch(l)) {
-          final ms = numReg.allMatches(l).toList();
+      final totalKeyRe = RegExp(
+        r'\b(TOTAL\s*EUROS|TOTAL\s*FACTURA|TOTAL\s*A?\s*PAGAR|IMPORTE\s*TOTAL|TOTAL\s*COBRADO|IMPORTE\s*CONFIRMADO|TOTAL\s*TICKET|TOTAL)\b',
+        caseSensitive: false,
+      );
+      final payKeyRe = RegExp(r'\b(PAGO\s*CON\s*TARJETA|EFECTIVO|CONTADO)\b', caseSensitive: false);
+      final excludeAmtRe = RegExp(r'\b(PREAUTORIZ|DIFERENCIA|BASE|IVA|CUOTA|ESTATALES)\b', caseSensitive: false);
+
+      for (int i = 0; i < allLines.length; i++) {
+        final l = allLines[i];
+        if (excludeAmtRe.hasMatch(l)) continue;
+        if (totalKeyRe.hasMatch(l)) {
+          var ms = numReg.allMatches(l).toList();
+          if (ms.isEmpty && i + 1 < allLines.length && !excludeAmtRe.hasMatch(allLines[i + 1])) {
+            ms = numReg.allMatches(allLines[i + 1]).toList();
+          }
           if (ms.isNotEmpty) {
             final v = double.tryParse((ms.last.group(1) ?? '').replaceAll(',', '.'));
-            if (v != null && v > 0) {
+            if (v != null && v > 0 && v < 1000) {
               hintImporte = v;
               break;
             }
           }
         }
       }
+      if (hintImporte == null) {
+        for (final l in allLines) {
+          if (excludeAmtRe.hasMatch(l)) continue;
+          if (payKeyRe.hasMatch(l)) {
+            final ms = numReg.allMatches(l).toList();
+            if (ms.isNotEmpty) {
+              final v = double.tryParse((ms.last.group(1) ?? '').replaceAll(',', '.'));
+              if (v != null && v > 0 && v < 1000) {
+                hintImporte = v;
+                break;
+              }
+            }
+          }
+        }
+      }
 
-      // 3. Extraer números decimales (primero filtrando líneas fiscales puras, luego fallback con todo el texto)
+      // 3. Extraer números decimales (y enteros de cantidad si no son metadatos), filtrando líneas fiscales/ruido
       final ignoredRe = RegExp(
-        r'\b(BASE\s*IMPONIBLE|CUOTA\s*IVA|ESTATALES|AUTONOMIC|IMPUESTO|EUX1000|TURNO|TELF|N\.?I\.?F|C\.?I\.?F|KM\.?\s*\d)\b',
+        r'\b(BASE\s*IMPONIBLE|CUOTA\s*IVA|ESTATALES|AUTONOMIC|IMPUESTO|EUX1000|TURNO|TELF|N\.?I\.?F|C\.?I\.?F|KM\.?\s*\d|PREAUTORIZ|DIFERENCIA|OPERACI[ÓO]N|CONCESI[ÓO]N|TERMINAL|NUM\.?\s*TICKET|NUM\.?\s*AUT|DOCUMENTO|HORA)\b',
         caseSensitive: false,
       );
+      final hardIgnoreRe = RegExp(r'\b(PREAUTORIZ|DIFERENCIA|N\.?I\.?F|C\.?I\.?F)\b', caseSensitive: false);
 
       List<double> extractCandidates(List<String> srcLines, bool applyFilter) {
         final List<double> list = [];
         for (final line in srcLines) {
+          if (hardIgnoreRe.hasMatch(line)) continue;
           if (applyFilter && ignoredRe.hasMatch(line)) continue;
           for (final m in numReg.allMatches(line)) {
             final val = double.tryParse((m.group(1) ?? '').replaceAll(',', '.'));
@@ -124,6 +152,16 @@ class OcrService {
               list.add(val);
               if (val >= 75 && val <= 300) {
                 list.add(double.parse((val / 100).toStringAsFixed(4)));
+              }
+            }
+          }
+          // También aceptar enteros 2..500 como posibles litros si no es fecha/código postal/surtidor
+          if (applyFilter && !RegExp(r'\b(SURT|POL|N\.|CP|HORA|FECHA)\b', caseSensitive: false).hasMatch(line)) {
+            final cleanedLine = line.replaceAll(dateReg, ' ').replaceAll(numReg, ' ');
+            for (final m in RegExp(r'\b(\d{1,3})\b').allMatches(cleanedLine)) {
+              final val = double.tryParse(m.group(1) ?? '');
+              if (val != null && val >= 2 && val <= 500) {
+                list.add(val);
               }
             }
           }
