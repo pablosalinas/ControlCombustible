@@ -70,19 +70,31 @@ class OcrService {
         (m) => '${m.group(1)}${m.group(2)}${m.group(3)}',
       );
 
-      // 1. Extraer Fecha (DD/MM/YYYY o DD/MM/YY, priorizando línea FECHA y evitando VENCIMIENTO)
+      // 1. Extraer Fecha (priorizando años de 4 dígitos 20xx y línea FECHA, evitando VENCIMIENTO)
       String? detectedDate;
+      final date4Reg = RegExp(r'(\d{2})\s*[\/\-\.]\s*(\d{2})\s*[\/\-\.]\s*(20\d{2})');
+      final date2Reg = RegExp(r'(\d{2})\s*[\/\-\.]\s*(\d{2})\s*[\/\-\.]\s*(\d{2})\b');
       final dateReg = RegExp(r'(\d{2})\s*[\/\-\.]\s*(\d{2})\s*[\/\-\.]\s*(20\d{2}|\d{2})');
       final allLines = text.split(RegExp(r'\r?\n')).map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
       RegExpMatch? dateMatch;
       for (final l in allLines) {
         if (RegExp(r'\bFECHA\b', caseSensitive: false).hasMatch(l) &&
             !RegExp(r'VENCIMIENTO', caseSensitive: false).hasMatch(l)) {
-          dateMatch = dateReg.firstMatch(l);
+          dateMatch = date4Reg.firstMatch(l);
           if (dateMatch != null) break;
         }
       }
-      dateMatch ??= dateReg.firstMatch(text);
+      dateMatch ??= date4Reg.firstMatch(text);
+      if (dateMatch == null) {
+        for (final l in allLines) {
+          if (RegExp(r'\bFECHA\b', caseSensitive: false).hasMatch(l) &&
+              !RegExp(r'VENCIMIENTO', caseSensitive: false).hasMatch(l)) {
+            dateMatch = date2Reg.firstMatch(l);
+            if (dateMatch != null) break;
+          }
+        }
+        dateMatch ??= date2Reg.firstMatch(text);
+      }
       if (dateMatch != null) {
         final dd = dateMatch.group(1)!;
         final mm = dateMatch.group(2)!;
@@ -91,15 +103,18 @@ class OcrService {
         detectedDate = '$yyyy-$mm-$dd';
       }
 
-      // 2. Detectar Importe Total por palabras clave (ignorando preautorizaciones y diferencias)
+      // 2. Detectar Importe Total por palabras clave (ignorando preautorizaciones, diferencias, base imponible y total sin IVA)
       double? hintImporte;
       final numReg = RegExp(r'(\d{1,4}[,\.]\d{1,3})');
       final totalKeyRe = RegExp(
-        r'\b(TOTAL\s*EUROS|TOTAL\s*FACTURA|TOTAL\s*A?\s*PAGAR|IMPORTE\s*TOTAL|TOTAL\s*COBRADO|IMPORTE\s*CONFIRMADO|TOTAL\s*TICKET|TOTAL)\b',
+        r'\b(IMPORTE\s*SUMINISTRADO|TOTAL\s*EUROS|TOTAL\s*FACTURA|TOTAL\s*A?\s*PAGAR|IMPORTE\s*TOTAL|TOTAL\s*COBRADO|IMPORTE\s*CONFIRMADO|TOTAL\s*TICKET|TOTAL)\b',
         caseSensitive: false,
       );
       final payKeyRe = RegExp(r'\b(PAGO\s*CON\s*TARJETA|EFECTIVO|CONTADO)\b', caseSensitive: false);
-      final excludeAmtRe = RegExp(r'\b(PREAUTORIZ|DIFERENCIA|BASE|IVA|CUOTA|ESTATALES)\b', caseSensitive: false);
+      final excludeAmtRe = RegExp(
+        r'\b(PREAUTORIZ|PREDETERM|DIFERENCIA|BASE|SIN\s*IVA|S\/IVA|CUOTA|ESTATALES)\b',
+        caseSensitive: false,
+      );
 
       for (int i = 0; i < allLines.length; i++) {
         final l = allLines[i];
@@ -136,10 +151,10 @@ class OcrService {
 
       // 3. Extraer números decimales (y enteros de cantidad si no son metadatos), filtrando líneas fiscales/ruido
       final ignoredRe = RegExp(
-        r'\b(BASE\s*IMPONIBLE|CUOTA\s*IVA|ESTATALES|AUTONOMIC|IMPUESTO|EUX1000|TURNO|TELF|N\.?I\.?F|C\.?I\.?F|KM\.?\s*\d|PREAUTORIZ|DIFERENCIA|OPERACI[ÓO]N|CONCESI[ÓO]N|TERMINAL|NUM\.?\s*TICKET|NUM\.?\s*AUT|DOCUMENTO|HORA)\b',
+        r'\b(BASE\s*IMPONIBLE|TOTAL\s*SIN\s*IVA|SIN\s*IVA|CUOTA\s*IVA|IVA\s*\d|ESTATALES|AUTONOMIC|IMPUESTO|EUX1000|TURNO|TELF|N\.?I\.?F|C\.?I\.?F|KM\.?\s*\d|PREAUTORIZ|PREDETERM|DIFERENCIA|OPERACI[ÓO]N|CONCESI[ÓO]N|TERMINAL|NUM\.?\s*TICKET|NUM\.?\s*AUT|DOCUMENTO|HORA|COMERCIO|PEDIDO)\b',
         caseSensitive: false,
       );
-      final hardIgnoreRe = RegExp(r'\b(PREAUTORIZ|DIFERENCIA|N\.?I\.?F|C\.?I\.?F)\b', caseSensitive: false);
+      final hardIgnoreRe = RegExp(r'\b(PREAUTORIZ|PREDETERM|DIFERENCIA|N\.?I\.?F|C\.?I\.?F|SIN\s*IVA)\b', caseSensitive: false);
 
       List<double> extractCandidates(List<String> srcLines, bool applyFilter) {
         final List<double> list = [];
@@ -203,30 +218,59 @@ class OcrService {
       }
 
       final filteredCands = extractCandidates(allLines, true);
+      // Si el ticket desglosa Base + IVA (ej. "Total sin iva 74,38" + "Iva 15,62" = 90,00), añadir la suma como candidato de total
+      double? baseSinIva;
+      double? cuotaIva;
+      for (final l in allLines) {
+        if (RegExp(r'\b(TOTAL\s*SIN\s*IVA|BASE\s*IMPONIBLE)\b', caseSensitive: false).hasMatch(l)) {
+          final ms = numReg.allMatches(l).toList();
+          if (ms.isNotEmpty) baseSinIva = double.tryParse((ms.last.group(1) ?? '').replaceAll(',', '.'));
+        } else if (RegExp(r'\b(IVA|CUOTA)\b', caseSensitive: false).hasMatch(l) && !RegExp(r'SIN\s*IVA', caseSensitive: false).hasMatch(l)) {
+          final ms = numReg.allMatches(l).toList();
+          if (ms.isNotEmpty) cuotaIva = double.tryParse((ms.last.group(1) ?? '').replaceAll(',', '.'));
+        }
+      }
+      if (baseSinIva != null && cuotaIva != null && baseSinIva > 0 && cuotaIva > 0) {
+        final sumTotal = double.parse((baseSinIva + cuotaIva).toStringAsFixed(2));
+        filteredCands.add(sumTotal);
+        hintImporte ??= sumTotal;
+      }
+
       findBestTriplet(filteredCands);
 
       // Fallback sin filtro de líneas si ML Kit agrupó Base/IVA en la misma línea que Litros/Precio
       if (importeTotal == null) {
         final allCands = extractCandidates(allLines, false);
+        if (baseSinIva != null && cuotaIva != null) {
+          allCands.add(double.parse((baseSinIva + cuotaIva).toStringAsFixed(2)));
+        }
         findBestTriplet(allCands);
 
         if (importeTotal == null) {
-          final prices = allCands.where((d) => d >= 0.75 && d <= 3.00).toList();
-          final larger = allCands.where((d) => d > 3.0 && d <= 500.0).toList()..sort((a, b) => b.compareTo(a));
-          if (prices.isNotEmpty) {
+          final prices = filteredCands.where((d) => d >= 0.75 && d <= 3.00).toList();
+          final litCands = filteredCands.where((d) => d >= 2.0 && d <= 200.0).toList();
+          if (prices.isNotEmpty && litCands.isNotEmpty && hintImporte == null) {
             precioLitro = prices.first;
-            if (hintImporte != null) {
+            litros = litCands.firstWhere((l) => l != precioLitro, orElse: () => litCands.first);
+            importeTotal = double.parse((litros! * precioLitro!).toStringAsFixed(2));
+          } else {
+            final allPrices = allCands.where((d) => d >= 0.75 && d <= 3.00).toList();
+            final larger = allCands.where((d) => d > 3.0 && d <= 500.0).toList()..sort((a, b) => b.compareTo(a));
+            if (allPrices.isNotEmpty) {
+              precioLitro = allPrices.first;
+              if (hintImporte != null) {
+                importeTotal = hintImporte;
+                litros = double.parse((importeTotal! / precioLitro!).toStringAsFixed(2));
+              } else if (larger.length >= 2) {
+                importeTotal = larger[0];
+                litros = larger[1];
+              } else if (larger.length == 1 && precioLitro! > 0) {
+                importeTotal = larger[0];
+                litros = double.parse((importeTotal! / precioLitro!).toStringAsFixed(2));
+              }
+            } else if (hintImporte != null) {
               importeTotal = hintImporte;
-              litros = double.parse((importeTotal! / precioLitro!).toStringAsFixed(2));
-            } else if (larger.length >= 2) {
-              importeTotal = larger[0];
-              litros = larger[1];
-            } else if (larger.length == 1 && precioLitro! > 0) {
-              importeTotal = larger[0];
-              litros = double.parse((importeTotal! / precioLitro!).toStringAsFixed(2));
             }
-          } else if (hintImporte != null) {
-            importeTotal = hintImporte;
           }
         }
       }

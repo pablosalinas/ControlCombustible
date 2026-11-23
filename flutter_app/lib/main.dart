@@ -2351,41 +2351,103 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
     }
 
     if (!mounted) return;
-    final details = [
-      if (st.localidad.isNotEmpty) 'Localidad: ${st.localidad}',
-      if (st.direccion.isNotEmpty) 'Dirección: ${st.direccion}',
-      if (st.cif.isNotEmpty) 'CIF/NIF: ${st.cif}',
-    ].join('\n');
+    final nombreCtrl = TextEditingController(text: st.nombre);
+    final marcaCtrl = TextEditingController(text: st.marca.isNotEmpty ? st.marca : st.nombre);
+    final locCtrl = TextEditingController(text: st.localidad);
+    final dirCtrl = TextEditingController(text: st.direccion);
+    final cifCtrl = TextEditingController(text: st.cif);
 
-    final create = await showDialog<bool>(
+    final edited = await showDialog<DetectedStation?>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Estación de servicio no registrada'),
-        content: Text(
-          'Se ha detectado la estación:\n\n${st.nombre}'
-          '${details.isNotEmpty ? '\n$details' : ''}\n\n'
-          'No existe todavía en tu lista de estaciones. ¿Quieres crearla en segundo plano y asociarla a este repostaje?',
+        title: const Text('Estación de servicio detectada'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Revisa y ajusta el nombre o los datos de la estación antes de crearla y asociarla:',
+                style: TextStyle(fontSize: 12.5, color: Colors.black54),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: nombreCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Nombre de la estación *',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: marcaCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Marca / Rótulo',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: locCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Localidad / CP',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: dirCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Dirección',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: cifCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'CIF / NIF',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
+            onPressed: () => Navigator.of(ctx).pop(null),
             child: const Text('Omitir'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
+            onPressed: () {
+              final nom = nombreCtrl.text.trim();
+              if (nom.isEmpty) return;
+              Navigator.of(ctx).pop(DetectedStation(
+                nombre: nom,
+                marca: marcaCtrl.text.trim(),
+                localidad: locCtrl.text.trim(),
+                direccion: dirCtrl.text.trim(),
+                cif: cifCtrl.text.trim(),
+              ));
+            },
             child: const Text('Crear y asociar'),
           ),
         ],
       ),
     );
 
-    if (create == true) {
+    if (edited != null) {
       setState(() {
-        _selectedEstacion = st.nombre;
-        _ocrMessage = 'Creando estación "${st.nombre}" en segundo plano...';
+        _selectedEstacion = edited.nombre;
+        _ocrMessage = 'Creando estación "${edited.nombre}" en segundo plano...';
       });
       // Lanzar en segundo plano sin bloquear la edición del repostaje
-      unawaited(_createStationInBackground(st));
+      unawaited(_createStationInBackground(edited));
     }
   }
 

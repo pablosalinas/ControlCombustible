@@ -2372,21 +2372,22 @@ function extractStationFromText(text) {
 function parseFuelInvoiceText(text) {
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 
-    // 1. Fecha (priorizar línea FECHA, evitar VENCIMIENTO)
+    // 1. Fecha (priorizar año 4 dígitos y línea FECHA, evitar VENCIMIENTO)
     let fecha = null;
     const fechaLine = lines.find(l => /\bFECHA\b/i.test(l) && !/VENCIMIENTO/i.test(l));
-    const dateRegex = /(\d{2})[\/\-\.](\d{2})[\/\-\.](20\d{2})/;
-    const mLine = fechaLine ? fechaLine.match(dateRegex) : null;
-    const mAny = text.match(dateRegex);
-    const dm = mLine || mAny;
+    const date4Regex = /(\d{2})\s*[\/\-\.]\s*(\d{2})\s*[\/\-\.]\s*(20\d{2})/;
+    const date2Regex = /(\d{2})\s*[\/\-\.]\s*(\d{2})\s*[\/\-\.]\s*(\d{2})\b/;
+    const dateRegex = date4Regex;
+    const dm = (fechaLine && fechaLine.match(date4Regex)) || text.match(date4Regex) || (fechaLine && fechaLine.match(date2Regex)) || text.match(date2Regex);
     if (dm) {
-        fecha = `${dm[3]}-${dm[2]}-${dm[1]}`;
+        const yyyy = dm[3].length === 2 ? `20${dm[3]}` : dm[3];
+        fecha = `${yyyy}-${dm[2]}-${dm[1]}`;
     }
 
-    // 2. Importe Total por palabra clave (evitando BASE, IVA, ESTATALES, PREAUTORIZ, DIFERENCIA)
+    // 2. Importe Total por palabra clave (evitando BASE, TOTAL SIN IVA, PREDETERM, PREAUTORIZ, DIFERENCIA)
     let hintImporte = null;
-    const excludeAmtRe = /\b(PREAUTORIZ|DIFERENCIA|BASE|IVA|CUOTA|ESTATALES)\b/i;
-    const totalKeyRe = /\b(TOTAL\s*EUROS|TOTAL\s*FACTURA|TOTAL\s*A?\s*PAGAR|IMPORTE\s*TOTAL|TOTAL\s*COBRADO|IMPORTE\s*PAGADO|IMPORTE\s*CONFIRMADO|TOTAL\s*TICKET|TOTAL)\b/i;
+    const excludeAmtRe = /\b(PREAUTORIZ|PREDETERM|DIFERENCIA|BASE|SIN\s*IVA|S\/IVA|CUOTA|ESTATALES)\b/i;
+    const totalKeyRe = /\b(IMPORTE\s*SUMINISTRADO|TOTAL\s*EUROS|TOTAL\s*FACTURA|TOTAL\s*A?\s*PAGAR|IMPORTE\s*TOTAL|TOTAL\s*COBRADO|IMPORTE\s*PAGADO|IMPORTE\s*CONFIRMADO|TOTAL\s*TICKET|TOTAL)\b/i;
     const payKeyRe = /\b(PAGO\s*CON\s*TARJETA|EFECTIVO|CONTADO)\b/i;
     for (let i = 0; i < lines.length; i++) {
         const l = lines[i];
@@ -2416,10 +2417,19 @@ function parseFuelInvoiceText(text) {
     }
 
     // 3. Recoger números candidatos excluyendo líneas fiscales/ruido
-    const ignoredLineRe = /\b(BASE|IMPONIBLE|IVA|CUOTA|ESTATALES|AUTONOMIC|IMPUESTO|EUX1000|TURNO|TELF|TELEFONO|N\.?I\.?F|C\.?I\.?F|KM\.?\s*\d|REGISTRO|TOMO|FOLIO|HOJA|PREAUTORIZ|DIFERENCIA|OPERACI[ÓO]N|CONCESI[ÓO]N|TERMINAL|NUM\.?\s*TICKET|NUM\.?\s*AUT|DOCUMENTO|HORA)\b/i;
-    const hardIgnoreRe = /\b(PREAUTORIZ|DIFERENCIA|N\.?I\.?F|C\.?I\.?F)\b/i;
+    const ignoredLineRe = /\b(BASE|IMPONIBLE|TOTAL\s*SIN\s*IVA|SIN\s*IVA|IVA\s*\d|CUOTA|ESTATALES|AUTONOMIC|IMPUESTO|EUX1000|TURNO|TELF|TELEFONO|N\.?I\.?F|C\.?I\.?F|KM\.?\s*\d|REGISTRO|TOMO|FOLIO|HOJA|PREAUTORIZ|PREDETERM|DIFERENCIA|OPERACI[ÓO]N|CONCESI[ÓO]N|TERMINAL|NUM\.?\s*TICKET|NUM\.?\s*AUT|DOCUMENTO|HORA|COMERCIO|PEDIDO)\b/i;
+    const hardIgnoreRe = /\b(PREAUTORIZ|PREDETERM|DIFERENCIA|N\.?I\.?F|C\.?I\.?F|SIN\s*IVA)\b/i;
     const candidateNums = [];
+    let baseSinIva = null;
+    let cuotaIva = null;
     for (const l of lines) {
+        if (/\b(TOTAL\s*SIN\s*IVA|BASE\s*IMPONIBLE)\b/i.test(l)) {
+            const ms = [...l.matchAll(/(\d{1,4}[,\.]\d{2})/g)];
+            if (ms.length > 0) baseSinIva = parseLocalizedNumber(ms[ms.length - 1][1]);
+        } else if (/\b(IVA|CUOTA)\b/i.test(l) && !/SIN\s*IVA/i.test(l)) {
+            const ms = [...l.matchAll(/(\d{1,4}[,\.]\d{2})/g)];
+            if (ms.length > 0) cuotaIva = parseLocalizedNumber(ms[ms.length - 1][1]);
+        }
         if (hardIgnoreRe.test(l) || ignoredLineRe.test(l)) continue;
         const matches = [...l.matchAll(/(\d{1,4}[,\.]\d{1,3})/g)];
         for (const m of matches) {
@@ -2433,6 +2443,11 @@ function parseFuelInvoiceText(text) {
                 if (!isNaN(val) && val >= 2 && val <= 500) candidateNums.push(val);
             }
         }
+    }
+    if (baseSinIva && cuotaIva) {
+        const sumTotal = parseFloat((baseSinIva + cuotaIva).toFixed(2));
+        candidateNums.push(sumTotal);
+        if (hintImporte === null) hintImporte = sumTotal;
     }
 
     let triplet = findBestFuelTriplet(candidateNums, hintImporte);
@@ -2554,26 +2569,44 @@ function matchOrOfferStation(stationInfo) {
         return;
     }
 
-    // No existe todavía en veh_estaciones: ofrecer crear y asociar en 1 clic
+    // No existe todavía en veh_estaciones: mostrar campos editables para ajustar y crear en 1 clic
     lastDetectedStation = stationInfo;
-    const details = [stationInfo.localidad, stationInfo.direccion, stationInfo.cif ? `CIF: ${stationInfo.cif}` : ''].filter(Boolean).join(' · ');
+    const esc = (v) => String(v || '').replace(/"/g, '&quot;');
     banner.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap;">
-            <div>
-                <strong><i class="fa-solid fa-shop"></i> Estación detectada:</strong> ${stationInfo.nombre}
-                ${details ? `<div style="font-size:0.74rem; opacity:0.85;">${details}</div>` : ''}
+        <div style="display:flex; flex-direction:column; gap:0.4rem;">
+            <div style="font-weight:700;"><i class="fa-solid fa-shop"></i> Estación detectada (puedes ajustar los datos antes de crear):</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.35rem;">
+                <input type="text" id="det-est-nombre" class="form-control" style="padding:0.35rem 0.5rem; font-size:0.78rem;" value="${esc(stationInfo.nombre)}" placeholder="Nombre *">
+                <input type="text" id="det-est-marca" class="form-control" style="padding:0.35rem 0.5rem; font-size:0.78rem;" value="${esc(stationInfo.marca || stationInfo.nombre)}" placeholder="Marca">
+                <input type="text" id="det-est-localidad" class="form-control" style="padding:0.35rem 0.5rem; font-size:0.78rem;" value="${esc(stationInfo.localidad)}" placeholder="Localidad / CP">
+                <input type="text" id="det-est-direccion" class="form-control" style="padding:0.35rem 0.5rem; font-size:0.78rem;" value="${esc(stationInfo.direccion)}" placeholder="Dirección">
             </div>
-            <button type="button" class="btn btn-primary" style="padding:0.3rem 0.65rem; font-size:0.75rem;" onclick="createAndSelectDetectedStation()">
-                <i class="fa-solid fa-plus"></i> Crear y asociar
-            </button>
+            <div style="display:flex; gap:0.35rem; align-items:center;">
+                <input type="text" id="det-est-cif" class="form-control" style="padding:0.35rem 0.5rem; font-size:0.78rem; flex:1;" value="${esc(stationInfo.cif)}" placeholder="CIF / NIF">
+                <button type="button" class="btn btn-primary" style="padding:0.35rem 0.7rem; font-size:0.78rem;" onclick="createAndSelectDetectedStation()">
+                    <i class="fa-solid fa-plus"></i> Crear y asociar
+                </button>
+            </div>
         </div>
     `;
     banner.classList.remove('hidden');
 }
 
 async function createAndSelectDetectedStation() {
-    if (!lastDetectedStation || !lastDetectedStation.nombre) return;
-    const s = lastDetectedStation;
+    const nombreEl = document.getElementById('det-est-nombre');
+    const nombre = nombreEl ? nombreEl.value.trim() : (lastDetectedStation ? lastDetectedStation.nombre : '');
+    if (!nombre) {
+        alert('El nombre de la estación es obligatorio.');
+        return;
+    }
+    const s = {
+        nombre,
+        marca: (document.getElementById('det-est-marca')?.value || nombre).trim(),
+        localidad: (document.getElementById('det-est-localidad')?.value || '').trim(),
+        direccion: (document.getElementById('det-est-direccion')?.value || '').trim(),
+        cif: (document.getElementById('det-est-cif')?.value || '').trim(),
+        telefono: lastDetectedStation ? (lastDetectedStation.telefono || '') : ''
+    };
     const notas = [s.cif ? `CIF: ${s.cif}` : '', s.telefono ? `Tel: ${s.telefono}` : ''].filter(Boolean).join(' · ');
     const res = await apiCall('save_estacion', {
         id: 0,
