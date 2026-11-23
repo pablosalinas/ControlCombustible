@@ -169,7 +169,9 @@ class FuelCalculator {
                 'consumo_medio_l100_acum' => $consumoMedioL100Acum !== null ? round($consumoMedioL100Acum, 4) : null,
                 'estacion_servicio'       => isset($r['estacion_servicio']) ? $r['estacion_servicio'] : null,
                 'notas'                   => isset($r['notas']) ? $r['notas'] : null,
+                'con_remolque'            => !empty($r['con_remolque']) ? 1 : 0,
                 'foto_ticket_path'        => isset($r['foto_ticket_path']) ? $r['foto_ticket_path'] : null,
+                'foto_surtidor_path'      => isset($r['foto_surtidor_path']) ? $r['foto_surtidor_path'] : null,
                 'foto_odometro_path'      => isset($r['foto_odometro_path']) ? $r['foto_odometro_path'] : null,
             );
         }

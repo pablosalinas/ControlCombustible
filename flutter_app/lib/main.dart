@@ -609,6 +609,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _searchQuery = '';
   String _fechaDesde = '';
   String _fechaHasta = '';
+  String _filterRemolque = 'todos'; // 'todos', 'sin_remolque', 'solo_remolque'
 
   @override
   void initState() {
@@ -630,6 +631,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'vehiculo_id': _selectedVehiculoId,
         if (filterUsuarioId > 0) 'filter_usuario_id': filterUsuarioId,
         if (filterParqueId > 0) 'filter_parque_id': filterParqueId,
+        'filter_remolque': _filterRemolque,
         if (_fechaDesde.isNotEmpty) 'fecha_desde': _fechaDesde,
         if (_fechaHasta.isNotEmpty) 'fecha_hasta': _fechaHasta,
       });
@@ -1609,6 +1611,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                     ],
                   ),
+                  const SizedBox(height: 6),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          isExpanded: true,
+                          value: _filterRemolque,
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'todos',
+                              child: Text('🚐 Todos los repostajes (Con y sin remolque)'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'sin_remolque',
+                              child: Text('🚗 Sin caravana / remolque'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'solo_remolque',
+                              child: Text('🚐 Solo con caravana / remolque'),
+                            ),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) {
+                              setState(() => _filterRemolque = val);
+                              _loadData();
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 8),
                   if (_vehiculoTareas.any((t) => t.enAlerta)) ...[
                     Card(
@@ -2008,6 +2042,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   runSpacing: 6,
                   children: [
                     Text('Vehículo: ${r.vehiculoNombre}'),
+                    if (r.conRemolque)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.shade100,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text('🚐 Caravana / Remolque', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                      ),
                     if (r.estacionServicio.isNotEmpty) Text('Estación: ${r.estacionServicio}'),
                     Text('KM.x.LTS: ${r.kmPorLitro?.toStringAsFixed(2) ?? "-"}'),
                     Text('LTS.x.100: ${r.litrosPor100?.toStringAsFixed(2) ?? "-"}'),
@@ -2112,6 +2155,7 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
   String _fotoTicketPath = '';
   String _fotoSurtidorPath = '';
   String _fotoOdometroPath = '';
+  bool _conRemolque = false;
   String? _localTicketPath;
   String? _localSurtidorPath;
   String? _localOdometroPath;
@@ -2165,6 +2209,7 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
     _fotoTicketPath = e?.fotoTicketPath ?? '';
     _fotoSurtidorPath = e?.fotoSurtidorPath ?? '';
     _fotoOdometroPath = e?.fotoOdometroPath ?? '';
+    _conRemolque = e?.conRemolque ?? false;
     _notasCtrl = TextEditingController(text: e?.notas ?? '');
   }
 
@@ -2755,6 +2800,7 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
         'precio_litro': _precioCtrl.text.trim(),
         'importe_total': _importeCtrl.text.trim(),
         'estacion_servicio': _selectedEstacion,
+        'con_remolque': _conRemolque ? 1 : 0,
         'notas': _notasCtrl.text.trim(),
         'foto_ticket_path': _fotoTicketPath,
         'foto_surtidor_path': _fotoSurtidorPath,
@@ -2989,7 +3035,16 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(labelText: 'Importe Total (€)', border: OutlineInputBorder()),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            value: _conRemolque,
+            onChanged: (v) => setState(() => _conRemolque = v ?? false),
+            title: const Text('🚐 Con caravana / remolque'),
+            subtitle: const Text('Permite filtrar cálculos y medias con o sin remolque', style: TextStyle(fontSize: 12)),
+          ),
+          const SizedBox(height: 8),
           Builder(
             builder: (context) {
               final seen = <String>{};

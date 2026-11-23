@@ -81,6 +81,7 @@ class Repostaje {
   final String fotoTicketPath;
   final String fotoSurtidorPath;
   final String fotoOdometroPath;
+  final bool conRemolque;
 
   Repostaje({
     required this.id,
@@ -114,6 +115,7 @@ class Repostaje {
     this.fotoTicketPath = '',
     this.fotoSurtidorPath = '',
     this.fotoOdometroPath = '',
+    this.conRemolque = false,
   });
 
   static double? _toNullableDouble(dynamic v) {
@@ -154,6 +156,7 @@ class Repostaje {
       fotoTicketPath: (j['foto_ticket_path'] ?? '').toString(),
       fotoSurtidorPath: (j['foto_surtidor_path'] ?? '').toString(),
       fotoOdometroPath: (j['foto_odometro_path'] ?? '').toString(),
+      conRemolque: j['con_remolque'] == true || j['con_remolque'].toString() == '1',
     );
   }
 }

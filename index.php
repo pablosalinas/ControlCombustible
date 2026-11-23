@@ -596,6 +596,11 @@
             <select id="vehicle-selector" class="vehicle-select" onchange="loadDashboard()">
                 <option value="0">📊 Todos los vehículos (Resultado Conjunto)</option>
             </select>
+            <select id="remolque-filter" class="vehicle-select" style="flex: 0 1 220px;" onchange="loadDashboard()" title="Incluir o filtrar repostajes con caravana / remolque">
+                <option value="todos">🚐 Todos (Con y sin remolque)</option>
+                <option value="sin_remolque">🚗 Sin caravana / remolque</option>
+                <option value="solo_remolque">🚐 Solo con caravana / remolque</option>
+            </select>
             <input type="date" id="filter-from" class="form-control" style="width: auto; padding: 0.45rem 0.6rem; font-size: 0.82rem; background:#1e293b; color:#fff; border-color:#334155;" onchange="loadDashboard()" title="Desde fecha">
             <input type="date" id="filter-to" class="form-control" style="width: auto; padding: 0.45rem 0.6rem; font-size: 0.82rem; background:#1e293b; color:#fff; border-color:#334155;" onchange="loadDashboard()" title="Hasta fecha">
         </div>
@@ -830,6 +835,12 @@
                     <label>Notas / Mantenimiento</label>
                     <input type="text" id="rep-notas" class="form-control" placeholder="Ej: Revisión o incidencia">
                 </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0.6rem;">
+                <label style="display:inline-flex; align-items:center; gap:0.5rem; cursor:pointer; font-weight:600; color:var(--text);">
+                    <input type="checkbox" id="rep-con-remolque" style="width:18px; height:18px;">
+                    <span>🚐 Repostaje con caravana / remolque</span>
+                </label>
             </div>
             <div style="display:flex; gap:0.65rem; justify-content:flex-end; margin-top:0.8rem;">
                 <button type="button" class="btn btn-outline" onclick="closeRepostajeModal()">Cancelar</button>
@@ -1737,11 +1748,14 @@ async function loadDashboard() {
     const vehiculoId = sel ? parseInt(sel.value || '0', 10) : 0;
     const fechaDesde = document.getElementById('filter-from').value;
     const fechaHasta = document.getElementById('filter-to').value;
+    const remolqueSel = document.getElementById('remolque-filter');
+    const filterRemolque = remolqueSel ? (remolqueSel.value || 'todos') : 'todos';
 
     const res = await apiCall('dashboard', {
         vehiculo_id: vehiculoId,
         filter_usuario_id: scopeFilters.filter_usuario_id,
         filter_parque_id: scopeFilters.filter_parque_id,
+        filter_remolque: filterRemolque,
         fecha_desde: fechaDesde,
         fecha_hasta: fechaHasta
     });
@@ -1870,7 +1884,7 @@ function renderTable() {
             <td>${fmtNum(r.total_litros_acum, 1)}</td>
             <td>${fmtNum(r.total_euros_acum, 2)} €</td>
             <td>${r.coste_medio_100_acum !== null ? fmtNum(r.coste_medio_100_acum, 2) : '-'}</td>
-            <td class="wrap-col" style="text-align:left; max-width:130px;">${r.notas || ''}</td>
+            <td class="wrap-col" style="text-align:left; max-width:130px;">${Number(r.con_remolque) === 1 ? '<span class="badge" style="background:#fef3c7; color:#92400e; margin-right:0.25rem;">🚐 Remolque</span>' : ''}${r.notas || ''}</td>
             <td class="col-actions">
                 ${r.foto_ticket_path ? `<button class="btn btn-outline" style="padding:0.25rem 0.45rem; font-size:0.75rem; color:var(--primary);" onclick="openPhotoLightbox('${r.foto_ticket_path}', 'Factura / Ticket (${r.fecha})')" title="Ver foto factura/ticket"><i class="fa-solid fa-receipt"></i></button>` : ''}
                 ${r.foto_surtidor_path ? `<button class="btn btn-outline" style="padding:0.25rem 0.45rem; font-size:0.75rem; color:#0284c7;" onclick="openPhotoLightbox('${r.foto_surtidor_path}', 'Surtidor (${r.fecha})')" title="Ver foto surtidor"><i class="fa-solid fa-gas-pump"></i></button>` : ''}
@@ -1888,6 +1902,7 @@ function renderTable() {
                 <div>
                     <strong style="font-size:0.92rem;">${fmtDate(r.fecha)}</strong>
                     <span class="badge badge-teal" style="margin-left:0.35rem;">${r.vehiculo_nombre || 'Vehículo'}</span>
+                    ${Number(r.con_remolque) === 1 ? '<span class="badge" style="background:#fef3c7; color:#92400e; margin-left:0.25rem;">🚐 Remolque</span>' : ''}
                 </div>
                 <div style="font-weight:800; font-size:1.05rem; color:var(--primary-dark);">${fmtNum(r.importe_total, 2)} €${r.es_pesetas ? ` <small style="font-weight:500; color:var(--muted);">(${fmtNum(r.importe_total_pesetas, 0)} pts)</small>` : ''}</div>
             </div>
@@ -2050,6 +2065,7 @@ function openRepostajeModal() {
     document.getElementById('rep-importe').value = '';
     document.getElementById('rep-estacion').value = '';
     document.getElementById('rep-notas').value = '';
+    document.getElementById('rep-con-remolque').checked = false;
     document.getElementById('rep-foto-ticket').value = '';
     document.getElementById('rep-foto-surtidor').value = '';
     document.getElementById('rep-foto-odometro').value = '';
@@ -2081,6 +2097,7 @@ function editRepostaje(r) {
     }
     estSel.value = estVal;
     document.getElementById('rep-notas').value = r.notas || '';
+    document.getElementById('rep-con-remolque').checked = Number(r.con_remolque) === 1;
     document.getElementById('rep-foto-ticket').value = r.foto_ticket_path || '';
     document.getElementById('rep-foto-surtidor').value = r.foto_surtidor_path || '';
     document.getElementById('rep-foto-odometro').value = r.foto_odometro_path || '';
@@ -2107,6 +2124,7 @@ document.getElementById('repostaje-form').addEventListener('submit', async (e) =
         precio_litro: document.getElementById('rep-precio').value,
         importe_total: document.getElementById('rep-importe').value,
         estacion_servicio: document.getElementById('rep-estacion').value,
+        con_remolque: document.getElementById('rep-con-remolque').checked ? 1 : 0,
         notas: document.getElementById('rep-notas').value,
         foto_ticket_path: document.getElementById('rep-foto-ticket').value,
         foto_surtidor_path: document.getElementById('rep-foto-surtidor').value,

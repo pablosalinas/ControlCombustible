@@ -261,6 +261,23 @@ function ensureRepostajeFotoSurtidorColumn(PDO $pdo) {
 }
 
 /**
+ * Garantiza de forma aditiva la existencia de `con_remolque` en `veh_repostajes`.
+ */
+function ensureRepostajeRemolqueColumn(PDO $pdo) {
+    static $checked = false;
+    if ($checked) return;
+    $checked = true;
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM `veh_repostajes` LIKE 'con_remolque'");
+        if ($stmt && !$stmt->fetch()) {
+            $pdo->exec("ALTER TABLE `veh_repostajes` ADD COLUMN `con_remolque` TINYINT(1) NOT NULL DEFAULT 0 AFTER `estacion_servicio`");
+        }
+    } catch (Exception $e) {
+        // Ignorar si no tiene permisos ALTER
+    }
+}
+
+/**
  * Autenticación contra la tabla `users` de Moratalla-Murcia-2026 (SOLO LECTURA)
  * utilizando el sistema de roles (`admin` tiene visión global de todos los vehículos;
  * otros roles gestionan únicamente sus propios vehículos).
@@ -933,9 +950,14 @@ try {
         case 'dashboard':
         case 'list_repostajes':
             ensureRepostajeFotoSurtidorColumn($pdo);
+            ensureRepostajeRemolqueColumn($pdo);
             $vehiculoId      = isset($_GET['vehiculo_id']) ? (int)$_GET['vehiculo_id'] : (int)arr_get($jsonBody, 'vehiculo_id', 0);
             $filterUsuarioId = isset($_GET['filter_usuario_id']) ? (int)$_GET['filter_usuario_id'] : (int)arr_get($jsonBody, 'filter_usuario_id', 0);
             $filterParqueId  = isset($_GET['filter_parque_id']) ? (int)$_GET['filter_parque_id'] : (int)arr_get($jsonBody, 'filter_parque_id', 0);
+            $filterRemolque  = trim((string)(isset($_GET['filter_remolque']) ? $_GET['filter_remolque'] : arr_get($jsonBody, 'filter_remolque', 'todos')));
+            if (!in_array($filterRemolque, array('todos', 'sin_remolque', 'solo_remolque'), true)) {
+                $filterRemolque = 'todos';
+            }
             $fechaDesde      = trim((string)(isset($_GET['fecha_desde']) ? $_GET['fecha_desde'] : arr_get($jsonBody, 'fecha_desde', '')));
             $fechaHasta      = trim((string)(isset($_GET['fecha_hasta']) ? $_GET['fecha_hasta'] : arr_get($jsonBody, 'fecha_hasta', '')));
 
@@ -979,6 +1001,11 @@ try {
             if ($vehiculoId > 0) {
                 $sqlRep .= " AND r.vehiculo_id = ?";
                 $params[] = $vehiculoId;
+            }
+            if ($filterRemolque === 'sin_remolque') {
+                $sqlRep .= " AND COALESCE(r.con_remolque, 0) = 0";
+            } elseif ($filterRemolque === 'solo_remolque') {
+                $sqlRep .= " AND COALESCE(r.con_remolque, 0) = 1";
             }
 
             $sqlRep .= " ORDER BY r.vehiculo_id ASC, r.fecha ASC, r.km_odometro ASC, r.id ASC";
@@ -1075,6 +1102,7 @@ try {
                 'usuarios'                 => $usuariosFiltro,
                 'filtro_usuario_id'        => $filterUsuarioId,
                 'filtro_parque_id'         => $filterParqueId,
+                'filtro_remolque'          => $filterRemolque,
                 'estaciones'               => $estaciones,
                 'proveedores'              => $proveedores,
                 'tareas_maestro'           => $tareasMaestro,
@@ -1089,6 +1117,7 @@ try {
 
         case 'save_repostaje':
             ensureRepostajeFotoSurtidorColumn($pdo);
+            ensureRepostajeRemolqueColumn($pdo);
             $id               = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
             $vehiculoId       = (int)arr_get($jsonBody, 'vehiculo_id', isset($_POST['vehiculo_id']) ? $_POST['vehiculo_id'] : 0);
             $fecha            = trim((string)arr_get($jsonBody, 'fecha', isset($_POST['fecha']) ? $_POST['fecha'] : date('Y-m-d')));
@@ -1098,6 +1127,8 @@ try {
             $kmOdometro       = (float)str_replace(',', '.', (string)arr_get($jsonBody, 'km_odometro', isset($_POST['km_odometro']) ? $_POST['km_odometro'] : 0));
             $estacionServicio = trim((string)arr_get($jsonBody, 'estacion_servicio', isset($_POST['estacion_servicio']) ? $_POST['estacion_servicio'] : ''));
             $notas            = trim((string)arr_get($jsonBody, 'notas', isset($_POST['notas']) ? $_POST['notas'] : ''));
+            $conRemolqueRaw   = arr_get($jsonBody, 'con_remolque', isset($_POST['con_remolque']) ? $_POST['con_remolque'] : 0);
+            $conRemolque      = ($conRemolqueRaw === true || $conRemolqueRaw === 1 || $conRemolqueRaw === '1' || $conRemolqueRaw === 'true') ? 1 : 0;
             $fotoTicketPath   = sanitizeRepostajeFotoPath(arr_get($jsonBody, 'foto_ticket_path', isset($_POST['foto_ticket_path']) ? $_POST['foto_ticket_path'] : ''));
             $fotoSurtidorPath = sanitizeRepostajeFotoPath(arr_get($jsonBody, 'foto_surtidor_path', isset($_POST['foto_surtidor_path']) ? $_POST['foto_surtidor_path'] : ''));
             $fotoOdometroPath = sanitizeRepostajeFotoPath(arr_get($jsonBody, 'foto_odometro_path', isset($_POST['foto_odometro_path']) ? $_POST['foto_odometro_path'] : ''));
@@ -1139,18 +1170,18 @@ try {
                 }
                 $stmt = $pdo->prepare("
                     UPDATE `veh_repostajes`
-                    SET vehiculo_id = ?, usuario_id = ?, fecha = ?, litros = ?, precio_litro = ?, importe_total = ?, km_odometro = ?, estacion_servicio = ?, notas = ?, foto_ticket_path = ?, foto_surtidor_path = ?, foto_odometro_path = ?
+                    SET vehiculo_id = ?, usuario_id = ?, fecha = ?, litros = ?, precio_litro = ?, importe_total = ?, km_odometro = ?, estacion_servicio = ?, con_remolque = ?, notas = ?, foto_ticket_path = ?, foto_surtidor_path = ?, foto_odometro_path = ?
                     WHERE id = ? AND activo = 1
                 ");
-                $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $fotoTicketPath, $fotoSurtidorPath, $fotoOdometroPath, $id));
+                $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $conRemolque, $notas, $fotoTicketPath, $fotoSurtidorPath, $fotoOdometroPath, $id));
                 $savedId = $id;
             } else {
                 $stmt = $pdo->prepare("
                     INSERT INTO `veh_repostajes`
-                    (vehiculo_id, usuario_id, fecha, litros, precio_litro, importe_total, km_odometro, estacion_servicio, notas, foto_ticket_path, foto_surtidor_path, foto_odometro_path, activo)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    (vehiculo_id, usuario_id, fecha, litros, precio_litro, importe_total, km_odometro, estacion_servicio, con_remolque, notas, foto_ticket_path, foto_surtidor_path, foto_odometro_path, activo)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                 ");
-                $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $fotoTicketPath, $fotoSurtidorPath, $fotoOdometroPath));
+                $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $conRemolque, $notas, $fotoTicketPath, $fotoSurtidorPath, $fotoOdometroPath));
                 $savedId = (int)$pdo->lastInsertId();
             }
 
