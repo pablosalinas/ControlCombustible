@@ -2779,6 +2779,39 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
     }
   }
 
+  Future<void> _pickSourceAndScan(
+    String title,
+    Future<void> Function({ImageSource source}) onCapture,
+  ) async {
+    if (_ocrBusy) return;
+    final selected = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt, color: Color(0xFF0F766E)),
+              title: const Text('Hacer foto con la cámara'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library, color: Color(0xFF0284C7)),
+              title: const Text('Elegir archivo / galería'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (selected != null) {
+      await onCapture(source: selected);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2792,7 +2825,7 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _scanTicket,
+                  onPressed: _ocrBusy ? null : () => _pickSourceAndScan('Foto Factura / Ticket', _scanTicket),
                   style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10)),
                   icon: const Icon(Icons.receipt_long, size: 18),
                   label: const Text('Factura', style: TextStyle(fontSize: 12.5), overflow: TextOverflow.ellipsis),
@@ -2801,7 +2834,7 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
               const SizedBox(width: 6),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _scanPumpDisplay,
+                  onPressed: _ocrBusy ? null : () => _pickSourceAndScan('Foto Surtidor', _scanPumpDisplay),
                   style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10)),
                   icon: const Icon(Icons.local_gas_station, size: 18),
                   label: const Text('Surtidor', style: TextStyle(fontSize: 12.5), overflow: TextOverflow.ellipsis),
@@ -2810,7 +2843,7 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
               const SizedBox(width: 6),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _scanOdometer,
+                  onPressed: _ocrBusy ? null : () => _pickSourceAndScan('Foto Odómetro', _scanOdometer),
                   style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10)),
                   icon: const Icon(Icons.speed, size: 18),
                   label: const Text('Odómetro', style: TextStyle(fontSize: 12.5), overflow: TextOverflow.ellipsis),
