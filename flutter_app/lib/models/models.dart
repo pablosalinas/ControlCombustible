@@ -78,6 +78,9 @@ class Repostaje {
   final double? importeTotalPesetas;
   final double? precioLitroRaw;
   final double? importeTotalRaw;
+  final String fotoTicketPath;
+  final String fotoSurtidorPath;
+  final String fotoOdometroPath;
 
   Repostaje({
     required this.id,
@@ -108,6 +111,9 @@ class Repostaje {
     this.importeTotalPesetas,
     this.precioLitroRaw,
     this.importeTotalRaw,
+    this.fotoTicketPath = '',
+    this.fotoSurtidorPath = '',
+    this.fotoOdometroPath = '',
   });
 
   static double? _toNullableDouble(dynamic v) {
@@ -145,6 +151,9 @@ class Repostaje {
       importeTotalPesetas: _toNullableDouble(j['importe_total_pesetas']),
       precioLitroRaw: _toNullableDouble(j['precio_litro_raw']),
       importeTotalRaw: _toNullableDouble(j['importe_total_raw']),
+      fotoTicketPath: (j['foto_ticket_path'] ?? '').toString(),
+      fotoSurtidorPath: (j['foto_surtidor_path'] ?? '').toString(),
+      fotoOdometroPath: (j['foto_odometro_path'] ?? '').toString(),
     );
   }
 }

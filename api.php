@@ -54,24 +54,30 @@ function arr_get(array $arr, $key, $default = null) {
 }
 
 /**
- * Sanitiza una ruta relativa de foto de repostaje (solo uploads/tickets/ o uploads/odometros/).
+ * Sanitiza una ruta relativa de foto de repostaje (uploads/tickets/, uploads/surtidores/ o uploads/odometros/).
  */
 function sanitizeRepostajeFotoPath($path) {
     $path = trim((string)$path);
     if ($path === '') return null;
     $path = str_replace('\\', '/', $path);
     if (strpos($path, '..') !== false) return null;
-    if (!preg_match('#^uploads/(tickets|odometros)/[A-Za-z0-9_.\-]+$#', $path)) {
+    if (!preg_match('#^uploads/(tickets|surtidores|odometros)/[A-Za-z0-9_.\-]+$#', $path)) {
         return null;
     }
     return $path;
 }
 
 /**
- * Guarda una foto subida (multipart $_FILES o base64) en uploads/tickets/ o uploads/odometros/.
+ * Guarda una foto subida (multipart $_FILES o base64) en uploads/tickets/, uploads/surtidores/ o uploads/odometros/.
  */
 function saveUploadedRepostajeFoto($tipo, $fileInfo = null, $base64Data = '') {
-    $subDir = ($tipo === 'odometro') ? 'odometros' : 'tickets';
+    if ($tipo === 'odometro') {
+        $subDir = 'odometros';
+    } elseif ($tipo === 'surtidor') {
+        $subDir = 'surtidores';
+    } else {
+        $subDir = 'tickets';
+    }
     $relDir = 'uploads/' . $subDir;
     $absDir = __DIR__ . '/' . $relDir;
     if (!is_dir($absDir)) {
@@ -120,7 +126,13 @@ function saveUploadedRepostajeFoto($tipo, $fileInfo = null, $base64Data = '') {
         }
     }
 
-    $prefix = ($tipo === 'odometro') ? 'odo_' : 'tkt_';
+    if ($tipo === 'odometro') {
+        $prefix = 'odo_';
+    } elseif ($tipo === 'surtidor') {
+        $prefix = 'sur_';
+    } else {
+        $prefix = 'tkt_';
+    }
     $filename = $prefix . date('Ymd_His') . '_' . substr(md5(uniqid('', true)), 0, 8) . '.' . $ext;
     $absPath = $absDir . '/' . $filename;
     if (file_put_contents($absPath, $binary) === false) {
@@ -228,6 +240,23 @@ function ensureUsersValidationColumn(PDO $pdo) {
         }
     } catch (Exception $e) {
         // Ignorar si no tiene permisos ALTER; los queries manejarán fallback
+    }
+}
+
+/**
+ * Garantiza de forma aditiva la existencia de `foto_surtidor_path` en `veh_repostajes`.
+ */
+function ensureRepostajeFotoSurtidorColumn(PDO $pdo) {
+    static $checked = false;
+    if ($checked) return;
+    $checked = true;
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM `veh_repostajes` LIKE 'foto_surtidor_path'");
+        if ($stmt && !$stmt->fetch()) {
+            $pdo->exec("ALTER TABLE `veh_repostajes` ADD COLUMN `foto_surtidor_path` VARCHAR(255) NULL DEFAULT NULL AFTER `foto_ticket_path`");
+        }
+    } catch (Exception $e) {
+        // Ignorar si no tiene permisos ALTER
     }
 }
 
@@ -903,6 +932,7 @@ try {
 
         case 'dashboard':
         case 'list_repostajes':
+            ensureRepostajeFotoSurtidorColumn($pdo);
             $vehiculoId      = isset($_GET['vehiculo_id']) ? (int)$_GET['vehiculo_id'] : (int)arr_get($jsonBody, 'vehiculo_id', 0);
             $filterUsuarioId = isset($_GET['filter_usuario_id']) ? (int)$_GET['filter_usuario_id'] : (int)arr_get($jsonBody, 'filter_usuario_id', 0);
             $filterParqueId  = isset($_GET['filter_parque_id']) ? (int)$_GET['filter_parque_id'] : (int)arr_get($jsonBody, 'filter_parque_id', 0);
@@ -1058,6 +1088,7 @@ try {
             break;
 
         case 'save_repostaje':
+            ensureRepostajeFotoSurtidorColumn($pdo);
             $id               = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
             $vehiculoId       = (int)arr_get($jsonBody, 'vehiculo_id', isset($_POST['vehiculo_id']) ? $_POST['vehiculo_id'] : 0);
             $fecha            = trim((string)arr_get($jsonBody, 'fecha', isset($_POST['fecha']) ? $_POST['fecha'] : date('Y-m-d')));
@@ -1068,6 +1099,7 @@ try {
             $estacionServicio = trim((string)arr_get($jsonBody, 'estacion_servicio', isset($_POST['estacion_servicio']) ? $_POST['estacion_servicio'] : ''));
             $notas            = trim((string)arr_get($jsonBody, 'notas', isset($_POST['notas']) ? $_POST['notas'] : ''));
             $fotoTicketPath   = sanitizeRepostajeFotoPath(arr_get($jsonBody, 'foto_ticket_path', isset($_POST['foto_ticket_path']) ? $_POST['foto_ticket_path'] : ''));
+            $fotoSurtidorPath = sanitizeRepostajeFotoPath(arr_get($jsonBody, 'foto_surtidor_path', isset($_POST['foto_surtidor_path']) ? $_POST['foto_surtidor_path'] : ''));
             $fotoOdometroPath = sanitizeRepostajeFotoPath(arr_get($jsonBody, 'foto_odometro_path', isset($_POST['foto_odometro_path']) ? $_POST['foto_odometro_path'] : ''));
 
             // Autocalcular el tercer valor si se proporcionan dos
@@ -1107,18 +1139,18 @@ try {
                 }
                 $stmt = $pdo->prepare("
                     UPDATE `veh_repostajes`
-                    SET vehiculo_id = ?, usuario_id = ?, fecha = ?, litros = ?, precio_litro = ?, importe_total = ?, km_odometro = ?, estacion_servicio = ?, notas = ?, foto_ticket_path = ?, foto_odometro_path = ?
+                    SET vehiculo_id = ?, usuario_id = ?, fecha = ?, litros = ?, precio_litro = ?, importe_total = ?, km_odometro = ?, estacion_servicio = ?, notas = ?, foto_ticket_path = ?, foto_surtidor_path = ?, foto_odometro_path = ?
                     WHERE id = ? AND activo = 1
                 ");
-                $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $fotoTicketPath, $fotoOdometroPath, $id));
+                $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $fotoTicketPath, $fotoSurtidorPath, $fotoOdometroPath, $id));
                 $savedId = $id;
             } else {
                 $stmt = $pdo->prepare("
                     INSERT INTO `veh_repostajes`
-                    (vehiculo_id, usuario_id, fecha, litros, precio_litro, importe_total, km_odometro, estacion_servicio, notas, foto_ticket_path, foto_odometro_path, activo)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    (vehiculo_id, usuario_id, fecha, litros, precio_litro, importe_total, km_odometro, estacion_servicio, notas, foto_ticket_path, foto_surtidor_path, foto_odometro_path, activo)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                 ");
-                $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $fotoTicketPath, $fotoOdometroPath));
+                $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $notas, $fotoTicketPath, $fotoSurtidorPath, $fotoOdometroPath));
                 $savedId = (int)$pdo->lastInsertId();
             }
 
@@ -1187,7 +1219,7 @@ try {
 
         case 'upload_repostaje_foto':
             $tipo = trim((string)arr_get($jsonBody, 'tipo', isset($_POST['tipo']) ? $_POST['tipo'] : 'ticket'));
-            if ($tipo !== 'odometro') $tipo = 'ticket';
+            if (!in_array($tipo, array('ticket', 'surtidor', 'odometro'), true)) $tipo = 'ticket';
             $fileInfo = isset($_FILES['foto']) ? $_FILES['foto'] : null;
             $base64Data = (string)arr_get($jsonBody, 'foto_base64', isset($_POST['foto_base64']) ? $_POST['foto_base64'] : '');
             try {

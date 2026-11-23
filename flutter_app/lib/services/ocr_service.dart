@@ -40,8 +40,9 @@ class TicketScanResult {
 class OdometerScanResult {
   final double? km;
   final String? imagePath;
+  final String rawText;
 
-  OdometerScanResult({this.km, this.imagePath});
+  OdometerScanResult({this.km, this.imagePath, this.rawText = ''});
 }
 
 class OcrService {
@@ -52,8 +53,12 @@ class OcrService {
   Future<TicketScanResult?> scanFuelTicket({ImageSource source = ImageSource.camera}) async {
     final XFile? image = await _picker.pickImage(source: source, imageQuality: 90);
     if (image == null) return null;
+    return processFuelTicketImage(image.path);
+  }
 
-    final inputImage = InputImage.fromFilePath(image.path);
+  /// Procesa (o reprocesa) una imagen existente de ticket/factura de combustible.
+  Future<TicketScanResult> processFuelTicketImage(String imagePath) async {
+    final inputImage = InputImage.fromFilePath(imagePath);
     final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
 
     try {
@@ -86,11 +91,12 @@ class OcrService {
         detectedDate = '$yyyy-$mm-$dd';
       }
 
-      // 2. Detectar Importe Total por palabras clave (TOTAL EUROS / TOTAL FACTURA / TOTAL PAGAR)
+      // 2. Detectar Importe Total por palabras clave (ignorando preautorizaciones y diferencias)
       double? hintImporte;
       final numReg = RegExp(r'(\d{1,4}[,\.]\d{1,3})');
       for (final l in allLines) {
-        if (RegExp(r'\b(TOTAL\s*EUROS|TOTAL\s*FACTURA|TOTAL\s*PAGAR|IMPORTE\s*TOTAL|TOTAL\s*COBRADO)\b', caseSensitive: false).hasMatch(l)) {
+        if (RegExp(r'\b(PREAUTORIZ|DIFERENCIA)\b', caseSensitive: false).hasMatch(l)) continue;
+        if (RegExp(r'\b(TOTAL\s*EUROS|TOTAL\s*FACTURA|TOTAL\s*A?\s*PAGAR|IMPORTE\s*TOTAL|TOTAL\s*COBRADO|IMPORTE\s*CONFIRMADO|TOTAL\s*TICKET)\b|^\s*TOTAL\s*:', caseSensitive: false).hasMatch(l)) {
           final ms = numReg.allMatches(l).toList();
           if (ms.isNotEmpty) {
             final v = double.tryParse((ms.last.group(1) ?? '').replaceAll(',', '.'));
@@ -195,7 +201,7 @@ class OcrService {
         precioLitro: precioLitro,
         importeTotal: importeTotal,
         estacion: detectedStation,
-        imagePath: image.path,
+        imagePath: imagePath,
         rawText: text,
       );
     } finally {
@@ -237,7 +243,8 @@ class OcrService {
     if (nombre.isEmpty) {
       for (final l in headerLines) {
         if (l.length >= 4 &&
-            !RegExp(r'^(FACTURA|NUM\.|FECHA|EMISOR|PAG|ALBARAN)', caseSensitive: false).hasMatch(l) &&
+            RegExp(r'[A-Za-zÁÉÍÓÚÑáéíóúñ]{3,}').hasMatch(l) &&
+            !RegExp(r'^(FACTURA|NUM\.|N\.?\s*\d+|FECHA|EMISOR|PAG|ALBARAN|SOLRED)$', caseSensitive: false).hasMatch(l) &&
             !RegExp(r'^\d+$').hasMatch(l)) {
           nombre = l;
           break;
@@ -289,8 +296,12 @@ class OcrService {
   Future<TicketScanResult?> scanPumpDisplay({ImageSource source = ImageSource.camera}) async {
     final XFile? image = await _picker.pickImage(source: source, imageQuality: 90);
     if (image == null) return null;
+    return processPumpDisplayImage(image.path);
+  }
 
-    final inputImage = InputImage.fromFilePath(image.path);
+  /// Procesa (o reprocesa) una imagen existente del marcador del surtidor.
+  Future<TicketScanResult> processPumpDisplayImage(String imagePath) async {
+    final inputImage = InputImage.fromFilePath(imagePath);
     final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
 
     try {
@@ -366,7 +377,7 @@ class OcrService {
         litros: litros,
         precioLitro: precioLitro,
         importeTotal: importeTotal,
-        imagePath: image.path,
+        imagePath: imagePath,
         rawText: text,
       );
     } finally {
@@ -376,29 +387,71 @@ class OcrService {
 
   /// Captura una fotografía del cuentakilómetros (odómetro) del vehículo
   /// y extrae la lectura de kilómetros junto con la ruta de la imagen.
-  Future<OdometerScanResult?> scanOdometerWithImage({ImageSource source = ImageSource.camera}) async {
+  Future<OdometerScanResult?> scanOdometerWithImage({
+    ImageSource source = ImageSource.camera,
+    double? minExpectedKm,
+  }) async {
     final XFile? image = await _picker.pickImage(source: source, imageQuality: 90);
     if (image == null) return null;
+    return processOdometerImage(image.path, minExpectedKm: minExpectedKm);
+  }
 
-    final inputImage = InputImage.fromFilePath(image.path);
+  /// Procesa (o reprocesa) una imagen existente del cuentakilómetros (odómetro).
+  Future<OdometerScanResult> processOdometerImage(String imagePath, {double? minExpectedKm}) async {
+    final inputImage = InputImage.fromFilePath(imagePath);
     final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
 
     try {
       final RecognizedText recognized = await recognizer.processImage(inputImage);
-      final String compact = recognized.text.replaceAll(' ', '');
-      final kmReg = RegExp(r'\b(\d{4,7})\b');
-      final matches = kmReg
-          .allMatches(compact)
-          .map((m) => m.group(1) ?? '')
-          .where((s) => s.isNotEmpty && !RegExp(r'^202\d$').hasMatch(s))
+      final String rawText = recognized.text;
+      final lines = rawText
+          .split(RegExp(r'\r?\n'))
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty)
           .toList();
 
-      double? km;
-      if (matches.isNotEmpty) {
-        matches.sort((a, b) => b.length.compareTo(a.length));
-        km = double.tryParse(matches.first);
+      final List<Map<String, dynamic>> candidates = [];
+      for (final line in lines) {
+        final lower = line.toLowerCase();
+        // Descartar líneas de velocímetro, parciales (trip), rpm, temperatura o reloj
+        if (RegExp(r'(km/h|1/min|rpm|°c|set)').hasMatch(lower)) continue;
+        if (RegExp(r'\d{1,2}:\d{2}').hasMatch(line)) continue;
+
+        final hasKmHint = RegExp(r'\b(km|odo|total)\b').hasMatch(lower) && !lower.contains('trip');
+        final hasTripHint = lower.contains('trip');
+
+        // Normalizar separadores de miles (201.104 o 201,104) pero no decimales cortos tipo 740.1
+        final cleaned = line.replaceAllMapped(RegExp(r'(\d{1,3})[\.,](\d{3})\b'), (m) => '${m.group(1)}${m.group(2)}');
+        for (final m in RegExp(r'\b(\d{4,7})\b').allMatches(cleaned)) {
+          final rawNum = m.group(1) ?? '';
+          // Evitar años 2020..2035 si no van acompañados de hint km
+          if (!hasKmHint && RegExp(r'^20[23]\d$').hasMatch(rawNum)) continue;
+          // Evitar parte entera de un decimal tipo 740.1
+          final endIdx = m.end;
+          if (endIdx < cleaned.length && (cleaned[endIdx] == '.' || cleaned[endIdx] == ',')) continue;
+          final val = double.tryParse(rawNum);
+          if (val == null || val < 100) continue;
+
+          int score = rawNum.length * 10;
+          if (hasKmHint) score += 50;
+          if (hasTripHint) score -= 40;
+          if (minExpectedKm != null && minExpectedKm > 0) {
+            if (val >= minExpectedKm && val <= minExpectedKm + 50000) {
+              score += 60;
+            } else if (val < minExpectedKm) {
+              score -= 30;
+            }
+          }
+          candidates.add({'val': val, 'score': score});
+        }
       }
-      return OdometerScanResult(km: km, imagePath: image.path);
+
+      double? km;
+      if (candidates.isNotEmpty) {
+        candidates.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
+        km = candidates.first['val'] as double;
+      }
+      return OdometerScanResult(km: km, imagePath: imagePath, rawText: rawText);
     } finally {
       await recognizer.close();
     }

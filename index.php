@@ -780,6 +780,7 @@
         <form id="repostaje-form">
             <input type="hidden" id="rep-id" value="0">
             <input type="hidden" id="rep-foto-ticket" value="">
+            <input type="hidden" id="rep-foto-surtidor" value="">
             <input type="hidden" id="rep-foto-odometro" value="">
             <div class="grid-2">
                 <div class="form-group">
@@ -1871,7 +1872,8 @@ function renderTable() {
             <td>${r.coste_medio_100_acum !== null ? fmtNum(r.coste_medio_100_acum, 2) : '-'}</td>
             <td class="wrap-col" style="text-align:left; max-width:130px;">${r.notas || ''}</td>
             <td class="col-actions">
-                ${r.foto_ticket_path ? `<button class="btn btn-outline" style="padding:0.25rem 0.45rem; font-size:0.75rem; color:var(--primary);" onclick="openPhotoLightbox('${r.foto_ticket_path}', 'Factura / Surtidor (${r.fecha})')" title="Ver foto factura/surtidor"><i class="fa-solid fa-receipt"></i></button>` : ''}
+                ${r.foto_ticket_path ? `<button class="btn btn-outline" style="padding:0.25rem 0.45rem; font-size:0.75rem; color:var(--primary);" onclick="openPhotoLightbox('${r.foto_ticket_path}', 'Factura / Ticket (${r.fecha})')" title="Ver foto factura/ticket"><i class="fa-solid fa-receipt"></i></button>` : ''}
+                ${r.foto_surtidor_path ? `<button class="btn btn-outline" style="padding:0.25rem 0.45rem; font-size:0.75rem; color:#0284c7;" onclick="openPhotoLightbox('${r.foto_surtidor_path}', 'Surtidor (${r.fecha})')" title="Ver foto surtidor"><i class="fa-solid fa-gas-pump"></i></button>` : ''}
                 ${r.foto_odometro_path ? `<button class="btn btn-outline" style="padding:0.25rem 0.45rem; font-size:0.75rem; color:var(--accent);" onclick="openPhotoLightbox('${r.foto_odometro_path}', 'Odómetro (${r.fecha})')" title="Ver foto odómetro"><i class="fa-solid fa-gauge-high"></i></button>` : ''}
                 <button class="btn btn-outline" style="padding:0.25rem 0.5rem; font-size:0.75rem;" onclick='editRepostaje(${JSON.stringify(r)})' title="Modificar"><i class="fa-solid fa-pen"></i></button>
                 <button class="btn btn-danger" style="padding:0.25rem 0.5rem; font-size:0.75rem;" onclick="deleteRepostaje(${r.id})" title="Baja lógica"><i class="fa-solid fa-trash"></i></button>
@@ -1903,7 +1905,8 @@ function renderTable() {
             </div>
             ${r.notas ? `<div style="margin-top:0.45rem; font-size:0.78rem; color:#92400e; background:#fef3c7; padding:0.3rem 0.55rem; border-radius:6px;"><i class="fa-solid fa-screwdriver-wrench"></i> ${r.notas}</div>` : ''}
             <div style="display:flex; justify-content:flex-end; gap:0.4rem; margin-top:0.55rem; flex-wrap:wrap;">
-                ${r.foto_ticket_path ? `<button class="btn btn-outline" style="padding:0.3rem 0.55rem; font-size:0.76rem; color:var(--primary);" onclick="openPhotoLightbox('${r.foto_ticket_path}', 'Factura / Surtidor (${r.fecha})')"><i class="fa-solid fa-receipt"></i> Ticket</button>` : ''}
+                ${r.foto_ticket_path ? `<button class="btn btn-outline" style="padding:0.3rem 0.55rem; font-size:0.76rem; color:var(--primary);" onclick="openPhotoLightbox('${r.foto_ticket_path}', 'Factura / Ticket (${r.fecha})')"><i class="fa-solid fa-receipt"></i> Factura</button>` : ''}
+                ${r.foto_surtidor_path ? `<button class="btn btn-outline" style="padding:0.3rem 0.55rem; font-size:0.76rem; color:#0284c7;" onclick="openPhotoLightbox('${r.foto_surtidor_path}', 'Surtidor (${r.fecha})')"><i class="fa-solid fa-gas-pump"></i> Surtidor</button>` : ''}
                 ${r.foto_odometro_path ? `<button class="btn btn-outline" style="padding:0.3rem 0.55rem; font-size:0.76rem; color:var(--accent);" onclick="openPhotoLightbox('${r.foto_odometro_path}', 'Odómetro (${r.fecha})')"><i class="fa-solid fa-gauge-high"></i> Odómetro</button>` : ''}
                 <button class="btn btn-outline" style="padding:0.3rem 0.65rem; font-size:0.76rem;" onclick='editRepostaje(${JSON.stringify(r)})'><i class="fa-solid fa-pen"></i> Editar</button>
                 <button class="btn btn-danger" style="padding:0.3rem 0.65rem; font-size:0.76rem;" onclick="deleteRepostaje(${r.id})"><i class="fa-solid fa-trash"></i> Baja</button>
@@ -2048,6 +2051,7 @@ function openRepostajeModal() {
     document.getElementById('rep-estacion').value = '';
     document.getElementById('rep-notas').value = '';
     document.getElementById('rep-foto-ticket').value = '';
+    document.getElementById('rep-foto-surtidor').value = '';
     document.getElementById('rep-foto-odometro').value = '';
     document.getElementById('ocr-status').classList.add('hidden');
     document.getElementById('detected-station-banner').classList.add('hidden');
@@ -2078,6 +2082,7 @@ function editRepostaje(r) {
     estSel.value = estVal;
     document.getElementById('rep-notas').value = r.notas || '';
     document.getElementById('rep-foto-ticket').value = r.foto_ticket_path || '';
+    document.getElementById('rep-foto-surtidor').value = r.foto_surtidor_path || '';
     document.getElementById('rep-foto-odometro').value = r.foto_odometro_path || '';
     document.getElementById('ocr-status').classList.add('hidden');
     document.getElementById('detected-station-banner').classList.add('hidden');
@@ -2104,6 +2109,7 @@ document.getElementById('repostaje-form').addEventListener('submit', async (e) =
         estacion_servicio: document.getElementById('rep-estacion').value,
         notas: document.getElementById('rep-notas').value,
         foto_ticket_path: document.getElementById('rep-foto-ticket').value,
+        foto_surtidor_path: document.getElementById('rep-foto-surtidor').value,
         foto_odometro_path: document.getElementById('rep-foto-odometro').value
     };
     const res = await apiCall('save_repostaje', payload);
@@ -2143,51 +2149,46 @@ function closePhotoLightbox() {
 function renderRepostajePhotosPreview() {
     const container = document.getElementById('rep-photos-preview');
     const ticketPath = document.getElementById('rep-foto-ticket').value;
+    const surtidorPath = document.getElementById('rep-foto-surtidor').value;
     const odoPath = document.getElementById('rep-foto-odometro').value;
     container.innerHTML = '';
 
-    if (!ticketPath && !odoPath) {
+    if (!ticketPath && !surtidorPath && !odoPath) {
         container.classList.add('hidden');
         return;
     }
     container.classList.remove('hidden');
 
-    if (ticketPath) {
-        const card = document.createElement('div');
-        card.className = 'photo-thumb-card';
-        card.innerHTML = `
-            <img src="${ticketPath}" alt="Factura/Surtidor" onclick="openPhotoLightbox('${ticketPath}', 'Factura / Surtidor')">
-            <div>
-                <div style="font-weight:700;">Factura / Surtidor</div>
-                <div style="display:flex; gap:0.4rem; margin-top:0.2rem;">
-                    <a href="javascript:void(0)" onclick="openPhotoLightbox('${ticketPath}', 'Factura / Surtidor')" style="color:var(--primary); font-weight:600;">Ver</a>
-                    <a href="javascript:void(0)" onclick="removeRepostajePhoto('ticket')" style="color:var(--danger);">Quitar</a>
-                </div>
-            </div>
-        `;
-        container.appendChild(card);
-    }
+    const slots = [
+        { tipo: 'ticket', title: 'Factura / Ticket', path: ticketPath },
+        { tipo: 'surtidor', title: 'Surtidor', path: surtidorPath },
+        { tipo: 'odometro', title: 'Odómetro', path: odoPath }
+    ];
 
-    if (odoPath) {
+    slots.forEach(s => {
+        if (!s.path) return;
         const card = document.createElement('div');
         card.className = 'photo-thumb-card';
         card.innerHTML = `
-            <img src="${odoPath}" alt="Odómetro" onclick="openPhotoLightbox('${odoPath}', 'Odómetro')">
+            <img src="${s.path}" alt="${s.title}" onclick="openPhotoLightbox('${s.path}', '${s.title}')">
             <div>
-                <div style="font-weight:700;">Odómetro</div>
-                <div style="display:flex; gap:0.4rem; margin-top:0.2rem;">
-                    <a href="javascript:void(0)" onclick="openPhotoLightbox('${odoPath}', 'Odómetro')" style="color:var(--primary); font-weight:600;">Ver</a>
-                    <a href="javascript:void(0)" onclick="removeRepostajePhoto('odometro')" style="color:var(--danger);">Quitar</a>
+                <div style="font-weight:700;">${s.title}</div>
+                <div style="display:flex; gap:0.45rem; margin-top:0.2rem; flex-wrap:wrap;">
+                    <a href="javascript:void(0)" onclick="openPhotoLightbox('${s.path}', '${s.title}')" style="color:var(--primary); font-weight:600;">Ver</a>
+                    <a href="javascript:void(0)" onclick="reprocessRepostajePhoto('${s.tipo}')" style="color:#0284c7; font-weight:600;">Reprocesar OCR</a>
+                    <a href="javascript:void(0)" onclick="removeRepostajePhoto('${s.tipo}')" style="color:var(--danger);">Quitar</a>
                 </div>
             </div>
         `;
         container.appendChild(card);
-    }
+    });
 }
 
 function removeRepostajePhoto(tipo) {
     if (tipo === 'odometro') {
         document.getElementById('rep-foto-odometro').value = '';
+    } else if (tipo === 'surtidor') {
+        document.getElementById('rep-foto-surtidor').value = '';
     } else {
         document.getElementById('rep-foto-ticket').value = '';
     }
@@ -2535,6 +2536,85 @@ async function createAndSelectDetectedStation() {
     }
 }
 
+async function runFuelOcrOnFile(file, modo) {
+    const status = document.getElementById('ocr-status');
+    let extracted = await tryGeminiExtract(file, modo);
+    let engineLabel = 'IA Vision';
+
+    if (!extracted) {
+        engineLabel = 'OCR';
+        const lang = modo === 'surtidor' ? 'eng' : 'spa';
+        const result = await Tesseract.recognize(file, lang);
+        const text = result.data.text || '';
+        extracted = (modo === 'surtidor') ? parsePumpDisplayText(text) : parseFuelInvoiceText(text);
+    }
+
+    if (extracted.fecha) {
+        document.getElementById('rep-fecha').value = extracted.fecha;
+    }
+    if (extracted.precio_litro) {
+        document.getElementById('rep-precio').value = Number(extracted.precio_litro).toFixed(3);
+    }
+    if (extracted.litros) {
+        document.getElementById('rep-litros').value = Number(extracted.litros).toFixed(2);
+    }
+    if (extracted.importe_total) {
+        document.getElementById('rep-importe').value = Number(extracted.importe_total).toFixed(2);
+    }
+    if (extracted.estacion) {
+        matchOrOfferStation(extracted.estacion);
+    }
+
+    const gotAny = extracted.litros || extracted.precio_litro || extracted.importe_total;
+    status.textContent = gotAny
+        ? `✅ Foto guardada y datos extraídos (${engineLabel}). Revisa y confirma los valores.`
+        : `📸 Foto guardada. No se pudieron leer todos los números automáticamente; puedes reprocesar o completarlos.`;
+}
+
+async function runOdometerOcrOnFile(file) {
+    const status = document.getElementById('ocr-status');
+    let km = null;
+    const gem = await tryGeminiExtract(file, 'odometro');
+    if (gem && gem.km_odometro) {
+        km = gem.km_odometro;
+    } else {
+        const result = await Tesseract.recognize(file, 'eng');
+        km = parseOdometerText(result.data.text || '');
+    }
+
+    if (km) {
+        document.getElementById('rep-km').value = km;
+        updateParcialKmPreview();
+        status.textContent = `✅ Foto guardada y kilometraje detectado: ${km} km`;
+    } else {
+        status.textContent = '📸 Foto del odómetro guardada. No se detectaron dígitos claros; puedes reprocesar o introducirlos manualmente.';
+    }
+}
+
+async function reprocessRepostajePhoto(tipo) {
+    const inputId = tipo === 'odometro'
+        ? 'rep-foto-odometro'
+        : (tipo === 'surtidor' ? 'rep-foto-surtidor' : 'rep-foto-ticket');
+    const path = document.getElementById(inputId).value;
+    if (!path) return;
+    const status = document.getElementById('ocr-status');
+    status.classList.remove('hidden');
+    status.textContent = '🔄 Reprocesando reconocimiento OCR de la foto...';
+    try {
+        const resp = await fetch(path);
+        if (!resp.ok) throw new Error('No se pudo descargar la foto para reprocesar');
+        const blob = await resp.blob();
+        const file = new File([blob], `reprocess_${tipo}.jpg`, { type: blob.type || 'image/jpeg' });
+        if (tipo === 'odometro') {
+            await runOdometerOcrOnFile(file);
+        } else {
+            await runFuelOcrOnFile(file, tipo === 'surtidor' ? 'surtidor' : 'factura');
+        }
+    } catch (e) {
+        status.textContent = '⚠️ Error al reprocesar OCR: ' + e.message;
+    }
+}
+
 async function scanFuelPhoto(input, modo) {
     if (!input.files || !input.files[0]) return;
     const file = input.files[0];
@@ -2545,43 +2625,11 @@ async function scanFuelPhoto(input, modo) {
         : '🧾 Subiendo factura/ticket y extrayendo datos...';
 
     try {
-        // 1. Subir y guardar la foto asociada al repostaje
-        const savedPath = await uploadRepostajePhoto(file, 'ticket');
-        document.getElementById('rep-foto-ticket').value = savedPath;
+        const uploadTipo = modo === 'surtidor' ? 'surtidor' : 'ticket';
+        const savedPath = await uploadRepostajePhoto(file, uploadTipo);
+        document.getElementById(modo === 'surtidor' ? 'rep-foto-surtidor' : 'rep-foto-ticket').value = savedPath;
         renderRepostajePhotosPreview();
-
-        // 2. Intentar extracción con Gemini Vision (si está configurado) o Tesseract inteligente
-        let extracted = await tryGeminiExtract(file, modo);
-        let engineLabel = 'IA Vision';
-
-        if (!extracted) {
-            engineLabel = 'OCR';
-            const lang = modo === 'surtidor' ? 'eng' : 'spa';
-            const result = await Tesseract.recognize(file, lang);
-            const text = result.data.text || '';
-            extracted = (modo === 'surtidor') ? parsePumpDisplayText(text) : parseFuelInvoiceText(text);
-        }
-
-        if (extracted.fecha) {
-            document.getElementById('rep-fecha').value = extracted.fecha;
-        }
-        if (extracted.precio_litro) {
-            document.getElementById('rep-precio').value = Number(extracted.precio_litro).toFixed(3);
-        }
-        if (extracted.litros) {
-            document.getElementById('rep-litros').value = Number(extracted.litros).toFixed(2);
-        }
-        if (extracted.importe_total) {
-            document.getElementById('rep-importe').value = Number(extracted.importe_total).toFixed(2);
-        }
-        if (extracted.estacion) {
-            matchOrOfferStation(extracted.estacion);
-        }
-
-        const gotAny = extracted.litros || extracted.precio_litro || extracted.importe_total;
-        status.textContent = gotAny
-            ? `✅ Foto guardada y datos extraídos (${engineLabel}). Revisa y confirma los valores.`
-            : `📸 Foto guardada. No se pudieron leer todos los números automáticamente; complétalos manualmente.`;
+        await runFuelOcrOnFile(file, modo);
     } catch (e) {
         status.textContent = '⚠️ Error procesando la foto: ' + e.message;
     } finally {
@@ -2600,23 +2648,7 @@ async function scanOdometerOCR(input) {
         const savedPath = await uploadRepostajePhoto(file, 'odometro');
         document.getElementById('rep-foto-odometro').value = savedPath;
         renderRepostajePhotosPreview();
-
-        let km = null;
-        const gem = await tryGeminiExtract(file, 'odometro');
-        if (gem && gem.km_odometro) {
-            km = gem.km_odometro;
-        } else {
-            const result = await Tesseract.recognize(file, 'eng');
-            km = parseOdometerText(result.data.text || '');
-        }
-
-        if (km) {
-            document.getElementById('rep-km').value = km;
-            updateParcialKmPreview();
-            status.textContent = `✅ Foto guardada y kilometraje detectado: ${km} km`;
-        } else {
-            status.textContent = '📸 Foto del odómetro guardada. No se detectaron dígitos claros; introdúcelos manualmente.';
-        }
+        await runOdometerOcrOnFile(file);
     } catch (e) {
         status.textContent = '⚠️ Error al procesar imagen del odómetro: ' + e.message;
     } finally {

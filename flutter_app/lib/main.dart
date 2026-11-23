@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'models/models.dart';
 import 'services/api_service.dart';
@@ -1948,6 +1949,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return m != null ? '${m.group(3)}-${m.group(2)}-${m.group(1)}' : val;
   }
 
+  void _openRemotePhotoDialog(String relPath, String title) {
+    final base = widget.api.baseUrl;
+    final idx = base.lastIndexOf('/');
+    final prefix = idx >= 0 ? base.substring(0, idx + 1) : base;
+    final url = (relPath.startsWith('http://') || relPath.startsWith('https://')) ? relPath : '$prefix$relPath';
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppBar(
+              title: Text(title, style: const TextStyle(fontSize: 16)),
+              automaticallyImplyLeading: false,
+              actions: [IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx))],
+            ),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.68),
+              child: InteractiveViewer(
+                child: Image.network(url, fit: BoxFit.contain),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildRepostajeCard(Repostaje r) {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1991,6 +2021,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 if (r.notas.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Text('Nota: ${r.notas}', style: const TextStyle(fontStyle: FontStyle.italic)),
+                ],
+                if (r.fotoTicketPath.isNotEmpty || r.fotoSurtidorPath.isNotEmpty || r.fotoOdometroPath.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      if (r.fotoTicketPath.isNotEmpty)
+                        OutlinedButton.icon(
+                          onPressed: () => _openRemotePhotoDialog(r.fotoTicketPath, 'Factura / Ticket (${_fmtDateEs(r.fecha)})'),
+                          style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+                          icon: const Icon(Icons.receipt_long, size: 16, color: Color(0xFF0F766E)),
+                          label: const Text('Factura', style: TextStyle(fontSize: 12)),
+                        ),
+                      if (r.fotoSurtidorPath.isNotEmpty)
+                        OutlinedButton.icon(
+                          onPressed: () => _openRemotePhotoDialog(r.fotoSurtidorPath, 'Surtidor (${_fmtDateEs(r.fecha)})'),
+                          style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+                          icon: const Icon(Icons.local_gas_station, size: 16, color: Color(0xFF0284C7)),
+                          label: const Text('Surtidor', style: TextStyle(fontSize: 12)),
+                        ),
+                      if (r.fotoOdometroPath.isNotEmpty)
+                        OutlinedButton.icon(
+                          onPressed: () => _openRemotePhotoDialog(r.fotoOdometroPath, 'Odómetro (${_fmtDateEs(r.fecha)})'),
+                          style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+                          icon: const Icon(Icons.speed, size: 16, color: Color(0xFFF59E0B)),
+                          label: const Text('Odómetro', style: TextStyle(fontSize: 12)),
+                        ),
+                    ],
+                  ),
                 ],
                 const SizedBox(height: 8),
                 Row(
@@ -2050,10 +2110,16 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
   String _selectedEstacion = '';
   late List<EstacionServicio> _localEstaciones;
   String _fotoTicketPath = '';
+  String _fotoSurtidorPath = '';
   String _fotoOdometroPath = '';
+  String? _localTicketPath;
+  String? _localSurtidorPath;
+  String? _localOdometroPath;
   late TextEditingController _notasCtrl;
   bool _saving = false;
+  bool _ocrBusy = false;
   String? _ocrMessage;
+  String _lastOcrRawText = '';
 
   String _isoToDisplayDate(String iso) {
     final s = iso.trim();
@@ -2096,6 +2162,9 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
     _importeCtrl = TextEditingController(text: e != null ? e.importeTotal.toStringAsFixed(2) : '');
     _selectedEstacion = e?.estacionServicio ?? '';
     _localEstaciones = List<EstacionServicio>.from(widget.estaciones);
+    _fotoTicketPath = e?.fotoTicketPath ?? '';
+    _fotoSurtidorPath = e?.fotoSurtidorPath ?? '';
+    _fotoOdometroPath = e?.fotoOdometroPath ?? '';
     _notasCtrl = TextEditingController(text: e?.notas ?? '');
   }
 
@@ -2134,6 +2203,16 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
     }
   }
 
+  String _resolveRemotePhotoUrl(String relPath) {
+    final p = relPath.trim();
+    if (p.isEmpty) return '';
+    if (p.startsWith('http://') || p.startsWith('https://')) return p;
+    final base = widget.api.baseUrl;
+    final idx = base.lastIndexOf('/');
+    final prefix = idx >= 0 ? base.substring(0, idx + 1) : base;
+    return '$prefix$p';
+  }
+
   Future<void> _uploadPhotoInBackground(String filePath, String tipo) async {
     try {
       final bytes = await File(filePath).readAsBytes();
@@ -2147,6 +2226,8 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
         setState(() {
           if (tipo == 'odometro') {
             _fotoOdometroPath = savedPath;
+          } else if (tipo == 'surtidor') {
+            _fotoSurtidorPath = savedPath;
           } else {
             _fotoTicketPath = savedPath;
           }
@@ -2263,67 +2344,380 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
     }
   }
 
-  Future<void> _scanTicket() async {
-    setState(() => _ocrMessage = 'Escaneando ticket de combustible...');
-    final res = await _ocr.scanFuelTicket();
-    if (res == null) {
-      setState(() => _ocrMessage = null);
-      return;
-    }
-    if (res.imagePath != null) {
-      unawaited(_uploadPhotoInBackground(res.imagePath!, 'ticket'));
-    }
+  Future<void> _applyTicketOcrResult(TicketScanResult res) async {
     setState(() {
       if (res.fecha != null) _fechaCtrl.text = _isoToDisplayDate(res.fecha!);
       if (res.litros != null) _litrosCtrl.text = res.litros!.toStringAsFixed(2);
       if (res.precioLitro != null) _precioCtrl.text = res.precioLitro!.toStringAsFixed(3);
       if (res.importeTotal != null) _importeCtrl.text = res.importeTotal!.toStringAsFixed(2);
-      _ocrMessage = 'Datos extraídos del ticket correctamente. Revisa y confirma.';
+      _lastOcrRawText = res.rawText;
+      final gotAny = res.fecha != null || res.litros != null || res.precioLitro != null || res.importeTotal != null || res.estacion != null;
+      _ocrMessage = gotAny
+          ? 'Datos extraídos de la factura/ticket. Revisa y confirma.'
+          : 'Foto guardada. No se pudieron leer todos los datos del ticket; puedes reprocesar o completarlos.';
     });
     if (res.estacion != null) {
       await _handleDetectedStation(res.estacion!);
     }
   }
 
-  Future<void> _scanPumpDisplay() async {
-    setState(() => _ocrMessage = 'Escaneando marcador del surtidor...');
-    final res = await _ocr.scanPumpDisplay();
-    if (res == null) {
-      setState(() => _ocrMessage = null);
-      return;
-    }
-    if (res.imagePath != null) {
-      unawaited(_uploadPhotoInBackground(res.imagePath!, 'ticket'));
-    }
+  void _applyPumpOcrResult(TicketScanResult res) {
     setState(() {
       if (res.litros != null) _litrosCtrl.text = res.litros!.toStringAsFixed(2);
       if (res.precioLitro != null) _precioCtrl.text = res.precioLitro!.toStringAsFixed(3);
       if (res.importeTotal != null) _importeCtrl.text = res.importeTotal!.toStringAsFixed(2);
+      _lastOcrRawText = res.rawText;
       final gotAny = res.litros != null || res.precioLitro != null || res.importeTotal != null;
       _ocrMessage = gotAny
-          ? 'Datos extraídos del surtidor. Revisa y confirma.'
-          : 'Foto del surtidor guardada. No se pudieron leer todos los dígitos; complétalos manualmente.';
+          ? 'Datos extraídos del surtidor (precio/L, litros y total). Revisa y confirma.'
+          : 'Foto del surtidor guardada. No se pudieron leer todos los dígitos; puedes reprocesar o completarlos.';
     });
   }
 
-  Future<void> _scanOdometer() async {
-    setState(() => _ocrMessage = 'Capturando lectura de cuentakilómetros...');
-    final res = await _ocr.scanOdometerWithImage();
-    if (res == null) {
-      setState(() => _ocrMessage = null);
-      return;
-    }
-    if (res.imagePath != null) {
-      unawaited(_uploadPhotoInBackground(res.imagePath!, 'odometro'));
-    }
-    if (res.km == null) {
-      setState(() => _ocrMessage = 'Foto guardada. No se detectaron dígitos claros en el cuentakilómetros.');
-      return;
-    }
+  void _applyOdometerOcrResult(OdometerScanResult res) {
     setState(() {
-      _kmCtrl.text = res.km!.toStringAsFixed(0);
-      _ocrMessage = 'Kilometraje capturado: ${res.km!.toStringAsFixed(0)} km';
+      _lastOcrRawText = res.rawText;
+      if (res.km == null) {
+        _ocrMessage = 'Foto guardada. No se detectaron dígitos claros en el cuentakilómetros.';
+      } else {
+        _kmCtrl.text = res.km!.toStringAsFixed(0);
+        _ocrMessage = 'Kilometraje capturado: ${res.km!.toStringAsFixed(0)} km';
+      }
     });
+  }
+
+  Future<void> _scanTicket({ImageSource source = ImageSource.camera}) async {
+    setState(() {
+      _ocrBusy = true;
+      _ocrMessage = 'Escaneando factura/ticket de combustible...';
+    });
+    try {
+      final res = await _ocr.scanFuelTicket(source: source);
+      if (res == null) {
+        if (mounted) setState(() => _ocrMessage = null);
+        return;
+      }
+      if (res.imagePath != null) {
+        setState(() => _localTicketPath = res.imagePath);
+        unawaited(_uploadPhotoInBackground(res.imagePath!, 'ticket'));
+      }
+      await _applyTicketOcrResult(res);
+    } finally {
+      if (mounted) setState(() => _ocrBusy = false);
+    }
+  }
+
+  Future<void> _scanPumpDisplay({ImageSource source = ImageSource.camera}) async {
+    setState(() {
+      _ocrBusy = true;
+      _ocrMessage = 'Escaneando marcador del surtidor...';
+    });
+    try {
+      final res = await _ocr.scanPumpDisplay(source: source);
+      if (res == null) {
+        if (mounted) setState(() => _ocrMessage = null);
+        return;
+      }
+      if (res.imagePath != null) {
+        setState(() => _localSurtidorPath = res.imagePath);
+        unawaited(_uploadPhotoInBackground(res.imagePath!, 'surtidor'));
+      }
+      _applyPumpOcrResult(res);
+    } finally {
+      if (mounted) setState(() => _ocrBusy = false);
+    }
+  }
+
+  Future<void> _scanOdometer({ImageSource source = ImageSource.camera}) async {
+    setState(() {
+      _ocrBusy = true;
+      _ocrMessage = 'Capturando lectura de cuentakilómetros...';
+    });
+    try {
+      final res = await _ocr.scanOdometerWithImage(source: source, minExpectedKm: _getPreviousKm());
+      if (res == null) {
+        if (mounted) setState(() => _ocrMessage = null);
+        return;
+      }
+      if (res.imagePath != null) {
+        setState(() => _localOdometroPath = res.imagePath);
+        unawaited(_uploadPhotoInBackground(res.imagePath!, 'odometro'));
+      }
+      _applyOdometerOcrResult(res);
+    } finally {
+      if (mounted) setState(() => _ocrBusy = false);
+    }
+  }
+
+  Future<String?> _ensureLocalPhotoForOcr(String tipo) async {
+    String? localPath = tipo == 'odometro'
+        ? _localOdometroPath
+        : (tipo == 'surtidor' ? _localSurtidorPath : _localTicketPath);
+    if (localPath != null && localPath.isNotEmpty && File(localPath).existsSync()) {
+      return localPath;
+    }
+    final remotePath = tipo == 'odometro'
+        ? _fotoOdometroPath
+        : (tipo == 'surtidor' ? _fotoSurtidorPath : _fotoTicketPath);
+    if (remotePath.isEmpty) return null;
+    final url = _resolveRemotePhotoUrl(remotePath);
+    final resp = await http.get(Uri.parse(url));
+    if (resp.statusCode != 200 || resp.bodyBytes.isEmpty) {
+      throw Exception('No se pudo descargar la imagen para reprocesar (${resp.statusCode}).');
+    }
+    final tmpFile = File('${Directory.systemTemp.path}/reocr_${tipo}_${DateTime.now().millisecondsSinceEpoch}.jpg');
+    await tmpFile.writeAsBytes(resp.bodyBytes);
+    if (mounted) {
+      setState(() {
+        if (tipo == 'odometro') {
+          _localOdometroPath = tmpFile.path;
+        } else if (tipo == 'surtidor') {
+          _localSurtidorPath = tmpFile.path;
+        } else {
+          _localTicketPath = tmpFile.path;
+        }
+      });
+    }
+    return tmpFile.path;
+  }
+
+  Future<void> _reprocessPhoto(String tipo) async {
+    setState(() {
+      _ocrBusy = true;
+      _ocrMessage = 'Reprocesando reconocimiento OCR...';
+    });
+    try {
+      final path = await _ensureLocalPhotoForOcr(tipo);
+      if (path == null) {
+        if (mounted) setState(() => _ocrMessage = 'No hay imagen disponible para reprocesar.');
+        return;
+      }
+      if (tipo == 'ticket') {
+        final res = await _ocr.processFuelTicketImage(path);
+        await _applyTicketOcrResult(res);
+      } else if (tipo == 'surtidor') {
+        final res = await _ocr.processPumpDisplayImage(path);
+        _applyPumpOcrResult(res);
+      } else {
+        final res = await _ocr.processOdometerImage(path, minExpectedKm: _getPreviousKm());
+        _applyOdometerOcrResult(res);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _ocrMessage = 'Error al reprocesar OCR: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _ocrBusy = false);
+    }
+  }
+
+  Future<void> _removePhoto(String tipo) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Borrar foto'),
+        content: const Text('¿Quitar esta fotografía del repostaje? (Se aplicará al guardar el repostaje).'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Borrar'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    setState(() {
+      if (tipo == 'odometro') {
+        _fotoOdometroPath = '';
+        _localOdometroPath = null;
+      } else if (tipo == 'surtidor') {
+        _fotoSurtidorPath = '';
+        _localSurtidorPath = null;
+      } else {
+        _fotoTicketPath = '';
+        _localTicketPath = null;
+      }
+    });
+  }
+
+  void _showPhotoDialog({String? localPath, required String remotePath, required String title}) {
+    final hasLocal = localPath != null && localPath.isNotEmpty && File(localPath).existsSync();
+    final url = _resolveRemotePhotoUrl(remotePath);
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppBar(
+              title: Text(title, style: const TextStyle(fontSize: 16)),
+              automaticallyImplyLeading: false,
+              actions: [IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx))],
+            ),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.68),
+              child: InteractiveViewer(
+                child: hasLocal
+                    ? Image.file(File(localPath), fit: BoxFit.contain)
+                    : Image.network(url, fit: BoxFit.contain),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showRawOcrDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Texto detectado por OCR'),
+        content: SingleChildScrollView(
+          child: SelectableText(
+            _lastOcrRawText.isEmpty ? '(Sin texto detectado)' : _lastOcrRawText,
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar'))],
+      ),
+    );
+  }
+
+  Widget _buildPhotoSlotCard({
+    required String tipo,
+    required String title,
+    required IconData icon,
+    required Color color,
+    required String? localPath,
+    required String remotePath,
+    required Future<void> Function({ImageSource source}) onCapture,
+  }) {
+    final hasLocal = localPath != null && localPath.isNotEmpty && File(localPath).existsSync();
+    final hasRemote = remotePath.isNotEmpty;
+    final hasPhoto = hasLocal || hasRemote;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: color, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5)),
+                ),
+                if (hasPhoto)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      hasRemote ? 'Guardada' : 'Subiendo...',
+                      style: TextStyle(fontSize: 11, color: Colors.green.shade800, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (hasPhoto)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  GestureDetector(
+                    onTap: () => _showPhotoDialog(localPath: localPath, remotePath: remotePath, title: title),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: SizedBox(
+                        width: 72,
+                        height: 72,
+                        child: hasLocal
+                            ? Image.file(File(localPath), fit: BoxFit.cover)
+                            : Image.network(
+                                _resolveRemotePhotoUrl(remotePath),
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 32, color: Colors.grey),
+                              ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () => _showPhotoDialog(localPath: localPath, remotePath: remotePath, title: title),
+                          style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+                          icon: const Icon(Icons.visibility_outlined, size: 16),
+                          label: const Text('Ver', style: TextStyle(fontSize: 12)),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _ocrBusy ? null : () => _reprocessPhoto(tipo),
+                          style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+                          icon: const Icon(Icons.refresh, size: 16),
+                          label: const Text('Reprocesar OCR', style: TextStyle(fontSize: 12)),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _ocrBusy ? null : () => onCapture(source: ImageSource.camera),
+                          style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+                          icon: const Icon(Icons.camera_alt_outlined, size: 16),
+                          label: const Text('Cámara', style: TextStyle(fontSize: 12)),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _ocrBusy ? null : () => onCapture(source: ImageSource.gallery),
+                          style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+                          icon: const Icon(Icons.photo_library_outlined, size: 16),
+                          label: const Text('Galería', style: TextStyle(fontSize: 12)),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => _removePhoto(tipo),
+                          style: OutlinedButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            foregroundColor: Colors.red,
+                          ),
+                          icon: const Icon(Icons.delete_outline, size: 16),
+                          label: const Text('Borrar', style: TextStyle(fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            else
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _ocrBusy ? null : () => onCapture(source: ImageSource.camera),
+                      icon: const Icon(Icons.camera_alt_outlined, size: 17),
+                      label: const Text('Cámara', style: TextStyle(fontSize: 12.5)),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _ocrBusy ? null : () => onCapture(source: ImageSource.gallery),
+                      icon: const Icon(Icons.photo_library_outlined, size: 17),
+                      label: const Text('Galería', style: TextStyle(fontSize: 12.5)),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _pickFechaForm() async {
@@ -2362,8 +2756,9 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
         'importe_total': _importeCtrl.text.trim(),
         'estacion_servicio': _selectedEstacion,
         'notas': _notasCtrl.text.trim(),
-        if (_fotoTicketPath.isNotEmpty) 'foto_ticket_path': _fotoTicketPath,
-        if (_fotoOdometroPath.isNotEmpty) 'foto_odometro_path': _fotoOdometroPath,
+        'foto_ticket_path': _fotoTicketPath,
+        'foto_surtidor_path': _fotoSurtidorPath,
+        'foto_odometro_path': _fotoOdometroPath,
       });
       if (res['success'] == true && mounted) {
         if (res['email_sent'] == true) {
@@ -2431,9 +2826,62 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
                 color: Colors.teal.shade50,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Text(_ocrMessage!, style: const TextStyle(fontSize: 13)),
+              child: Row(
+                children: [
+                  Expanded(child: Text(_ocrMessage!, style: const TextStyle(fontSize: 13))),
+                  if (_lastOcrRawText.isNotEmpty)
+                    TextButton(
+                      onPressed: _showRawOcrDialog,
+                      style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                      child: const Text('Ver texto', style: TextStyle(fontSize: 12)),
+                    ),
+                ],
+              ),
             ),
           ],
+          const SizedBox(height: 10),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            initiallyExpanded: _fotoTicketPath.isNotEmpty ||
+                _fotoSurtidorPath.isNotEmpty ||
+                _fotoOdometroPath.isNotEmpty ||
+                _localTicketPath != null ||
+                _localSurtidorPath != null ||
+                _localOdometroPath != null,
+            title: const Text(
+              'Fotos del repostaje (Factura · Surtidor · Odómetro)',
+              style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
+            ),
+            children: [
+              _buildPhotoSlotCard(
+                tipo: 'ticket',
+                title: 'Foto Factura / Ticket',
+                icon: Icons.receipt_long,
+                color: const Color(0xFF0F766E),
+                localPath: _localTicketPath,
+                remotePath: _fotoTicketPath,
+                onCapture: _scanTicket,
+              ),
+              _buildPhotoSlotCard(
+                tipo: 'surtidor',
+                title: 'Foto Surtidor',
+                icon: Icons.local_gas_station,
+                color: const Color(0xFF0284C7),
+                localPath: _localSurtidorPath,
+                remotePath: _fotoSurtidorPath,
+                onCapture: _scanPumpDisplay,
+              ),
+              _buildPhotoSlotCard(
+                tipo: 'odometro',
+                title: 'Foto Odómetro',
+                icon: Icons.speed,
+                color: const Color(0xFFF59E0B),
+                localPath: _localOdometroPath,
+                remotePath: _fotoOdometroPath,
+                onCapture: _scanOdometer,
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
           DropdownButtonFormField<int>(
             value: _vehiculoId,
