@@ -156,6 +156,7 @@ class OcrService {
       );
       final hardIgnoreRe = RegExp(r'\b(PREAUTORIZ|PREDETERM|DIFERENCIA|N\.?I\.?F|C\.?I\.?F|SIN\s*IVA)\b', caseSensitive: false);
 
+      final List<double> priceCandidates = [];
       List<double> extractCandidates(List<String> srcLines, bool applyFilter) {
         final List<double> list = [];
         for (final line in srcLines) {
@@ -165,13 +166,22 @@ class OcrService {
             final val = double.tryParse((m.group(1) ?? '').replaceAll(',', '.'));
             if (val != null && val > 0 && val < 1000) {
               list.add(val);
+              if (val >= 0.75 && val <= 3.00) {
+                priceCandidates.add(val);
+              }
               if (val >= 75 && val <= 300) {
-                list.add(double.parse((val / 100).toStringAsFixed(4)));
+                final p = double.parse((val / 100).toStringAsFixed(4));
+                list.add(p);
+                priceCandidates.add(p);
               }
             }
           }
+          for (final m in RegExp(r'\b(1\d{3}|2\d{3})\b').allMatches(line)) {
+            final p = int.parse(m.group(1)!) / 1000.0;
+            if (p >= 0.80 && p <= 2.999) priceCandidates.add(p);
+          }
           // También aceptar enteros 2..500 como posibles litros si no es fecha/código postal/surtidor
-          if (applyFilter && !RegExp(r'\b(SURT|POL|N\.|CP|HORA|FECHA)\b', caseSensitive: false).hasMatch(line)) {
+          if (applyFilter && !RegExp(r'(SURT|POL|N\.|CP|HORA|FECHA)', caseSensitive: false).hasMatch(line)) {
             final cleanedLine = line.replaceAll(dateReg, ' ').replaceAll(numReg, ' ');
             for (final m in RegExp(r'\b(\d{1,3})\b').allMatches(cleanedLine)) {
               final val = double.tryParse(m.group(1) ?? '');
@@ -188,8 +198,8 @@ class OcrService {
       double? importeTotal;
       double? litros;
 
-      void findBestTriplet(List<double> cands) {
-        final prices = cands.where((d) => d >= 0.75 && d <= 3.00).toList();
+      void findBestTriplet(List<double> cands, List<double> rawPrices) {
+        final prices = rawPrices.where((d) => d >= 0.75 && d <= 3.00).toList();
         final others = cands.where((d) => d > 2.50 && d <= 500.0).toList();
         double bestScore = -999999;
 
@@ -199,7 +209,7 @@ class OcrService {
               if (l == imp) continue;
               if (p < 1.05 ? imp <= l * 0.5 : imp <= l) continue;
               final diff = (l * p - imp).abs();
-              final tol = (imp * 0.015) > 0.12 ? (imp * 0.015) : 0.12;
+              final tol = (imp * 0.006) > 0.08 ? (imp * 0.006) : 0.08;
               if (diff <= tol) {
                 double score = 100 - diff * 100;
                 if (hintImporte != null && (imp - hintImporte).abs() < 0.05) {
@@ -236,7 +246,7 @@ class OcrService {
         hintImporte ??= sumTotal;
       }
 
-      findBestTriplet(filteredCands);
+      findBestTriplet(filteredCands, priceCandidates);
 
       // Fallback sin filtro de líneas si ML Kit agrupó Base/IVA en la misma línea que Litros/Precio
       if (importeTotal == null) {
@@ -244,17 +254,17 @@ class OcrService {
         if (baseSinIva != null && cuotaIva != null) {
           allCands.add(double.parse((baseSinIva + cuotaIva).toStringAsFixed(2)));
         }
-        findBestTriplet(allCands);
+        findBestTriplet(allCands, priceCandidates);
 
         if (importeTotal == null) {
-          final prices = filteredCands.where((d) => d >= 0.75 && d <= 3.00).toList();
+          final prices = priceCandidates.where((d) => d >= 0.75 && d <= 3.00).toList();
           final litCands = filteredCands.where((d) => d >= 2.0 && d <= 200.0).toList();
           if (prices.isNotEmpty && litCands.isNotEmpty && hintImporte == null) {
             precioLitro = prices.first;
             litros = litCands.firstWhere((l) => l != precioLitro, orElse: () => litCands.first);
             importeTotal = double.parse((litros! * precioLitro!).toStringAsFixed(2));
           } else {
-            final allPrices = allCands.where((d) => d >= 0.75 && d <= 3.00).toList();
+            final allPrices = priceCandidates.where((d) => d >= 0.75 && d <= 3.00).toList();
             final larger = allCands.where((d) => d > 3.0 && d <= 500.0).toList()..sort((a, b) => b.compareTo(a));
             if (allPrices.isNotEmpty) {
               precioLitro = allPrices.first;

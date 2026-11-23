@@ -2289,10 +2289,11 @@ function parseLocalizedNumber(raw) {
     return parseFloat(s);
 }
 
-function findBestFuelTriplet(candidates, hintImporte) {
+function findBestFuelTriplet(candidates, hintImporte, priceCandidates = null) {
     let best = null;
     let bestScore = -Infinity;
-    const prices = candidates.filter(n => n >= 0.75 && n <= 3.00);
+    const rawPrices = Array.isArray(priceCandidates) ? priceCandidates : candidates;
+    const prices = rawPrices.filter(n => n >= 0.75 && n <= 3.00);
     const others = candidates.filter(n => n > 2.50 && n <= 500.0);
 
     for (const p of prices) {
@@ -2301,7 +2302,7 @@ function findBestFuelTriplet(candidates, hintImporte) {
                 if (l === imp) continue;
                 const prod = l * p;
                 const diff = Math.abs(prod - imp);
-                const tol = Math.max(0.12, imp * 0.015);
+                const tol = Math.max(0.08, imp * 0.006);
                 if (diff <= tol && (p < 1.05 ? imp > l * 0.5 : imp > l)) {
                     let score = 100 - diff * 100;
                     if (hintImporte && Math.abs(imp - hintImporte) < 0.05) score += 80;
@@ -2335,7 +2336,12 @@ function extractStationFromText(text) {
         }
     }
     if (!nombre) {
-        const candidateLine = headerLines.find(l => l.length >= 4 && !/^(FACTURA|NUM\.|FECHA|EMISOR|PAG|ALBARAN)/i.test(l) && !/^\d+$/.test(l));
+        const candidateLine = headerLines.find(l =>
+            l.length >= 4 &&
+            /[A-Za-zÁÉÍÓÚÑáéíóúñ]{4,}/.test(l) &&
+            !/^(FACTURA|NUM\.|N\.?\s*\d+|FECHA|EMISOR|PAG|ALBARAN|SOLRED)/i.test(l) &&
+            !/^\d+$/.test(l)
+        );
         if (candidateLine) nombre = candidateLine;
     }
 
@@ -2370,7 +2376,8 @@ function extractStationFromText(text) {
 }
 
 function parseFuelInvoiceText(text) {
-    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const normText = String(text || '').replace(/(\d)\s*([,\.])\s*(\d)/g, '$1$2$3');
+    const lines = normText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 
     // 1. Fecha (priorizar año 4 dígitos y línea FECHA, evitar VENCIMIENTO)
     let fecha = null;
@@ -2420,6 +2427,7 @@ function parseFuelInvoiceText(text) {
     const ignoredLineRe = /\b(BASE|IMPONIBLE|TOTAL\s*SIN\s*IVA|SIN\s*IVA|IVA\s*\d|CUOTA|ESTATALES|AUTONOMIC|IMPUESTO|EUX1000|TURNO|TELF|TELEFONO|N\.?I\.?F|C\.?I\.?F|KM\.?\s*\d|REGISTRO|TOMO|FOLIO|HOJA|PREAUTORIZ|PREDETERM|DIFERENCIA|OPERACI[ÓO]N|CONCESI[ÓO]N|TERMINAL|NUM\.?\s*TICKET|NUM\.?\s*AUT|DOCUMENTO|HORA|COMERCIO|PEDIDO)\b/i;
     const hardIgnoreRe = /\b(PREAUTORIZ|PREDETERM|DIFERENCIA|N\.?I\.?F|C\.?I\.?F|SIN\s*IVA)\b/i;
     const candidateNums = [];
+    const priceCandidates = [];
     let baseSinIva = null;
     let cuotaIva = null;
     for (const l of lines) {
@@ -2434,9 +2442,17 @@ function parseFuelInvoiceText(text) {
         const matches = [...l.matchAll(/(\d{1,4}[,\.]\d{1,3})/g)];
         for (const m of matches) {
             const val = parseLocalizedNumber(m[1]);
-            if (!isNaN(val) && val > 0 && val < 1000) candidateNums.push(val);
+            if (!isNaN(val) && val > 0 && val < 1000) {
+                candidateNums.push(val);
+                if (val >= 0.75 && val <= 3.00) priceCandidates.push(val);
+            }
         }
-        if (!/\b(SURT|POL|N\.|CP|HORA|FECHA)\b/i.test(l)) {
+        // Si un precio de 3 decimales (ej. 1655 -> 1.655) perdió el punto en OCR
+        for (const m of l.matchAll(/\b(1\d{3}|2\d{3})\b/g)) {
+            const p = parseInt(m[1], 10) / 1000;
+            if (p >= 0.80 && p <= 2.999) priceCandidates.push(p);
+        }
+        if (!/(SURT|POL|N\.|CP|HORA|FECHA)/i.test(l)) {
             const cleaned = l.replace(dateRegex, ' ').replace(/(\d{1,4}[,\.]\d{1,3})/g, ' ');
             for (const m of cleaned.matchAll(/\b(\d{1,3})\b/g)) {
                 const val = parseFloat(m[1]);
@@ -2450,21 +2466,25 @@ function parseFuelInvoiceText(text) {
         if (hintImporte === null) hintImporte = sumTotal;
     }
 
-    let triplet = findBestFuelTriplet(candidateNums, hintImporte);
+    let triplet = findBestFuelTriplet(candidateNums, hintImporte, priceCandidates);
 
     // Fallback: intentar con todos los decimales (excluyendo preautorizaciones) si no hubo match estricto
     if (!triplet) {
         const allNums = [];
+        const allPrices = [...priceCandidates];
         for (const l of lines) {
             if (hardIgnoreRe.test(l)) continue;
             for (const m of l.matchAll(/(\d{1,4}[,\.]\d{1,3})/g)) {
                 const val = parseLocalizedNumber(m[1]);
-                if (!isNaN(val) && val > 0 && val < 1000) allNums.push(val);
+                if (!isNaN(val) && val > 0 && val < 1000) {
+                    allNums.push(val);
+                    if (val >= 0.75 && val <= 3.00) allPrices.push(val);
+                }
             }
         }
-        triplet = findBestFuelTriplet(allNums, hintImporte);
+        triplet = findBestFuelTriplet(allNums, hintImporte, allPrices);
         if (!triplet && hintImporte) {
-            const prices = allNums.filter(n => n >= 0.75 && n <= 3.00);
+            const prices = allPrices.filter(n => n >= 0.75 && n <= 3.00);
             if (prices.length > 0) {
                 const p = prices[0];
                 triplet = {
