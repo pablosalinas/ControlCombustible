@@ -1049,10 +1049,10 @@ try {
                 'proveedores'              => $proveedores,
                 'tareas_maestro'           => $tareasMaestro,
                 'vehiculo_tareas'          => $vehiculoTareas,
-                'ultimo_km_por_vehiculo'   => $ultimoKmPorVehiculo,
+                'ultimo_km_por_vehiculo'   => empty($ultimoKmPorVehiculo) ? new stdClass() : $ultimoKmPorVehiculo,
                 'vehiculo_seleccionado'    => $vehiculoId,
                 'resumen'                  => $resumen,
-                'resumen_por_vehiculo'     => $resumenPorVehiculo,
+                'resumen_por_vehiculo'     => empty($resumenPorVehiculo) ? new stdClass() : $resumenPorVehiculo,
                 'repostajes'               => $repostajesCalculados,
             ));
             break;

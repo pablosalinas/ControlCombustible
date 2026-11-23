@@ -654,18 +654,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final vtList = (res['vehiculo_tareas'] as List? ?? [])
             .map((e) => VehiculoTarea.fromJson(e as Map<String, dynamic>))
             .toList();
-        final userMap = res['user'] as Map<String, dynamic>? ?? {};
+        final userMap = res['user'] is Map
+            ? Map<String, dynamic>.from(res['user'] as Map)
+            : <String, dynamic>{};
         final rList = (res['repostajes'] as List? ?? [])
             .map((e) => Repostaje.fromJson(e as Map<String, dynamic>))
             .toList();
-        final rawLastKm = res['ultimo_km_por_vehiculo'] as Map<String, dynamic>? ?? {};
+        final rawLastKm = res['ultimo_km_por_vehiculo'] is Map
+            ? Map<String, dynamic>.from(res['ultimo_km_por_vehiculo'] as Map)
+            : <String, dynamic>{};
         final parsedLastKm = <int, double>{};
         rawLastKm.forEach((k, v) {
           final id = int.tryParse(k);
           final km = double.tryParse(v.toString());
           if (id != null && km != null) parsedLastKm[id] = km;
         });
-        final sumMap = res['resumen'] as Map<String, dynamic>? ?? {};
+        final sumMap = res['resumen'] is Map
+            ? Map<String, dynamic>.from(res['resumen'] as Map)
+            : <String, dynamic>{};
 
         if (mounted) {
           setState(() {
@@ -687,6 +693,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _resumen = ResumenEstadisticas.fromJson(sumMap);
           });
         }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text((res['error'] ?? 'No se pudieron cargar los datos.').toString())),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al cargar datos: $e')),
+        );
       }
     } finally {
       if (mounted) setState(() => _loading = false);
