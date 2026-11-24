@@ -303,6 +303,57 @@ function ensureOcrTemplatesTable(PDO $pdo) {
 }
 
 /**
+ * Garantiza de forma aditiva la tabla `veh_parametros` para parámetros del sistema.
+ */
+function ensureParametrosTable(PDO $pdo) {
+    static $checked = false;
+    if ($checked) return;
+    $checked = true;
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS `veh_parametros` (
+                `clave` VARCHAR(64) PRIMARY KEY,
+                `valor` VARCHAR(255) NOT NULL,
+                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+    } catch (Exception $e) {
+        // Ignorar si no tiene permisos CREATE
+    }
+}
+
+/**
+ * Obtiene los parámetros globales del sistema con valores por defecto seguros.
+ */
+function getSystemParametros(PDO $pdo) {
+    ensureParametrosTable($pdo);
+    $defaults = array(
+        'inactividad_web_min' => 30,
+        'inactividad_app_min' => 60,
+        'tarea_dias_aviso'    => 15,
+        'tarea_km_aviso'      => 1000,
+    );
+    try {
+        $stmt = $pdo->query("SELECT clave, valor FROM `veh_parametros`");
+        if ($stmt) {
+            while ($r = $stmt->fetch()) {
+                $k = $r['clave'];
+                if (array_key_exists($k, $defaults)) {
+                    $defaults[$k] = (int)$r['valor'];
+                }
+            }
+        }
+    } catch (Exception $e) {
+        // Usar defaults
+    }
+    if ($defaults['inactividad_web_min'] < 1) $defaults['inactividad_web_min'] = 30;
+    if ($defaults['inactividad_app_min'] < 1) $defaults['inactividad_app_min'] = 60;
+    if ($defaults['tarea_dias_aviso'] < 0) $defaults['tarea_dias_aviso'] = 15;
+    if ($defaults['tarea_km_aviso'] < 0) $defaults['tarea_km_aviso'] = 1000;
+    return $defaults;
+}
+
+/**
  * Autenticación contra la tabla `users` de Moratalla-Murcia-2026 (SOLO LECTURA)
  * utilizando el sistema de roles (`admin` tiene visión global de todos los vehículos;
  * otros roles gestionan únicamente sus propios vehículos).
@@ -694,6 +745,10 @@ function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $es
         $costSeriesCount[$relKey] = isset($costSeriesCount[$relKey]) ? ($costSeriesCount[$relKey] + 1) : 1;
     }
 
+    $sysParams = getSystemParametros($pdo);
+    $kmAviso = (float)$sysParams['tarea_km_aviso'];
+    $diasAviso = (int)$sysParams['tarea_dias_aviso'];
+
     $todayTs = strtotime(date('Y-m-d'));
     $result = array();
     foreach ($rows as $row) {
@@ -705,15 +760,14 @@ function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $es
         $diasRestantes = ($proximaFecha !== null) ? (int)round((strtotime($proximaFecha) - $todayTs) / 86400) : null;
 
         $tipo = $row['tipo_periodicidad'];
-        $avisarTiempoSinKm = !empty($row['avisar_por_tiempo_si_no_km']);
         $enAlerta = false;
         $vencida = false;
         $motivos = array();
 
         if ($row['estado'] === 'pendiente') {
-            $alertaKm = ($kmRestantes !== null && $kmRestantes <= 1000);
+            $alertaKm = ($kmRestantes !== null && $kmRestantes <= $kmAviso);
             $vencidaKm = ($kmRestantes !== null && $kmRestantes <= 0);
-            $alertaTiempo = ($diasRestantes !== null && $diasRestantes <= 15);
+            $alertaTiempo = ($diasRestantes !== null && $diasRestantes <= $diasAviso);
             $vencidaTiempo = ($diasRestantes !== null && $diasRestantes <= 0);
 
             if ($tipo === 'unica') {
@@ -735,7 +789,7 @@ function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $es
                         : ('Faltan ' . $diasRestantes . ' días');
                 }
             } else {
-                // 'ambos'
+                // 'ambos': aplicar la condición que antes se cumpla (km o tiempo)
                 if ($alertaKm) {
                     $enAlerta = true;
                     if ($vencidaKm) $vencida = true;
@@ -743,13 +797,12 @@ function getVehiculoTareasEnriched($pdo, $userId, $isAdmin, $vehiculoId = 0, $es
                         ? ('Vencida por km (' . number_format(abs($kmRestantes), 0, ',', '.') . ' km excedidos)')
                         : ('Faltan ' . number_format($kmRestantes, 0, ',', '.') . ' km');
                 }
-                if ($alertaTiempo && ($avisarTiempoSinKm || $alertaKm)) {
+                if ($alertaTiempo) {
                     $enAlerta = true;
                     if ($vencidaTiempo) $vencida = true;
-                    $suffix = (!$alertaKm && $avisarTiempoSinKm) ? ' (aviso por tiempo sin llegar al km)' : '';
                     $motivos[] = $vencidaTiempo
-                        ? ('Vencida por tiempo (' . abs($diasRestantes) . ' días)' . $suffix)
-                        : ('Faltan ' . $diasRestantes . ' días' . $suffix);
+                        ? ('Vencida por tiempo (' . abs($diasRestantes) . ' días)')
+                        : ('Faltan ' . $diasRestantes . ' días');
                 }
             }
         }
@@ -862,9 +915,10 @@ try {
     switch ($action) {
         case 'login':
             echo json_encode(array(
-                'success' => true,
-                'message' => 'Autenticado correctamente con moratalla-murcia.com',
-                'user'    => $user,
+                'success'    => true,
+                'message'    => 'Autenticado correctamente con moratalla-murcia.com',
+                'user'       => $user,
+                'parametros' => getSystemParametros($pdo),
             ));
             break;
 
@@ -1139,6 +1193,7 @@ try {
                 'resumen_por_vehiculo'     => empty($resumenPorVehiculo) ? new stdClass() : $resumenPorVehiculo,
                 'repostajes'               => $repostajesCalculados,
                 'ocr_templates'            => $pdo->query("SELECT id, usuario_id, tipo, nombre_formato, keywords_json, zones_json, created_at FROM `veh_ocr_templates` WHERE activo = 1 ORDER BY id DESC")->fetchAll(),
+                'parametros'               => getSystemParametros($pdo),
             ));
             break;
 
@@ -2593,6 +2648,47 @@ try {
                 $stmtT->execute(array($id));
             }
             echo json_encode(array('success' => true, 'message' => 'Plantilla OCR desactivada.'));
+            break;
+
+        case 'get_parametros':
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede acceder a los parámetros del sistema.'));
+                exit;
+            }
+            echo json_encode(array(
+                'success'    => true,
+                'parametros' => getSystemParametros($pdo),
+            ));
+            break;
+
+        case 'save_parametros':
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede modificar los parámetros del sistema.'));
+                exit;
+            }
+            ensureParametrosTable($pdo);
+            $inactWeb = max(1, (int)arr_get($jsonBody, 'inactividad_web_min', isset($_POST['inactividad_web_min']) ? $_POST['inactividad_web_min'] : 30));
+            $inactApp = max(1, (int)arr_get($jsonBody, 'inactividad_app_min', isset($_POST['inactividad_app_min']) ? $_POST['inactividad_app_min'] : 60));
+            $diasAviso = max(0, (int)arr_get($jsonBody, 'tarea_dias_aviso', isset($_POST['tarea_dias_aviso']) ? $_POST['tarea_dias_aviso'] : 15));
+            $kmAviso = max(0, (int)arr_get($jsonBody, 'tarea_km_aviso', isset($_POST['tarea_km_aviso']) ? $_POST['tarea_km_aviso'] : 1000));
+
+            $toSave = array(
+                'inactividad_web_min' => (string)$inactWeb,
+                'inactividad_app_min' => (string)$inactApp,
+                'tarea_dias_aviso'    => (string)$diasAviso,
+                'tarea_km_aviso'      => (string)$kmAviso,
+            );
+            $stmtP = $pdo->prepare("INSERT INTO `veh_parametros` (clave, valor) VALUES (?, ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)");
+            foreach ($toSave as $k => $v) {
+                $stmtP->execute(array($k, $v));
+            }
+            echo json_encode(array(
+                'success'    => true,
+                'parametros' => getSystemParametros($pdo),
+                'message'    => 'Parámetros del sistema actualizados correctamente.',
+            ));
             break;
 
         default:

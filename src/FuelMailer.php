@@ -282,7 +282,7 @@ class FuelMailer
 
         $alertsHtml = '';
         if ($hasAlerts) {
-            $plain .= "ATENCIÓN - TAREAS DE MANTENIMIENTO PRÓXIMAS O VENCIDAS (< 1000 km o <= 15 días):\r\n";
+            $plain .= "ATENCIÓN - TAREAS DE MANTENIMIENTO PRÓXIMAS O VENCIDAS:\r\n";
             $alertsHtml .= "<div style='margin-top:18px; padding:14px; background:#fef3c7; border-left:4px solid #d97706; border-radius:6px;'>"
                 . "<strong style='color:#92400e; display:block; margin-bottom:8px;'>⚠️ Avisos de Mantenimiento Próximos / Vencidos</strong><ul style='margin:0; padding-left:18px; color:#78350f;'>";
             foreach ($alertTasks as $t) {

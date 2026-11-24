@@ -581,6 +581,9 @@
                 <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openVehiclesModal()">
                     <i class="fa-solid fa-car"></i> Vehículos
                 </button>
+                <button class="btn btn-outline hidden" id="btn-parametros" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openParametrosModal()" title="Parámetros del sistema (Solo superusuario)">
+                    <i class="fa-solid fa-sliders" style="color:#7c3aed"></i> Parámetros
+                </button>
                 <button class="btn btn-accent" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openPdfOptionsModal()">
                     <i class="fa-solid fa-file-pdf"></i> PDF
                 </button>
@@ -845,6 +848,40 @@
             <div style="display:flex; gap:0.65rem; justify-content:flex-end; margin-top:0.8rem;">
                 <button type="button" class="btn btn-outline" onclick="closeRepostajeModal()">Cancelar</button>
                 <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Guardar Repostaje</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL PARÁMETROS DEL SISTEMA (SOLO SUPERUSUARIO) -->
+<div class="modal-backdrop" id="parametros-modal">
+    <div class="modal-content" style="max-width:460px;">
+        <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-sliders" style="color:#7c3aed"></i> Parámetros del Sistema</div>
+            <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closeParametrosModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <form onsubmit="saveParametros(event)">
+            <div class="form-group">
+                <label>Tiempo de inactividad Web (minutos) *</label>
+                <input type="number" id="param-inact-web" class="form-control" min="1" max="1440" required>
+                <small style="color:var(--muted); font-size:0.74rem;">Cierra automáticamente la sesión web tras este tiempo sin actividad.</small>
+            </div>
+            <div class="form-group">
+                <label>Tiempo de inactividad App Android (minutos) *</label>
+                <input type="number" id="param-inact-app" class="form-control" min="1" max="1440" required>
+            </div>
+            <div class="form-group">
+                <label>Días de antelación para avisar en tareas *</label>
+                <input type="number" id="param-dias-aviso" class="form-control" min="0" max="365" required>
+                <small style="color:var(--muted); font-size:0.74rem;">En tareas con fecha y km, avisará con la condición que antes se cumpla.</small>
+            </div>
+            <div class="form-group">
+                <label>Kilómetros de margen para avisar en tareas *</label>
+                <input type="number" id="param-km-aviso" class="form-control" min="0" max="50000" required>
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button type="button" class="btn btn-outline" onclick="closeParametrosModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Guardar Parámetros</button>
             </div>
         </form>
     </div>
@@ -1712,9 +1749,17 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     }
 });
 
-const WEB_INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutos
+let WEB_INACTIVITY_TIMEOUT_MS = (parseInt(sessionStorage.getItem('veh_inactivity_min') || '30', 10) || 30) * 60 * 1000;
 let lastWebActivityMs = Date.now();
 let lastPersistedActivityMs = 0;
+
+function applyWebInactivityParam(params) {
+    if (params && params.inactividad_web_min) {
+        const mins = Math.max(1, parseInt(params.inactividad_web_min, 10) || 30);
+        WEB_INACTIVITY_TIMEOUT_MS = mins * 60 * 1000;
+        try { sessionStorage.setItem('veh_inactivity_min', String(mins)); } catch (_) {}
+    }
+}
 
 function isWebLoggedIn() {
     const appScreen = document.getElementById('app-screen');
@@ -1762,7 +1807,8 @@ function logout(expiredByInactivity = false) {
     const err = document.getElementById('login-error');
     if (err) {
         if (expiredByInactivity) {
-            err.textContent = '⏱️ Tu sesión se cerró automáticamente tras 30 minutos de inactividad.';
+            const mins = Math.max(1, Math.round(WEB_INACTIVITY_TIMEOUT_MS / 60000));
+            err.textContent = `⏱️ Tu sesión se cerró automáticamente tras ${mins} minutos de inactividad.`;
             err.classList.remove('hidden');
         } else {
             err.classList.add('hidden');
@@ -1868,6 +1914,12 @@ async function loadDashboard() {
     if (!res.success) return;
 
     currentData = res;
+    if (res.parametros) applyWebInactivityParam(res.parametros);
+    const btnParams = document.getElementById('btn-parametros');
+    if (btnParams) {
+        if (res.user && res.user.is_admin) btnParams.classList.remove('hidden');
+        else btnParams.classList.add('hidden');
+    }
     populateScopeSelect(scopeSel, scopeVal, res.user, res.parques, res.usuarios);
     document.getElementById('user-badge-text').textContent =
         res.user.username + (res.user.is_admin ? ' · Acceso Global (Todos los vehículos)' : '');
@@ -5053,6 +5105,47 @@ async function exportTareasPDF(sendByEmail = false) {
         await sendJsPdfByEmail(doc, `Informe de Mantenimiento - ${vehName}`, summary, fileName);
     } else {
         doc.save(fileName);
+    }
+}
+
+async function openParametrosModal() {
+    if (!currentData || !currentData.user || !currentData.user.is_admin) {
+        alert('Solo el superusuario puede acceder a los parámetros del sistema.');
+        return;
+    }
+    const res = await apiCall('get_parametros');
+    if (!res || !res.success) {
+        alert((res && res.error) || 'No se pudieron cargar los parámetros.');
+        return;
+    }
+    const p = res.parametros || {};
+    document.getElementById('param-inact-web').value = p.inactividad_web_min ?? 30;
+    document.getElementById('param-inact-app').value = p.inactividad_app_min ?? 60;
+    document.getElementById('param-dias-aviso').value = p.tarea_dias_aviso ?? 15;
+    document.getElementById('param-km-aviso').value = p.tarea_km_aviso ?? 1000;
+    document.getElementById('parametros-modal').classList.add('active');
+}
+
+function closeParametrosModal() {
+    document.getElementById('parametros-modal').classList.remove('active');
+}
+
+async function saveParametros(e) {
+    e.preventDefault();
+    const payload = {
+        inactividad_web_min: document.getElementById('param-inact-web').value,
+        inactividad_app_min: document.getElementById('param-inact-app').value,
+        tarea_dias_aviso: document.getElementById('param-dias-aviso').value,
+        tarea_km_aviso: document.getElementById('param-km-aviso').value
+    };
+    const res = await apiCall('save_parametros', payload);
+    if (res && res.success) {
+        if (res.parametros) applyWebInactivityParam(res.parametros);
+        closeParametrosModal();
+        await loadDashboard();
+        alert(res.message || 'Parámetros guardados.');
+    } else {
+        alert((res && res.error) || 'Error guardando parámetros.');
     }
 }
 

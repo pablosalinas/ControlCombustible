@@ -32,6 +32,60 @@ int compareAppVersions(String latest, String current) {
   return 0;
 }
 
+Future<Map<String, dynamic>?> fetchReleaseChangelogSummary(String currentVersion) async {
+  final uri = Uri.parse('https://api.github.com/repos/pablosalinas/ControlCombustible/releases?per_page=10');
+  final resp = await http.get(uri, headers: {'Accept': 'application/vnd.github+json'}).timeout(const Duration(seconds: 6));
+  if (resp.statusCode != 200) return null;
+  final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+  if (decoded is! List || decoded.isEmpty) return null;
+
+  Map<String, dynamic>? latestRel;
+  for (final item in decoded) {
+    if (item is Map<String, dynamic> && item['draft'] != true) {
+      latestRel = item;
+      break;
+    }
+  }
+  if (latestRel == null) return null;
+
+  final latestTag = (latestRel['tag_name'] ?? '').toString().trim();
+  String dlUrl = kApkDownloadUrl;
+  final assets = latestRel['assets'] as List? ?? [];
+  for (final a in assets) {
+    if (a is Map && (a['name']?.toString().endsWith('.apk') ?? false)) {
+      final u = a['browser_download_url']?.toString() ?? '';
+      if (u.isNotEmpty) {
+        dlUrl = u;
+        break;
+      }
+    }
+  }
+
+  final hasUpdate = latestTag.isNotEmpty && compareAppVersions(latestTag, currentVersion) > 0;
+  final notesList = <String>[];
+  for (final item in decoded) {
+    if (item is! Map<String, dynamic> || item['draft'] == true) continue;
+    final tag = (item['tag_name'] ?? '').toString().trim();
+    final body = (item['body'] ?? '').toString().trim();
+    if (body.isEmpty) continue;
+    if (hasUpdate) {
+      if (tag.isNotEmpty && compareAppVersions(tag, currentVersion) > 0) {
+        notesList.add('[$tag]\n$body');
+      }
+    } else {
+      notesList.add('[$tag]\n$body');
+      break;
+    }
+  }
+
+  return {
+    'latestTag': latestTag,
+    'apkUrl': dlUrl,
+    'hasUpdate': hasUpdate,
+    'notes': notesList.join('\n\n'),
+  };
+}
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const ControlCombustibleApp());
@@ -171,6 +225,7 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _error;
   String? _latestVersion;
   String _latestApkUrl = kApkDownloadUrl;
+  String _latestReleaseNotes = '';
 
   @override
   void initState() {
@@ -181,30 +236,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _checkLatestAppVersion() async {
     try {
-      final uri = Uri.parse('https://api.github.com/repos/pablosalinas/ControlCombustible/releases/latest');
-      final resp = await http.get(uri, headers: {'Accept': 'application/vnd.github+json'}).timeout(const Duration(seconds: 5));
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
-        final tag = (data['tag_name'] ?? '').toString().trim();
-        if (tag.isNotEmpty && compareAppVersions(tag, kAppVersion) > 0) {
-          String dlUrl = kApkDownloadUrl;
-          final assets = data['assets'] as List? ?? [];
-          for (final a in assets) {
-            if (a is Map && (a['name']?.toString().endsWith('.apk') ?? false)) {
-              final u = a['browser_download_url']?.toString() ?? '';
-              if (u.isNotEmpty) {
-                dlUrl = u;
-                break;
-              }
-            }
-          }
-          if (mounted) {
-            setState(() {
-              _latestVersion = tag;
-              _latestApkUrl = dlUrl;
-            });
-          }
-        }
+      final info = await fetchReleaseChangelogSummary(kAppVersion);
+      if (info != null && info['hasUpdate'] == true && mounted) {
+        setState(() {
+          _latestVersion = info['latestTag'] as String?;
+          _latestApkUrl = (info['apkUrl'] as String?) ?? kApkDownloadUrl;
+          _latestReleaseNotes = (info['notes'] as String?) ?? '';
+        });
       }
     } catch (_) {
       // Silencioso si no hay red o hay límite de API
@@ -449,6 +487,25 @@ class _LoginScreenState extends State<LoginScreen> {
                             ],
                           ),
                           const SizedBox(height: 8),
+                          if (_latestReleaseNotes.isNotEmpty) ...[
+                            Container(
+                              width: double.infinity,
+                              constraints: const BoxConstraints(maxHeight: 150),
+                              padding: const EdgeInsets.all(8),
+                              margin: const EdgeInsets.only(bottom: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.amber.shade200),
+                              ),
+                              child: SingleChildScrollView(
+                                child: Text(
+                                  _latestReleaseNotes,
+                                  style: const TextStyle(fontSize: 12, height: 1.35, color: Colors.black87),
+                                ),
+                              ),
+                            ),
+                          ],
                           SizedBox(
                             width: double.infinity,
                             child: FilledButton.icon(
@@ -675,6 +732,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final sumMap = res['resumen'] is Map
             ? Map<String, dynamic>.from(res['resumen'] as Map)
             : <String, dynamic>{};
+        final paramsMap = res['parametros'];
+        if (paramsMap is Map && paramsMap['inactividad_app_min'] != null) {
+          final m = int.tryParse(paramsMap['inactividad_app_min'].toString());
+          if (m != null && m >= 1) {
+            unawaited(widget.api.updateInactivityMinutes(m));
+          }
+        }
 
         if (mounted) {
           setState(() {
@@ -1050,33 +1114,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         builder: (ctx, setDlgState) {
           if (!started) {
             started = true;
-            http
-                .get(
-                  Uri.parse('https://api.github.com/repos/pablosalinas/ControlCombustible/releases/latest'),
-                  headers: {'Accept': 'application/vnd.github+json'},
-                )
-                .timeout(const Duration(seconds: 6))
-                .then((resp) {
+            fetchReleaseChangelogSummary(kAppVersion).then((info) {
               if (!ctx.mounted) return;
-              if (resp.statusCode == 200) {
-                final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
-                final tag = (data['tag_name'] ?? '').toString().trim();
-                final body = (data['body'] ?? '').toString().trim();
-                final assets = data['assets'] as List? ?? [];
-                for (final a in assets) {
-                  if (a is Map && (a['name']?.toString().endsWith('.apk') ?? false)) {
-                    final u = a['browser_download_url']?.toString() ?? '';
-                    if (u.isNotEmpty) {
-                      dlUrl = u;
-                      break;
-                    }
-                  }
-                }
-                final isNewer = tag.isNotEmpty && compareAppVersions(tag, kAppVersion) > 0;
+              if (info != null) {
+                final tag = (info['latestTag'] ?? '').toString();
+                final isNewer = info['hasUpdate'] == true;
                 setDlgState(() {
                   checking = false;
                   latestTag = tag;
-                  releaseNotes = body;
+                  dlUrl = (info['apkUrl'] ?? kApkDownloadUrl).toString();
+                  releaseNotes = (info['notes'] ?? '').toString();
                   hasUpdate = isNewer;
                   statusText = isNewer
                       ? '¡Nueva versión disponible: $tag!'
@@ -1085,7 +1132,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               } else {
                 setDlgState(() {
                   checking = false;
-                  statusText = 'No se pudo comprobar en GitHub (HTTP ${resp.statusCode}).';
+                  statusText = 'No se pudo comprobar en GitHub.';
                 });
               }
             }).catchError((_) {
@@ -1399,6 +1446,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 case 'pending':
                   _showPendingUsersDialog();
                   break;
+                case 'parametros':
+                  if (widget.api.isAdmin) {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => ParametrosScreen(api: widget.api)),
+                    );
+                    _loadData();
+                  }
+                  break;
                 case 'logout':
                   widget.onLogout();
                   break;
@@ -1452,11 +1507,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 value: 'email',
                 child: ListTile(leading: Icon(Icons.email_outlined), title: Text('Correo de Avisos'), dense: true, contentPadding: EdgeInsets.zero),
               ),
-              if (widget.api.isAdmin)
+              if (widget.api.isAdmin) ...[
                 const PopupMenuItem<String>(
                   value: 'pending',
                   child: ListTile(leading: Icon(Icons.how_to_reg), title: Text('Solicitudes de Registro'), dense: true, contentPadding: EdgeInsets.zero),
                 ),
+                const PopupMenuItem<String>(
+                  value: 'parametros',
+                  child: ListTile(leading: Icon(Icons.tune, color: Color(0xFF7C3AED)), title: Text('Parámetros del Sistema'), dense: true, contentPadding: EdgeInsets.zero),
+                ),
+              ],
               const PopupMenuDivider(),
               const PopupMenuItem<String>(
                 value: 'logout',
@@ -5628,6 +5688,139 @@ class _PapeleraScreenState extends State<PapeleraScreen> {
                     );
                   }),
                 ],
+              ],
+            ),
+    );
+  }
+}
+
+class ParametrosScreen extends StatefulWidget {
+  final ApiService api;
+
+  const ParametrosScreen({super.key, required this.api});
+
+  @override
+  State<ParametrosScreen> createState() => _ParametrosScreenState();
+}
+
+class _ParametrosScreenState extends State<ParametrosScreen> {
+  final _inactWebCtrl = TextEditingController(text: '30');
+  final _inactAppCtrl = TextEditingController(text: '60');
+  final _diasAvisoCtrl = TextEditingController(text: '15');
+  final _kmAvisoCtrl = TextEditingController(text: '1000');
+  bool _loading = true;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final res = await widget.api.post('get_parametros', {});
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        if (res['success'] == true && res['parametros'] is Map) {
+          final p = res['parametros'] as Map;
+          _inactWebCtrl.text = (p['inactividad_web_min'] ?? 30).toString();
+          _inactAppCtrl.text = (p['inactividad_app_min'] ?? 60).toString();
+          _diasAvisoCtrl.text = (p['tarea_dias_aviso'] ?? 15).toString();
+          _kmAvisoCtrl.text = (p['tarea_km_aviso'] ?? 1000).toString();
+        }
+      });
+    }
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      final res = await widget.api.post('save_parametros', {
+        'inactividad_web_min': int.tryParse(_inactWebCtrl.text.trim()) ?? 30,
+        'inactividad_app_min': int.tryParse(_inactAppCtrl.text.trim()) ?? 60,
+        'tarea_dias_aviso': int.tryParse(_diasAvisoCtrl.text.trim()) ?? 15,
+        'tarea_km_aviso': int.tryParse(_kmAvisoCtrl.text.trim()) ?? 1000,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text((res['message'] ?? res['error'] ?? 'Parámetros guardados').toString())),
+        );
+        if (res['success'] == true) {
+          if (res['parametros'] is Map) {
+            final m = int.tryParse((res['parametros'] as Map)['inactividad_app_min'].toString());
+            if (m != null && m >= 1) {
+              await widget.api.updateInactivityMinutes(m);
+            }
+          }
+          Navigator.of(context).pop();
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.api.isAdmin) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Parámetros del Sistema')),
+        body: const Center(child: Text('Solo el superusuario puede acceder a los parámetros.')),
+      );
+    }
+    return Scaffold(
+      appBar: AppBar(title: const Text('Parámetros del Sistema')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                TextField(
+                  controller: _inactWebCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Tiempo de inactividad Web (minutos)',
+                    helperText: 'Cierre automático de sesión web sin actividad',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _inactAppCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Tiempo de inactividad App Android (minutos)',
+                    helperText: 'Cierre automático de sesión en la app sin actividad',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _diasAvisoCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Días de antelación para avisar en tareas',
+                    helperText: 'En tareas con fecha y km, avisa con la condición que antes se cumpla',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _kmAvisoCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Kilómetros de margen para avisar en tareas',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  onPressed: _saving ? null : _save,
+                  icon: const Icon(Icons.save),
+                  label: Text(_saving ? 'Guardando...' : 'Guardar Parámetros'),
+                ),
               ],
             ),
     );

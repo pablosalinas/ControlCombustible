@@ -4,7 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ApiService {
   static const String defaultBaseUrl = 'https://www.moratalla-murcia.com/combustible/api.php';
-  static const Duration sessionInactivityTimeout = Duration(minutes: 60);
+  Duration sessionInactivityTimeout = const Duration(minutes: 60);
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
   String _baseUrl = defaultBaseUrl;
@@ -35,12 +35,25 @@ class ApiService {
     }
   }
 
+  Future<void> updateInactivityMinutes(int mins) async {
+    final safeMins = mins < 1 ? 60 : mins;
+    sessionInactivityTimeout = Duration(minutes: safeMins);
+    await _storage.write(key: 'mm_inactivity_min', value: safeMins.toString());
+  }
+
   Future<bool> restoreSession() async {
     final u = await _storage.read(key: 'mm_user');
     final p = await _storage.read(key: 'mm_pass');
     final url = await _storage.read(key: 'mm_url');
     final lastActStr = await _storage.read(key: 'mm_last_activity');
     final adminStr = await _storage.read(key: 'mm_is_admin');
+    final inactStr = await _storage.read(key: 'mm_inactivity_min');
+    if (inactStr != null) {
+      final mins = int.tryParse(inactStr);
+      if (mins != null && mins >= 1) {
+        sessionInactivityTimeout = Duration(minutes: mins);
+      }
+    }
 
     if (url != null && url.isNotEmpty) {
       _baseUrl = url;
@@ -71,6 +84,11 @@ class ApiService {
         final userMap = res['user'] as Map<String, dynamic>? ?? {};
         isAdmin = userMap['is_admin'] == true;
         await _storage.write(key: 'mm_is_admin', value: isAdmin ? '1' : '0');
+        final params = res['parametros'];
+        if (params is Map && params['inactividad_app_min'] != null) {
+          final m = int.tryParse(params['inactividad_app_min'].toString());
+          if (m != null && m >= 1) await updateInactivityMinutes(m);
+        }
         return true;
       }
       // Credenciales rechazadas explícitamente por el servidor
@@ -98,6 +116,11 @@ class ApiService {
       await _storage.write(key: 'mm_user', value: username);
       await _storage.write(key: 'mm_pass', value: password);
       await _storage.write(key: 'mm_is_admin', value: isAdmin ? '1' : '0');
+      final params = res['parametros'];
+      if (params is Map && params['inactividad_app_min'] != null) {
+        final m = int.tryParse(params['inactividad_app_min'].toString());
+        if (m != null && m >= 1) await updateInactivityMinutes(m);
+      }
       await touchActivity(forcePersist: true);
       return true;
     }
