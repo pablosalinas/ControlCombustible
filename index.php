@@ -397,7 +397,7 @@
         }
         .mejoras-form-grid {
             display: grid;
-            grid-template-columns: 140px 120px 1fr;
+            grid-template-columns: 155px 140px 1fr;
             gap: 0.5rem;
             margin-bottom: 0.5rem;
         }
@@ -5471,6 +5471,15 @@ async function loadMejorasList() {
     }
     currentMejorasList = res.mejoras || [];
     renderMejorasList();
+}
+
+function escapeHtml(str) {
+    return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function renderMejorasList() {
