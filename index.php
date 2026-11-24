@@ -370,6 +370,42 @@
             padding: 1.4rem;
             max-height: 92vh;
             overflow-y: auto;
+            position: relative;
+        }
+        .modal-content > .card-header {
+            position: sticky;
+            top: -1.4rem;
+            z-index: 25;
+            background: var(--card);
+            margin: -1.4rem -1.4rem 0.9rem -1.4rem;
+            padding: 0.95rem 1.4rem 0.75rem 1.4rem;
+            border-bottom: 1px solid var(--border);
+            border-radius: 18px 18px 0 0;
+            box-shadow: 0 2px 8px rgba(15,23,42,0.06);
+        }
+        .modal-content > .card-header > button {
+            border-radius: 999px;
+            width: 36px;
+            height: 36px;
+            padding: 0 !important;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 3px 10px rgba(15,23,42,0.14);
+            background: #fff;
+            flex-shrink: 0;
+        }
+        .mejoras-form-grid {
+            display: grid;
+            grid-template-columns: 140px 120px 1fr;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .ocr-trainer-grid {
+            display: grid;
+            grid-template-columns: 1.25fr 1fr;
+            gap: 0.75rem;
+            align-items: start;
         }
         .grid-2 {
             display: grid;
@@ -427,29 +463,48 @@
             color: #fff;
             border: none;
             border-radius: 999px;
-            padding: 0.95rem 1.35rem;
-            font-size: 0.98rem;
-            font-weight: 700;
+            padding: 0.78rem 1.2rem;
+            font-family: inherit;
+            font-size: 0.88rem;
+            font-weight: 600;
+            letter-spacing: 0.025em;
+            line-height: 1.25;
             box-shadow: 0 10px 25px rgba(15,118,110,0.4);
             display: flex;
             align-items: center;
-            gap: 0.55rem;
+            gap: 0.5rem;
             cursor: pointer;
             z-index: 150;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
         }
+        .fab:hover { transform: translateY(-1px); box-shadow: 0 12px 28px rgba(15,118,110,0.46); }
         .hidden { display: none !important; }
         @media (max-width: 768px) {
+            .app-header { padding: 0.7rem 0.85rem; }
             .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
             .kpi-card { padding: 0.8rem; }
             .kpi-value { font-size: 1.15rem; }
-            .header-top { flex-wrap: wrap; }
-            .vehicle-bar input[type="date"] { flex: 1; min-width: 130px; }
+            .header-top { flex-wrap: wrap; gap: 0.55rem; }
+            .header-top > div:last-child { width: 100%; justify-content: flex-start !important; gap: 0.4rem !important; }
+            .vehicle-bar { flex-wrap: wrap; gap: 0.45rem; }
+            .vehicle-bar select, .vehicle-bar input[type="date"] { flex: 1 1 140px; min-width: 130px; }
+            .main-container { padding: 0.75rem; }
+            .card { padding: 0.9rem; }
             .table-responsive.auto-hide-mobile { display: none; }
             .mobile-cards-container { display: flex; }
+            .fab { right: 0.9rem; bottom: 0.9rem; padding: 0.7rem 1.05rem; font-size: 0.84rem; }
+        }
+        @media (max-width: 680px) {
+            .ocr-trainer-grid { grid-template-columns: 1fr; }
         }
         @media (max-width: 600px) {
             .grid-2 { grid-template-columns: 1fr; }
             .ocr-bar { grid-template-columns: 1fr; }
+            .mejoras-form-grid { grid-template-columns: 1fr; }
+            .kpi-grid { grid-template-columns: 1fr 1fr; }
+            .modal-backdrop { padding: 0.5rem; }
+            .modal-content { padding: 1rem; border-radius: 14px; max-height: 94vh; }
+            .modal-content > .card-header { top: -1rem; margin: -1rem -1rem 0.75rem -1rem; padding: 0.8rem 1rem 0.65rem 1rem; border-radius: 14px 14px 0 0; }
         }
     </style>
 </head>
@@ -905,7 +960,7 @@
             </div>
             <form onsubmit="saveMejora(event)">
                 <input type="hidden" id="mejora-id" value="0">
-                <div style="display:grid; grid-template-columns: 140px 120px 1fr; gap:0.5rem; margin-bottom:0.5rem;">
+                <div class="mejoras-form-grid">
                     <div>
                         <label style="font-size:0.74rem; font-weight:600;">Fecha *</label>
                         <input type="date" id="mejora-fecha" class="form-control" required>
@@ -969,7 +1024,7 @@
             Selecciona un campo abajo y arrastra con el ratón o el dedo sobre la imagen para marcar la zona exacta donde aparece ese dato.
         </div>
         <div id="ocr-trainer-fields" style="display:flex; flex-wrap:wrap; gap:0.35rem; margin-bottom:0.65rem;"></div>
-        <div style="display:grid; grid-template-columns:1.25fr 1fr; gap:0.75rem; align-items:start;">
+        <div class="ocr-trainer-grid">
             <div style="background:#0f172a; border-radius:10px; padding:0.4rem; text-align:center; overflow:auto; max-height:58vh;">
                 <canvas id="ocr-trainer-canvas" style="max-width:100%; cursor:crosshair; touch-action:none; border-radius:6px;"></canvas>
             </div>

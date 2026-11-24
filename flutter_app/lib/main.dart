@@ -15,6 +15,28 @@ import 'services/pdf_service.dart';
 const String kAppVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'V1.2611191345');
 const String kApkDownloadUrl = 'https://github.com/pablosalinas/ControlCombustible/releases/latest/download/ControlCombustible.apk';
 
+Widget buildFloatingDialogTitle(BuildContext ctx, String title) {
+  return Row(
+    children: [
+      Expanded(child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+      const SizedBox(width: 8),
+      Material(
+        color: Colors.grey.shade100,
+        shape: const CircleBorder(),
+        elevation: 2,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: () => Navigator.pop(ctx),
+          child: const Padding(
+            padding: EdgeInsets.all(6),
+            child: Icon(Icons.close, size: 20, color: Colors.black87),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
 int compareAppVersions(String latest, String current) {
   List<int> parse(String v) {
     final clean = v.trim().replaceFirst(RegExp(r'^[vV]'), '');
@@ -298,7 +320,7 @@ class _LoginScreenState extends State<LoginScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => AlertDialog(
-          title: const Text('Solicitar Registro'),
+          title: buildFloatingDialogTitle(ctx, 'Solicitar Registro'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -927,7 +949,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => AlertDialog(
-          title: const Text('Configurar Informe PDF'),
+          title: buildFloatingDialogTitle(ctx, 'Configurar Informe PDF'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1590,8 +1612,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _loadData,
-              child: ListView(
-                padding: const EdgeInsets.all(12),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 960),
+                  child: ListView(
+                    padding: const EdgeInsets.all(12),
                 children: [
                   // Selector de ámbito (Usuario / Parque Móvil / Todos)
                   Card(
@@ -1817,25 +1842,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(height: 80),
                 ],
               ),
+                ),
+              ),
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openRepostajeForm(),
-        icon: const Icon(Icons.add),
-        label: const Text('Nuevo Repostaje'),
+        icon: const Icon(Icons.add, size: 20),
+        label: const Text(
+          'Nuevo Repostaje',
+          style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, letterSpacing: 0.3),
+        ),
       ),
     );
   }
 
   Widget _buildKpiGrid(ResumenEstadisticas s) {
     final latestOdometro = _repostajes.isNotEmpty ? _repostajes.first.kmOdometro : 0.0;
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 8,
-      crossAxisSpacing: 8,
-      childAspectRatio: 1.9,
-      children: [
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final cols = w >= 840 ? 4 : (w >= 560 ? 3 : 2);
+        final ratio = w >= 840 ? 2.1 : (w >= 560 ? 2.0 : 1.85);
+        return GridView.count(
+          crossAxisCount: cols,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 8,
+          crossAxisSpacing: 8,
+          childAspectRatio: ratio,
+          children: [
         _kpiTile('Consumo Medio', '${s.consumoMedioL100.toStringAsFixed(2)} L/100', 'Coste: ${s.costeMedio100Km.toStringAsFixed(2)} €/100km'),
         _kpiTile('Consumo Máx / Mín', '${s.consumoMaximo.toStringAsFixed(2)} / ${s.consumoMinimo.toStringAsFixed(2)}', 'Dif: ${s.diferenciaConsumo.toStringAsFixed(2)} L/100'),
         _kpiTile('Precio Máx / Mín', '${s.precioMaximo.toStringAsFixed(3)} / ${s.precioMinimo.toStringAsFixed(3)} €', 'Dif: ${s.diferenciaPrecio.toStringAsFixed(3)} €/L'),
@@ -1843,6 +1878,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _kpiTile('Gasto Acumulado', '${s.totalEuros.toStringAsFixed(2)} €', '${s.eurosPorKmMedio.toStringAsFixed(3)} €/km'),
         _kpiTile('Km Recorridos', '${s.totalKmRecorridos.toStringAsFixed(0)} km', 'Odómetro: ${latestOdometro.toStringAsFixed(0)} km'),
       ],
+        );
+      },
     );
   }
 
@@ -2481,7 +2518,7 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
     final edited = await showDialog<DetectedStation?>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Estación de servicio detectada'),
+        title: buildFloatingDialogTitle(ctx, 'Estación de servicio detectada'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2817,7 +2854,7 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Texto detectado por OCR'),
+        title: buildFloatingDialogTitle(ctx, 'Texto detectado por OCR'),
         content: SingleChildScrollView(
           child: SelectableText(
             _lastOcrRawText.isEmpty ? '(Sin texto detectado)' : _lastOcrRawText,
@@ -3647,7 +3684,7 @@ Future<Proveedor?> showQuickCreateProveedorDialog(BuildContext context, ApiServi
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setDlg) => AlertDialog(
-        title: const Text('Nuevo Taller / Aseguradora / ITV'),
+        title: buildFloatingDialogTitle(ctx, 'Nuevo Taller / Aseguradora / ITV'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -4034,7 +4071,7 @@ class _TareasScreenState extends State<TareasScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlg) => AlertDialog(
-          title: const Text('Finalizar Tarea'),
+          title: buildFloatingDialogTitle(ctx, 'Finalizar Tarea'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -4218,7 +4255,7 @@ class _TareasScreenState extends State<TareasScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Comparativa de Costes'),
+        title: buildFloatingDialogTitle(ctx, 'Comparativa de Costes'),
         content: SizedBox(
           width: double.maxFinite,
           child: SingleChildScrollView(
@@ -5940,7 +5977,7 @@ class _MejorasScreenState extends State<MejorasScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => AlertDialog(
-          title: Text(isEdit ? 'Modificar mejora' : 'Nueva mejora al log'),
+          title: buildFloatingDialogTitle(ctx, isEdit ? 'Modificar mejora' : 'Nueva mejora al log'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
