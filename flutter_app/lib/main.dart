@@ -1582,6 +1582,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         _showAppVersionDialog();
                       },
                     ),
+                    ListTile(
+                      leading: const Icon(Icons.menu_book_outlined, color: Color(0xFF0F766E)),
+                      title: const Text('Manual / Tutorial de Uso'),
+                      subtitle: const Text('Guía paso a paso de todas las opciones', style: TextStyle(fontSize: 11.5)),
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const TutorialScreen()),
+                        );
+                      },
+                    ),
                   ]);
                   break;
                 case 'logout':
@@ -6291,6 +6302,96 @@ class _MejorasScreenState extends State<MejorasScreen> {
                     },
                   ),
                 ),
+    );
+  }
+}
+
+class TutorialScreen extends StatelessWidget {
+  const TutorialScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final sections = <Map<String, String>>[
+      {
+        'title': '1. Acceso, Biometría e Inactividad',
+        'body':
+            '• Por qué existe: protege los datos de la flota en móviles y equipos compartidos.\n'
+            '• Cómo funciona: accede con tu usuario de moratalla-murcia.com (o solicita registro desde el login). Puedes activar el desbloqueo por huella.\n'
+            '• Inactividad: si no hay actividad durante los minutos configurados en Parámetros (por defecto 60 min en App y 30 min en Web), la sesión se cierra automáticamente.',
+      },
+      {
+        'title': '2. Nuevo Repostaje y OCR (3 Fotos + Entrenador)',
+        'body':
+            '• Por qué existe: agiliza la carga en gasolinera y evita errores al transcribir tickets.\n'
+            '• Cómo proceder: pulsa «Nuevo Repostaje», elige el vehículo y captura o adjunta Factura/Ticket, Surtidor y/o Odómetro.\n'
+            '• Fiabilidad (<95%): si el OCR no supera el 95% de confianza, verás un aviso para revisar los valores.\n'
+            '• Entrenador visual: si un formato es nuevo, marca con el dedo las zonas de Estación, Fecha, Litros, Precio, Total o Kilómetros y guarda la plantilla para próximas veces.',
+      },
+      {
+        'title': '3. Submenú Flota y Catálogos',
+        'body':
+            'Agrupa el inventario y mantenimiento:\n'
+            '• Vehículos y Tareas: alta/edición de vehículos o remolques y seguimiento de ITV, seguros y revisiones.\n'
+            '• Parques Móviles: organiza la flota por áreas compartibles entre usuarios.\n'
+            '• Estaciones de Servicio: catálogo de gasolineras para reconocimiento automático en tickets.\n'
+            '• Talleres, Aseguradoras e ITVs: directorio de proveedores asociados a tareas.',
+      },
+      {
+        'title': '4. Tareas de Mantenimiento y Alertas',
+        'body':
+            '• Por qué existe: evita caducidades de ITV/seguro y averías por retraso.\n'
+            '• Cómo funciona: las tareas pueden controlarse por fecha, por kilómetros o ambos. En tareas mixtas (ambos), la alerta salta cuando se cumple la PRIMERA de las dos condiciones según los márgenes de Parámetros.',
+      },
+      {
+        'title': '5. Submenú Herramientas y Avisos',
+        'body':
+            '• Correo de Avisos: configura tu email para recibir partes y alertas.\n'
+            '• Papelera (Recuperar): el sistema aplica borrado lógico; desde aquí puedes restaurar vehículos o repostajes eliminados por error.\n'
+            '• Informe PDF (icono superior): exporta o envía resúmenes filtrados por ámbito, vehículo, fechas y remolque.',
+      },
+      {
+        'title': '6. Novedades, Versión y Administración',
+        'body':
+            '• Novedades y Mejoras (con testigo rojo): muestra las mejoras del último año; el testigo numérico indica novedades sin leer.\n'
+            '• Versión y Actualizaciones: comprueba nuevas versiones del APK mostrando antes el log acumulado de mejoras.\n'
+            '• Administración (solo superusuario): aprueba Solicitudes de Registro y configura los Parámetros globales (tiempos de inactividad y márgenes de aviso).',
+      },
+    ];
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Manual y Tutorial de Uso')),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 860),
+          child: ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: sections.length,
+            itemBuilder: (_, i) {
+              final s = sections[i];
+              return Card(
+                margin: const EdgeInsets.only(bottom: 10),
+                child: ExpansionTile(
+                  initiallyExpanded: i == 0,
+                  title: Text(
+                    s['title']!,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5),
+                  ),
+                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        s['body']!,
+                        style: const TextStyle(fontSize: 13.5, height: 1.45),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ),
     );
   }
 }

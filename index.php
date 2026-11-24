@@ -683,6 +683,9 @@
                         <button type="button" class="nav-dropdown-item" id="btn-inactive-records" onclick="closeAllNavDropdowns(); openInactiveRecordsModal()">
                             <i class="fa-solid fa-trash-arrow-up" style="width:16px; color:#dc2626;"></i> Papelera / Recuperar
                         </button>
+                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openTutorialModal()">
+                            <i class="fa-solid fa-book-open" style="width:16px; color:#0f766e;"></i> Manual / Tutorial
+                        </button>
                     </div>
                 </div>
 
@@ -1057,6 +1060,61 @@
 
         <div id="mejoras-list-container" style="overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:0.6rem; padding-right:0.2rem;">
             <div style="text-align:center; color:var(--muted); padding:1.5rem;">Cargando novedades...</div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL MANUAL / TUTORIAL COMPLETO -->
+<div class="modal-backdrop" id="tutorial-modal">
+    <div class="modal-content" style="max-width:760px;">
+        <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-book-open" style="color:var(--primary)"></i> Manual y Tutorial de Uso</div>
+            <button class="btn btn-outline" onclick="closeTutorialModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:0.85rem; font-size:0.86rem; line-height:1.5; color:#1e293b;">
+            <div style="background:#f0fdfa; border:1px solid #99f6e4; border-radius:10px; padding:0.8rem;">
+                <strong style="color:#0f766e;"><i class="fa-solid fa-shield-halved"></i> Acceso y Seguridad de Sesión</strong>
+                <p style="margin:0.35rem 0 0;">• <b>Doble acceso:</b> puedes entrar automáticamente desde la sesión de administración de <code>moratalla-murcia.com</code> o con usuario/contraseña propios.<br>
+                • <b>Cierre por inactividad:</b> por seguridad en equipos compartidos, la sesión se cierra automáticamente tras el tiempo configurado en <i>Parámetros</i> (por defecto 30 min en Web y 60 min en App).</p>
+            </div>
+
+            <div style="border:1px solid var(--border); border-radius:10px; padding:0.8rem;">
+                <strong><i class="fa-solid fa-gas-pump" style="color:var(--primary)"></i> Nuevo Repostaje y OCR Inteligente</strong>
+                <p style="margin:0.35rem 0 0;">• <b>Por qué:</b> evita errores manuales y conserva respaldo visual (Factura/Ticket, Surtidor y Odómetro).<br>
+                • <b>Cómo proceder:</b> pulsa <b>Nuevo Repostaje</b>, sube o haz foto de Ticket, Surtidor y/o Odómetro. Si la confianza OCR es menor al <b>95%</b>, el sistema te avisará para revisarlo.<br>
+                • <b>Entrenador visual OCR:</b> si un formato de ticket es nuevo, usa el editor de zonas para marcar con el ratón o el dedo dónde está cada dato y guarda el formato para futuras ocasiones.</p>
+            </div>
+
+            <div style="border:1px solid var(--border); border-radius:10px; padding:0.8rem;">
+                <strong><i class="fa-solid fa-car" style="color:var(--primary)"></i> Submenú Flota</strong>
+                <p style="margin:0.35rem 0 0;">Agrupa la gestión estructural de tu flota:<br>
+                • <b>Vehículos:</b> alta/edición de vehículos y remolques, matrícula, kilómetros y asignación a parque.<br>
+                • <b>Parques Móviles:</b> organiza vehículos por áreas (Obras, Policía, etc.) compartibles entre usuarios.<br>
+                • <b>Estaciones de Servicio:</b> catálogo de gasolineras (CIF, dirección) para reconocimiento automático en tickets.<br>
+                • <b>Talleres / Seguros / ITV:</b> directorio de proveedores vinculados a revisiones y pólizas.<br>
+                • <b>Maestro de Tareas:</b> catálogo de tipos de mantenimiento periódico reutilizables.</p>
+            </div>
+
+            <div style="border:1px solid var(--border); border-radius:10px; padding:0.8rem;">
+                <strong><i class="fa-solid fa-wrench" style="color:var(--primary)"></i> Tareas de Mantenimiento y Alertas</strong>
+                <p style="margin:0.35rem 0 0;">• <b>Por qué:</b> previene sanciones por ITV o seguro caducado y averías por retraso.<br>
+                • <b>Cómo funciona:</b> las tareas pueden ser por fecha, por kilómetros o <b>ambos</b> (en tareas mixtas salta la alerta cuando se cumple la <b>primera</b> de las dos condiciones según los márgenes configurados en <i>Parámetros</i>).</p>
+            </div>
+
+            <div style="border:1px solid var(--border); border-radius:10px; padding:0.8rem;">
+                <strong><i class="fa-solid fa-toolbox" style="color:#0284c7"></i> Submenú Herramientas</strong>
+                <p style="margin:0.35rem 0 0;">• <b>Importar Excel / CSV:</b> carga masiva de históricos de repostajes.<br>
+                • <b>Correo de Avisos:</b> configura tu email para recibir alertas de mantenimiento e informes.<br>
+                • <b>Papelera / Recuperar:</b> el borrado es lógico (<code>activo=0</code>); desde aquí puedes restaurar vehículos o repostajes eliminados por error.<br>
+                • <b>Manual / Tutorial:</b> abre esta guía de ayuda en cualquier momento.</p>
+            </div>
+
+            <div style="border:1px solid var(--border); border-radius:10px; padding:0.8rem;">
+                <strong><i class="fa-solid fa-bullhorn" style="color:#d97706"></i> Novedades, PDF y Submenú Admin</strong>
+                <p style="margin:0.35rem 0 0;">• <b>Novedades (con testigo rojo):</b> muestra las mejoras del último año; el testigo numérico indica cuántas hay sin leer.<br>
+                • <b>PDF:</b> genera informes imprimibles o enviables por correo según los filtros activos (ámbito, vehículo, fechas y remolque).<br>
+                • <b>Admin (solo superusuario):</b> aprueba <i>Solicitudes de Registro</i> de nuevos usuarios y ajusta los <i>Parámetros del Sistema</i> (tiempos de inactividad y márgenes de aviso).</p>
+            </div>
         </div>
     </div>
 </div>
@@ -5395,6 +5453,12 @@ document.addEventListener('click', (e) => {
 
 function closeMejorasModal() {
     document.getElementById('mejoras-modal').classList.remove('active');
+}
+function openTutorialModal() {
+    document.getElementById('tutorial-modal').classList.add('active');
+}
+function closeTutorialModal() {
+    document.getElementById('tutorial-modal').classList.remove('active');
 }
 
 async function loadMejorasList() {
