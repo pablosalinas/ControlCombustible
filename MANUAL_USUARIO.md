@@ -53,7 +53,11 @@ En la parte superior de la pantalla dispones de controles rápidos siempre acces
 5. **Botón `Parques`**
    - **Por qué existe:** organizar la flota por áreas o parques móviles (ej. Obras, Policía, Jardinería).
    - **Cómo proceder:** crea o edita los parques disponibles para poder asignarlos a cada vehículo.
-6. **Botón `Parámetros` *(Solo Superusuario)***
+6. **Botón `Novedades` (con testigo de avisos sin leer)**
+   - **Por qué existe:** mantener informados a todos los usuarios de las mejoras y nuevas ventajas incorporadas en el último año.
+   - **Cómo funciona:** si hay mejoras nuevas que aún no has leído, aparece un **testigo rojo numérico** sobre el botón `Novedades`. Al abrirlo, puedes leer el historial cronológico (Web, App o ambos) y el testigo se apaga automáticamente.
+   - **Gestión por Superusuario (`is_admin`):** puede añadir nuevas mejoras, editarlas, dejarlas temporalmente inactivas (ocultas para el resto de usuarios) o eliminarlas.
+7. **Botón `Parámetros` *(Solo Superusuario)***
    - **Por qué existe:** adaptar los tiempos de seguridad y márgenes de alerta sin tocar código.
    - **Cómo proceder:** visible únicamente para usuarios con rol `is_admin`. Permite configurar:
      - **Inactividad Web (min):** tiempo de inactividad antes del cierre automático en Web (ej. `30`).
@@ -119,8 +123,9 @@ La App está diseñada para el trabajo en movilidad (conductores y encargados en
   7. **Papelera:** recuperar registros eliminados lógicamente (si tienes permisos).
   8. **Usuarios Pendientes *(Solo Superusuario)*:** aprobar o denegar nuevas cuentas solicitadas desde la App.
   9. **Parámetros del Sistema *(Solo Superusuario)*:** editar en remoto los minutos de inactividad (Web y App), días de aviso de tareas y km de margen de aviso. Los cambios se aplican inmediatamente tras guardar.
-  10. **Versión y Actualización:** muestra la versión instalada, comprueba en GitHub si hay una nueva versión disponible, despliega el **Log de Mejoras acumulado** (con todas las novedades desde tu versión actual hasta la última) y ofrece el botón de descarga del APK.
-  11. **Cerrar Sesión:** cierra la sesión en el dispositivo.
+  10. **Novedades y Mejoras (Último año):** accesible tanto desde el icono de megáfono en la barra superior (con **testigo numérico rojo** cuando hay novedades sin leer) como desde el menú. Muestra las mejoras del último año y, si eres superusuario, permite añadir, modificar, activar/desactivar o eliminar entradas.
+  11. **Versión y Actualización:** muestra la versión instalada, comprueba en GitHub si hay una nueva versión disponible, despliega el **Log de Mejoras acumulado** (con todas las novedades desde tu versión actual hasta la última) y ofrece el botón de descarga del APK.
+  12. **Cerrar Sesión:** cierra la sesión en el dispositivo.
 
 ### 4.2. Botón Flotante (`+`) y Flujo Rápido de Repostaje en App
 1. Pulsa el botón **`+`** en la parte inferior derecha.

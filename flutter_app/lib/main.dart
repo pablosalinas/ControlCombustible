@@ -667,6 +667,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _fechaDesde = '';
   String _fechaHasta = '';
   String _filterRemolque = 'todos'; // 'todos', 'sin_remolque', 'solo_remolque'
+  int _mejorasNuevas = 0;
 
   @override
   void initState() {
@@ -758,6 +759,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _ultimoKmPorVehiculo = parsedLastKm;
             _repostajes = rList;
             _resumen = ResumenEstadisticas.fromJson(sumMap);
+            _mejorasNuevas = int.tryParse((res['mejoras_nuevas'] ?? 0).toString()) ?? 0;
           });
         }
       } else if (mounted) {
@@ -1386,6 +1388,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
           IconButton(
+            tooltip: _mejorasNuevas > 0 ? '¡$_mejorasNuevas nuevas mejoras!' : 'Novedades y Mejoras',
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(Icons.campaign_outlined, color: _mejorasNuevas > 0 ? Colors.amberAccent : null),
+                if (_mejorasNuevas > 0)
+                  Positioned(
+                    right: -6,
+                    top: -6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        _mejorasNuevas > 99 ? '99+' : '$_mejorasNuevas',
+                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => MejorasScreen(api: widget.api)),
+              );
+              if (mounted) setState(() => _mejorasNuevas = 0);
+              _loadData();
+            },
+          ),
+          IconButton(
             tooltip: 'Generar Informe PDF',
             icon: const Icon(Icons.picture_as_pdf),
             onPressed: _resumen == null
@@ -1399,6 +1433,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
               switch (val) {
                 case 'version':
                   _showAppVersionDialog();
+                  break;
+                case 'mejoras':
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => MejorasScreen(api: widget.api)),
+                  );
+                  if (mounted) setState(() => _mejorasNuevas = 0);
+                  _loadData();
                   break;
                 case 'vehiculos':
                   await Navigator.of(context).push(
@@ -1517,6 +1558,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   child: ListTile(leading: Icon(Icons.tune, color: Color(0xFF7C3AED)), title: Text('Parámetros del Sistema'), dense: true, contentPadding: EdgeInsets.zero),
                 ),
               ],
+              PopupMenuItem<String>(
+                value: 'mejoras',
+                child: ListTile(
+                  leading: Icon(Icons.campaign_outlined, color: _mejorasNuevas > 0 ? Colors.amber.shade800 : const Color(0xFFD97706)),
+                  title: Row(
+                    children: [
+                      const Expanded(child: Text('Novedades y Mejoras')),
+                      if (_mejorasNuevas > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(color: Colors.redAccent, borderRadius: BorderRadius.circular(10)),
+                          child: Text('$_mejorasNuevas', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                        ),
+                    ],
+                  ),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
               const PopupMenuDivider(),
               const PopupMenuItem<String>(
                 value: 'logout',
@@ -5823,6 +5883,300 @@ class _ParametrosScreenState extends State<ParametrosScreen> {
                 ),
               ],
             ),
+    );
+  }
+}
+
+class MejorasScreen extends StatefulWidget {
+  final ApiService api;
+  const MejorasScreen({super.key, required this.api});
+
+  @override
+  State<MejorasScreen> createState() => _MejorasScreenState();
+}
+
+class _MejorasScreenState extends State<MejorasScreen> {
+  bool _loading = true;
+  List<Map<String, dynamic>> _items = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final res = await widget.api.post('list_mejoras', {});
+      if (res['success'] == true) {
+        _items = (res['mejoras'] as List? ?? [])
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      }
+      await widget.api.post('mark_mejoras_seen', {});
+    } catch (_) {}
+    if (mounted) setState(() => _loading = false);
+  }
+
+  String _formatDate(String iso) {
+    final parts = iso.split('-');
+    if (parts.length == 3) return '${parts[2]}-${parts[1]}-${parts[0]}';
+    return iso;
+  }
+
+  Future<void> _openEditor([Map<String, dynamic>? item]) async {
+    final isEdit = item != null;
+    final fechaCtrl = TextEditingController(
+      text: (item?['fecha'] ?? DateTime.now().toIso8601String().substring(0, 10)).toString(),
+    );
+    final tituloCtrl = TextEditingController(text: (item?['titulo'] ?? '').toString());
+    final descCtrl = TextEditingController(text: (item?['descripcion'] ?? '').toString());
+    String ambito = (item?['ambito'] ?? 'ambos').toString();
+    if (ambito != 'web' && ambito != 'app' && ambito != 'ambos') ambito = 'ambos';
+    bool activo = item == null ? true : (int.tryParse(item['activo'].toString()) ?? 1) == 1;
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: Text(isEdit ? 'Modificar mejora' : 'Nueva mejora al log'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: fechaCtrl,
+                  decoration: const InputDecoration(labelText: 'Fecha (AAAA-MM-DD)', border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  value: ambito,
+                  decoration: const InputDecoration(labelText: 'Ámbito', border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: 'ambos', child: Text('Web y App')),
+                    DropdownMenuItem(value: 'web', child: Text('Solo Web')),
+                    DropdownMenuItem(value: 'app', child: Text('Solo App')),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) setDlgState(() => ambito = v);
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: tituloCtrl,
+                  decoration: const InputDecoration(labelText: 'Título *', border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: descCtrl,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: 'Descripción y ventajas *', border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 6),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Activo (visible para usuarios)'),
+                  value: activo,
+                  onChanged: (v) => setDlgState(() => activo = v),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            FilledButton(
+              onPressed: () async {
+                final res = await widget.api.post('save_mejora', {
+                  'id': isEdit ? int.tryParse(item['id'].toString()) ?? 0 : 0,
+                  'fecha': fechaCtrl.text.trim(),
+                  'ambito': ambito,
+                  'titulo': tituloCtrl.text.trim(),
+                  'descripcion': descCtrl.text.trim(),
+                  'activo': activo ? 1 : 0,
+                });
+                if (!ctx.mounted) return;
+                if (res['success'] == true) {
+                  Navigator.pop(ctx, true);
+                } else {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(content: Text((res['error'] ?? 'Error al guardar').toString())),
+                  );
+                }
+              },
+              child: const Text('Guardar'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (saved == true) _load();
+  }
+
+  Future<void> _toggleActivo(Map<String, dynamic> item) async {
+    final id = int.tryParse(item['id'].toString()) ?? 0;
+    final curr = (int.tryParse(item['activo'].toString()) ?? 1) == 1;
+    final res = await widget.api.post('toggle_mejora', {'id': id, 'activo': curr ? 0 : 1});
+    if (res['success'] == true) {
+      _load();
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['error'] ?? 'Error al cambiar estado').toString())),
+      );
+    }
+  }
+
+  Future<void> _deleteItem(Map<String, dynamic> item) async {
+    final id = int.tryParse(item['id'].toString()) ?? 0;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar mejora'),
+        content: const Text('¿Seguro que deseas eliminar esta mejora del log?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final res = await widget.api.post('delete_mejora', {'id': id});
+    if (res['success'] == true) {
+      _load();
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['error'] ?? 'Error al eliminar').toString())),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isAdmin = widget.api.isAdmin;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Novedades (Último año)'),
+        actions: [
+          if (isAdmin)
+            IconButton(
+              tooltip: 'Añadir mejora',
+              icon: const Icon(Icons.add),
+              onPressed: () => _openEditor(),
+            ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _items.isEmpty
+              ? const Center(child: Text('No hay mejoras registradas en el último año.'))
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: _items.length,
+                    itemBuilder: (_, i) {
+                      final m = _items[i];
+                      final isActive = (int.tryParse(m['activo'].toString()) ?? 1) == 1;
+                      final ambito = (m['ambito'] ?? 'ambos').toString();
+                      final ambitoLabel = ambito == 'web' ? 'Web' : (ambito == 'app' ? 'App' : 'Web y App');
+                      final ambitoColor = ambito == 'web'
+                          ? Colors.blue.shade700
+                          : (ambito == 'app' ? const Color(0xFF0F766E) : Colors.deepPurple);
+                      return Card(
+                        color: isActive ? null : Colors.red.shade50,
+                        margin: const EdgeInsets.only(bottom: 10),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.shade200,
+                                      borderRadius: BorderRadius.circular(5),
+                                    ),
+                                    child: Text(
+                                      _formatDate((m['fecha'] ?? '').toString()),
+                                      style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: ambitoColor,
+                                      borderRadius: BorderRadius.circular(5),
+                                    ),
+                                    child: Text(
+                                      ambitoLabel,
+                                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  if (!isActive) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red.shade100,
+                                        borderRadius: BorderRadius.circular(5),
+                                      ),
+                                      child: Text(
+                                        'INACTIVO',
+                                        style: TextStyle(color: Colors.red.shade800, fontSize: 11, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ],
+                                  const Spacer(),
+                                  if (isAdmin) ...[
+                                    IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      icon: const Icon(Icons.edit, size: 18),
+                                      tooltip: 'Modificar',
+                                      onPressed: () => _openEditor(m),
+                                    ),
+                                    IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      icon: Icon(
+                                        isActive ? Icons.visibility_off : Icons.visibility,
+                                        size: 18,
+                                        color: isActive ? Colors.amber.shade800 : Colors.green.shade700,
+                                      ),
+                                      tooltip: isActive ? 'Dejar inactivo' : 'Reactivar',
+                                      onPressed: () => _toggleActivo(m),
+                                    ),
+                                    IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                                      tooltip: 'Eliminar',
+                                      onPressed: () => _deleteItem(m),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                (m['titulo'] ?? '').toString(),
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                (m['descripcion'] ?? '').toString(),
+                                style: const TextStyle(fontSize: 13, height: 1.35),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
     );
   }
 }

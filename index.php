@@ -584,6 +584,10 @@
                 <button class="btn btn-outline hidden" id="btn-parametros" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openParametrosModal()" title="Parámetros del sistema (Solo superusuario)">
                     <i class="fa-solid fa-sliders" style="color:#7c3aed"></i> Parámetros
                 </button>
+                <button class="btn btn-outline" id="btn-mejoras" style="padding: 0.45rem 0.75rem; font-size: 0.8rem; position:relative;" onclick="openMejorasModal()" title="Log de mejoras realizadas en el último año">
+                    <i class="fa-solid fa-bullhorn" style="color:#d97706"></i> Novedades
+                    <span id="mejoras-badge" class="hidden" style="position:absolute; top:-6px; right:-6px; background:#ef4444; color:#fff; font-size:0.65rem; font-weight:700; min-width:18px; height:18px; line-height:18px; text-align:center; border-radius:999px; padding:0 5px; box-shadow:0 1px 3px rgba(0,0,0,0.3);">0</span>
+                </button>
                 <button class="btn btn-accent" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openPdfOptionsModal()">
                     <i class="fa-solid fa-file-pdf"></i> PDF
                 </button>
@@ -884,6 +888,60 @@
                 <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Guardar Parámetros</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- MODAL LOG DE MEJORAS (ÚLTIMO AÑO) -->
+<div class="modal-backdrop" id="mejoras-modal">
+    <div class="modal-content" style="max-width:740px; max-height:90vh; display:flex; flex-direction:column;">
+        <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-bullhorn" style="color:#d97706"></i> Novedades y Mejoras (Último año)</div>
+            <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closeMejorasModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div id="mejoras-admin-panel" class="hidden" style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:0.85rem; margin-bottom:0.85rem;">
+            <div style="font-weight:700; font-size:0.85rem; margin-bottom:0.5rem; color:#0f172a;">
+                <i class="fa-solid fa-plus-circle" style="color:var(--primary)"></i> <span id="mejora-form-title">Añadir nueva mejora al log</span>
+            </div>
+            <form onsubmit="saveMejora(event)">
+                <input type="hidden" id="mejora-id" value="0">
+                <div style="display:grid; grid-template-columns: 140px 120px 1fr; gap:0.5rem; margin-bottom:0.5rem;">
+                    <div>
+                        <label style="font-size:0.74rem; font-weight:600;">Fecha *</label>
+                        <input type="date" id="mejora-fecha" class="form-control" required>
+                    </div>
+                    <div>
+                        <label style="font-size:0.74rem; font-weight:600;">Ámbito</label>
+                        <select id="mejora-ambito" class="form-control">
+                            <option value="ambos">Web y App</option>
+                            <option value="web">Solo Web</option>
+                            <option value="app">Solo App</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size:0.74rem; font-weight:600;">Título de la mejora *</label>
+                        <input type="text" id="mejora-titulo" class="form-control" maxlength="160" placeholder="Ej: Nuevo testigo de novedades" required>
+                    </div>
+                </div>
+                <div style="margin-bottom:0.5rem;">
+                    <label style="font-size:0.74rem; font-weight:600;">Descripción y ventajas *</label>
+                    <textarea id="mejora-desc" class="form-control" rows="2" placeholder="Describe qué mejora aporta y cómo beneficia al usuario..." required></textarea>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.8rem; cursor:pointer;">
+                        <input type="checkbox" id="mejora-activo" checked> Visible para todos los usuarios (Activo)
+                    </label>
+                    <div style="display:flex; gap:0.4rem;">
+                        <button type="button" class="btn btn-outline hidden" id="mejora-cancel-edit" style="padding:0.35rem 0.65rem; font-size:0.78rem;" onclick="resetMejoraForm()">Cancelar edición</button>
+                        <button type="submit" class="btn btn-primary" style="padding:0.35rem 0.75rem; font-size:0.8rem;"><i class="fa-solid fa-floppy-disk"></i> Guardar Mejora</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <div id="mejoras-list-container" style="overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:0.6rem; padding-right:0.2rem;">
+            <div style="text-align:center; color:var(--muted); padding:1.5rem;">Cargando novedades...</div>
+        </div>
     </div>
 </div>
 
@@ -1915,6 +1973,7 @@ async function loadDashboard() {
 
     currentData = res;
     if (res.parametros) applyWebInactivityParam(res.parametros);
+    updateMejorasBadge(res.mejoras_nuevas || 0);
     const btnParams = document.getElementById('btn-parametros');
     if (btnParams) {
         if (res.user && res.user.is_admin) btnParams.classList.remove('hidden');
@@ -5146,6 +5205,159 @@ async function saveParametros(e) {
         alert(res.message || 'Parámetros guardados.');
     } else {
         alert((res && res.error) || 'Error guardando parámetros.');
+    }
+}
+
+let currentMejorasList = [];
+
+function updateMejorasBadge(count) {
+    const badge = document.getElementById('mejoras-badge');
+    const btn = document.getElementById('btn-mejoras');
+    if (!badge) return;
+    const n = parseInt(count || 0, 10);
+    if (n > 0) {
+        badge.textContent = n > 99 ? '99+' : String(n);
+        badge.classList.remove('hidden');
+        if (btn) btn.style.borderColor = '#f59e0b';
+    } else {
+        badge.textContent = '0';
+        badge.classList.add('hidden');
+        if (btn) btn.style.borderColor = '';
+    }
+}
+
+function resetMejoraForm() {
+    document.getElementById('mejora-id').value = '0';
+    document.getElementById('mejora-fecha').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('mejora-ambito').value = 'ambos';
+    document.getElementById('mejora-titulo').value = '';
+    document.getElementById('mejora-desc').value = '';
+    document.getElementById('mejora-activo').checked = true;
+    document.getElementById('mejora-form-title').textContent = 'Añadir nueva mejora al log';
+    document.getElementById('mejora-cancel-edit').classList.add('hidden');
+}
+
+async function openMejorasModal() {
+    const isAdmin = !!(currentData && currentData.user && currentData.user.is_admin);
+    const adminPanel = document.getElementById('mejoras-admin-panel');
+    if (adminPanel) {
+        if (isAdmin) {
+            adminPanel.classList.remove('hidden');
+            resetMejoraForm();
+        } else {
+            adminPanel.classList.add('hidden');
+        }
+    }
+    document.getElementById('mejoras-modal').classList.add('active');
+    await loadMejorasList();
+    // Marcar como leídas para apagar el testigo
+    const seenRes = await apiCall('mark_mejoras_seen', {});
+    if (seenRes && seenRes.success) {
+        updateMejorasBadge(0);
+    }
+}
+
+function closeMejorasModal() {
+    document.getElementById('mejoras-modal').classList.remove('active');
+}
+
+async function loadMejorasList() {
+    const container = document.getElementById('mejoras-list-container');
+    container.innerHTML = '<div style="text-align:center; color:var(--muted); padding:1.5rem;">Cargando novedades...</div>';
+    const res = await apiCall('list_mejoras', {});
+    if (!res || !res.success) {
+        container.innerHTML = `<div style="color:#dc2626; padding:1rem;">${(res && res.error) || 'No se pudieron cargar las mejoras.'}</div>`;
+        return;
+    }
+    currentMejorasList = res.mejoras || [];
+    renderMejorasList();
+}
+
+function renderMejorasList() {
+    const container = document.getElementById('mejoras-list-container');
+    const isAdmin = !!(currentData && currentData.user && currentData.user.is_admin);
+    if (!currentMejorasList.length) {
+        container.innerHTML = '<div style="text-align:center; color:var(--muted); padding:1.5rem;">No hay mejoras registradas en el último año.</div>';
+        return;
+    }
+    container.innerHTML = currentMejorasList.map(m => {
+        const isActive = parseInt(m.activo, 10) === 1;
+        const fechaFmt = typeof formatDateES === 'function' ? formatDateES(m.fecha) : m.fecha;
+        const ambitoMap = { web: 'Web', app: 'App Android', ambos: 'Web y App' };
+        const ambitoLabel = ambitoMap[m.ambito] || 'Web y App';
+        const ambitoColor = m.ambito === 'web' ? '#0284c7' : (m.ambito === 'app' ? '#0f766e' : '#7c3aed');
+        return `
+            <div style="border:1px solid ${isActive ? 'var(--border)' : '#fca5a5'}; background:${isActive ? '#fff' : '#fef2f2'}; border-radius:8px; padding:0.75rem 0.9rem; opacity:${isActive ? '1' : '0.82'};">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.5rem; flex-wrap:wrap;">
+                    <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
+                        <span style="font-size:0.73rem; font-weight:700; color:#475569; background:#f1f5f9; padding:0.15rem 0.45rem; border-radius:4px;">${fechaFmt}</span>
+                        <span style="font-size:0.72rem; font-weight:700; color:#fff; background:${ambitoColor}; padding:0.15rem 0.45rem; border-radius:4px;">${ambitoLabel}</span>
+                        ${!isActive ? '<span style="font-size:0.72rem; font-weight:700; color:#b91c1c; background:#fee2e2; padding:0.15rem 0.45rem; border-radius:4px;">INACTIVO</span>' : ''}
+                    </div>
+                    ${isAdmin ? `
+                    <div style="display:flex; gap:0.3rem;">
+                        <button class="btn btn-outline" style="padding:0.2rem 0.45rem; font-size:0.73rem;" onclick="editMejora(${m.id})" title="Modificar"><i class="fa-solid fa-pen"></i></button>
+                        <button class="btn btn-outline" style="padding:0.2rem 0.45rem; font-size:0.73rem; color:${isActive ? '#d97706' : '#16a34a'};" onclick="toggleMejora(${m.id}, ${isActive ? 0 : 1})" title="${isActive ? 'Dejar inactivo' : 'Reactivar'}">
+                            <i class="fa-solid ${isActive ? 'fa-eye-slash' : 'fa-eye'}"></i>
+                        </button>
+                        <button class="btn btn-outline" style="padding:0.2rem 0.45rem; font-size:0.73rem; color:#dc2626;" onclick="deleteMejora(${m.id})" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
+                    </div>` : ''}
+                </div>
+                <div style="font-weight:700; font-size:0.9rem; margin-top:0.4rem; color:#0f172a;">${escapeHtml(m.titulo)}</div>
+                <div style="font-size:0.82rem; color:#334155; margin-top:0.25rem; line-height:1.4;">${escapeHtml(m.descripcion)}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+function editMejora(id) {
+    const m = currentMejorasList.find(x => parseInt(x.id, 10) === parseInt(id, 10));
+    if (!m) return;
+    document.getElementById('mejora-id').value = m.id;
+    document.getElementById('mejora-fecha').value = m.fecha || new Date().toISOString().slice(0, 10);
+    document.getElementById('mejora-ambito').value = m.ambito || 'ambos';
+    document.getElementById('mejora-titulo').value = m.titulo || '';
+    document.getElementById('mejora-desc').value = m.descripcion || '';
+    document.getElementById('mejora-activo').checked = parseInt(m.activo, 10) === 1;
+    document.getElementById('mejora-form-title').textContent = `Editando mejora #${m.id}`;
+    document.getElementById('mejora-cancel-edit').classList.remove('hidden');
+}
+
+async function saveMejora(e) {
+    e.preventDefault();
+    const payload = {
+        id: parseInt(document.getElementById('mejora-id').value || '0', 10),
+        fecha: document.getElementById('mejora-fecha').value,
+        ambito: document.getElementById('mejora-ambito').value,
+        titulo: document.getElementById('mejora-titulo').value.trim(),
+        descripcion: document.getElementById('mejora-desc').value.trim(),
+        activo: document.getElementById('mejora-activo').checked ? 1 : 0
+    };
+    const res = await apiCall('save_mejora', payload);
+    if (res && res.success) {
+        resetMejoraForm();
+        await loadMejorasList();
+    } else {
+        alert((res && res.error) || 'Error guardando la mejora.');
+    }
+}
+
+async function toggleMejora(id, newActivo) {
+    const res = await apiCall('toggle_mejora', { id, activo: newActivo });
+    if (res && res.success) {
+        await loadMejorasList();
+    } else {
+        alert((res && res.error) || 'Error actualizando el estado.');
+    }
+}
+
+async function deleteMejora(id) {
+    if (!confirm('¿Eliminar esta mejora del log?')) return;
+    const res = await apiCall('delete_mejora', { id });
+    if (res && res.success) {
+        await loadMejorasList();
+    } else {
+        alert((res && res.error) || 'Error eliminando la mejora.');
     }
 }
 

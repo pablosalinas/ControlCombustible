@@ -354,6 +354,97 @@ function getSystemParametros(PDO $pdo) {
 }
 
 /**
+ * Garantiza de forma aditiva las tablas `veh_mejoras_log` y `veh_mejoras_vistas`,
+ * poblando el histórico inicial de mejoras si la tabla está vacía.
+ */
+function ensureMejorasTables(PDO $pdo) {
+    static $checked = false;
+    if ($checked) return;
+    $checked = true;
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS `veh_mejoras_log` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `fecha` DATE NOT NULL,
+                `titulo` VARCHAR(160) NOT NULL,
+                `descripcion` TEXT NOT NULL,
+                `ambito` VARCHAR(20) NOT NULL DEFAULT 'ambos',
+                `activo` TINYINT(1) NOT NULL DEFAULT 1,
+                `eliminado` TINYINT(1) NOT NULL DEFAULT 0,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS `veh_mejoras_vistas` (
+                `user_id` INT PRIMARY KEY,
+                `last_seen_id` INT NOT NULL DEFAULT 0,
+                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+
+        $cnt = (int)$pdo->query("SELECT COUNT(*) FROM `veh_mejoras_log`")->fetchColumn();
+        if ($cnt === 0) {
+            $seed = array(
+                array('2026-11-19', 'Parques móviles compartidos y conversión a euros', 'Gestión colaborativa de parques móviles entre usuarios y conversión automática de pesetas a euros en registros anteriores a 2001.', 'ambos'),
+                array('2026-11-19', 'Papelera de recuperación y borrado seguro', 'Recuperación individual o masiva de vehículos y repostajes inactivos desde Papelera con protección de integridad.', 'ambos'),
+                array('2026-11-19', 'Historial de mejoras antes de actualizar la App', 'Muestra las novedades acumuladas de GitHub Releases antes de descargar una nueva versión del APK.', 'app'),
+                array('2026-11-20', 'Filtros por usuario y parque móvil', 'Filtrado rápido de vehículos, consumos y gráficas por usuario o parque móvil compartido.', 'ambos'),
+                array('2026-11-23', 'Control de repostajes con remolque', 'Nuevo campo con_remolque en repostajes y filtro específico en listados, KPIs y cálculos de consumo.', 'ambos'),
+                array('2026-11-23', 'Mejoras OCR en facturas complejas y 3 fotos', 'Soporte para tickets matriciales sin comas, facturas tipo Solred/preautorización, edición de estación detectada y subida/reprocesado de Factura, Surtidor y Odómetro.', 'ambos'),
+                array('2026-11-23', 'Entrenador visual OCR y aviso de fiabilidad (<95%)', 'Permite marcar con ratón o toque las zonas exactas de cada campo para guardar formatos nuevos y avisa si la lectura no alcanza el 95% de acierto.', 'ambos'),
+                array('2026-11-24', 'Cierre automático de sesión web por inactividad', 'Protección automática de la sesión web tras el tiempo configurado sin actividad.', 'web'),
+                array('2026-11-24', 'Parámetros globales para superusuario', 'Configuración de tiempos de inactividad (Web y App) y márgenes de aviso de tareas (días y km). En tareas mixtas se aplica la primera condición que se cumpla.', 'ambos'),
+                array('2026-11-24', 'Log de mejoras del último año y testigo de novedades', 'Nueva sección en Web y App con las mejoras del último año, testigo visual de novedades sin leer y gestión completa para superusuario.', 'ambos'),
+            );
+            $stmtIns = $pdo->prepare("INSERT INTO `veh_mejoras_log` (fecha, titulo, descripcion, ambito, activo, eliminado) VALUES (?, ?, ?, ?, 1, 0)");
+            foreach ($seed as $row) {
+                $stmtIns->execute($row);
+            }
+        }
+    } catch (Exception $e) {
+        // Ignorar si no tiene permisos CREATE
+    }
+}
+
+/**
+ * Devuelve el número de mejoras activas del último año no vistas aún por el usuario y el ID más reciente.
+ */
+function getMejorasBadgeInfo(PDO $pdo, $userId) {
+    ensureMejorasTables($pdo);
+    $lastSeen = 0;
+    $latestId = 0;
+    $nuevas = 0;
+    try {
+        $stmtSeen = $pdo->prepare("SELECT last_seen_id FROM `veh_mejoras_vistas` WHERE user_id = ? LIMIT 1");
+        $stmtSeen->execute(array((int)$userId));
+        $rowSeen = $stmtSeen->fetch();
+        if ($rowSeen) {
+            $lastSeen = (int)$rowSeen['last_seen_id'];
+        }
+        $stmtStats = $pdo->prepare("
+            SELECT
+                COALESCE(MAX(id), 0) AS max_id,
+                SUM(CASE WHEN id > ? THEN 1 ELSE 0 END) AS unread_count
+            FROM `veh_mejoras_log`
+            WHERE eliminado = 0 AND activo = 1 AND fecha >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+        ");
+        $stmtStats->execute(array($lastSeen));
+        $stats = $stmtStats->fetch();
+        if ($stats) {
+            $latestId = (int)$stats['max_id'];
+            $nuevas = (int)$stats['unread_count'];
+        }
+    } catch (Exception $e) {
+        // Ignorar
+    }
+    return array(
+        'mejoras_nuevas'   => $nuevas,
+        'latest_mejora_id' => $latestId,
+    );
+}
+
+/**
  * Autenticación contra la tabla `users` de Moratalla-Murcia-2026 (SOLO LECTURA)
  * utilizando el sistema de roles (`admin` tiene visión global de todos los vehículos;
  * otros roles gestionan únicamente sus propios vehículos).
@@ -914,11 +1005,14 @@ $isAdmin = (bool)$user['is_admin'];
 try {
     switch ($action) {
         case 'login':
+            $badgeInfo = getMejorasBadgeInfo($pdo, $userId);
             echo json_encode(array(
-                'success'    => true,
-                'message'    => 'Autenticado correctamente con moratalla-murcia.com',
-                'user'       => $user,
-                'parametros' => getSystemParametros($pdo),
+                'success'          => true,
+                'message'          => 'Autenticado correctamente con moratalla-murcia.com',
+                'user'             => $user,
+                'parametros'       => getSystemParametros($pdo),
+                'mejoras_nuevas'   => $badgeInfo['mejoras_nuevas'],
+                'latest_mejora_id' => $badgeInfo['latest_mejora_id'],
             ));
             break;
 
@@ -1194,6 +1288,8 @@ try {
                 'repostajes'               => $repostajesCalculados,
                 'ocr_templates'            => $pdo->query("SELECT id, usuario_id, tipo, nombre_formato, keywords_json, zones_json, created_at FROM `veh_ocr_templates` WHERE activo = 1 ORDER BY id DESC")->fetchAll(),
                 'parametros'               => getSystemParametros($pdo),
+                'mejoras_nuevas'           => ($badgeInfo = getMejorasBadgeInfo($pdo, $userId)) ? $badgeInfo['mejoras_nuevas'] : 0,
+                'latest_mejora_id'         => $badgeInfo['latest_mejora_id'],
             ));
             break;
 
@@ -2689,6 +2785,136 @@ try {
                 'parametros' => getSystemParametros($pdo),
                 'message'    => 'Parámetros del sistema actualizados correctamente.',
             ));
+            break;
+
+        case 'list_mejoras':
+            ensureMejorasTables($pdo);
+            $sqlMej = "
+                SELECT id, fecha, titulo, descripcion, ambito, activo, created_at, updated_at
+                FROM `veh_mejoras_log`
+                WHERE eliminado = 0
+                  AND fecha >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+            ";
+            if (!$isAdmin) {
+                $sqlMej .= " AND activo = 1 ";
+            }
+            $sqlMej .= " ORDER BY fecha DESC, id DESC ";
+            $rowsMej = $pdo->query($sqlMej)->fetchAll();
+            $badgeInfo = getMejorasBadgeInfo($pdo, $userId);
+            echo json_encode(array(
+                'success'          => true,
+                'mejoras'          => $rowsMej,
+                'mejoras_nuevas'   => $badgeInfo['mejoras_nuevas'],
+                'latest_mejora_id' => $badgeInfo['latest_mejora_id'],
+            ));
+            break;
+
+        case 'mark_mejoras_seen':
+            ensureMejorasTables($pdo);
+            $maxId = (int)$pdo->query("
+                SELECT COALESCE(MAX(id), 0)
+                FROM `veh_mejoras_log`
+                WHERE eliminado = 0 AND activo = 1 AND fecha >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+            ")->fetchColumn();
+            $reqId = (int)arr_get($jsonBody, 'last_seen_id', isset($_POST['last_seen_id']) ? $_POST['last_seen_id'] : 0);
+            $seenId = max($maxId, $reqId);
+            $stmtSeen = $pdo->prepare("
+                INSERT INTO `veh_mejoras_vistas` (user_id, last_seen_id)
+                VALUES (?, ?)
+                ON DUPLICATE KEY UPDATE last_seen_id = GREATEST(last_seen_id, VALUES(last_seen_id))
+            ");
+            $stmtSeen->execute(array($userId, $seenId));
+            echo json_encode(array(
+                'success'          => true,
+                'mejoras_nuevas'   => 0,
+                'latest_mejora_id' => $maxId,
+            ));
+            break;
+
+        case 'save_mejora':
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede crear o modificar mejoras.'));
+                exit;
+            }
+            ensureMejorasTables($pdo);
+            $mId     = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            $mFecha  = trim((string)arr_get($jsonBody, 'fecha', isset($_POST['fecha']) ? $_POST['fecha'] : date('Y-m-d')));
+            $mTitulo = trim((string)arr_get($jsonBody, 'titulo', isset($_POST['titulo']) ? $_POST['titulo'] : ''));
+            $mDesc   = trim((string)arr_get($jsonBody, 'descripcion', isset($_POST['descripcion']) ? $_POST['descripcion'] : ''));
+            $mAmbito = trim((string)arr_get($jsonBody, 'ambito', isset($_POST['ambito']) ? $_POST['ambito'] : 'ambos'));
+            $mActivo = (int)arr_get($jsonBody, 'activo', isset($_POST['activo']) ? $_POST['activo'] : 1) ? 1 : 0;
+
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $mFecha)) {
+                $mFecha = date('Y-m-d');
+            }
+            if (!in_array($mAmbito, array('web', 'app', 'ambos'), true)) {
+                $mAmbito = 'ambos';
+            }
+            if ($mTitulo === '' || $mDesc === '') {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'El título y la descripción de la mejora son obligatorios.'));
+                exit;
+            }
+
+            if ($mId > 0) {
+                $stmtU = $pdo->prepare("
+                    UPDATE `veh_mejoras_log`
+                    SET fecha = ?, titulo = ?, descripcion = ?, ambito = ?, activo = ?
+                    WHERE id = ? AND eliminado = 0
+                ");
+                $stmtU->execute(array($mFecha, $mTitulo, $mDesc, $mAmbito, $mActivo, $mId));
+                $msg = 'Mejora actualizada correctamente.';
+            } else {
+                $stmtI = $pdo->prepare("
+                    INSERT INTO `veh_mejoras_log` (fecha, titulo, descripcion, ambito, activo, eliminado)
+                    VALUES (?, ?, ?, ?, ?, 0)
+                ");
+                $stmtI->execute(array($mFecha, $mTitulo, $mDesc, $mAmbito, $mActivo));
+                $mId = (int)$pdo->lastInsertId();
+                $msg = 'Mejora añadida al log correctamente.';
+            }
+            echo json_encode(array('success' => true, 'id' => $mId, 'message' => $msg));
+            break;
+
+        case 'toggle_mejora':
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede cambiar el estado de una mejora.'));
+                exit;
+            }
+            ensureMejorasTables($pdo);
+            $mId = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            $mActivo = (int)arr_get($jsonBody, 'activo', isset($_POST['activo']) ? $_POST['activo'] : 0) ? 1 : 0;
+            if ($mId <= 0) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'ID inválido.'));
+                exit;
+            }
+            $stmtT = $pdo->prepare("UPDATE `veh_mejoras_log` SET activo = ? WHERE id = ? AND eliminado = 0");
+            $stmtT->execute(array($mActivo, $mId));
+            echo json_encode(array(
+                'success' => true,
+                'message' => $mActivo ? 'Mejora activada y visible.' : 'Mejora marcada como inactiva.',
+            ));
+            break;
+
+        case 'delete_mejora':
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(array('success' => false, 'error' => 'Solo el superusuario puede eliminar mejoras.'));
+                exit;
+            }
+            ensureMejorasTables($pdo);
+            $mId = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            if ($mId <= 0) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'ID inválido.'));
+                exit;
+            }
+            $stmtD = $pdo->prepare("UPDATE `veh_mejoras_log` SET eliminado = 1, activo = 0 WHERE id = ?");
+            $stmtD->execute(array($mId));
+            echo json_encode(array('success' => true, 'message' => 'Mejora eliminada del log.'));
             break;
 
         default:
