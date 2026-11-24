@@ -479,7 +479,43 @@
         }
         .fab:hover { transform: translateY(-1px); box-shadow: 0 12px 28px rgba(15,118,110,0.46); }
         .hidden { display: none !important; }
+        .nav-dropdown { position: relative; display: inline-block; }
+        .nav-dropdown-menu {
+            position: absolute;
+            top: calc(100% + 6px);
+            right: 0;
+            min-width: 215px;
+            background: #fff;
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 12px 28px rgba(15,23,42,0.18);
+            padding: 0.35rem;
+            z-index: 180;
+            display: none;
+            flex-direction: column;
+            gap: 0.15rem;
+        }
+        .nav-dropdown.open .nav-dropdown-menu { display: flex; }
+        .nav-dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+            width: 100%;
+            text-align: left;
+            background: transparent;
+            border: none;
+            border-radius: 8px;
+            padding: 0.52rem 0.7rem;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--text);
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .nav-dropdown-item:hover { background: #f1f5f9; }
         @media (max-width: 768px) {
+            .nav-dropdown-menu { right: auto; left: 0; }
             .app-header { padding: 0.7rem 0.85rem; }
             .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
             .kpi-card { padding: 0.8rem; }
@@ -605,40 +641,65 @@
                     <div style="font-size: 0.72rem; color: #94a3b8; font-weight: 500;" id="user-badge-text">Conectado</div>
                 </div>
             </div>
-            <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
+            <div style="display: flex; gap: 0.45rem; flex-wrap: wrap; align-items: center;">
                 <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="document.getElementById('maintenance-section').scrollIntoView({behavior:'smooth'})">
                     <i class="fa-solid fa-wrench" style="color:var(--primary)"></i> Tareas <span id="tasks-alert-badge" class="hidden" style="background:#dc2626; color:#fff; border-radius:999px; padding:0.08rem 0.42rem; font-size:0.7rem; margin-left:2px;">0</span>
                 </button>
-                <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openTareasMaestroModal()">
-                    <i class="fa-solid fa-list-check" style="color:var(--primary)"></i> Maestro Tareas
-                </button>
-                <button class="btn btn-outline hidden" id="btn-pending-users" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openPendingUsersModal()" title="Validar solicitudes de registro">
-                    <i class="fa-solid fa-user-check" style="color:#d97706"></i> Solicitudes
-                </button>
-                <button class="btn btn-outline" id="btn-inactive-records" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openInactiveRecordsModal()" title="Papelera / Reactivar vehículos y repostajes inactivos">
-                    <i class="fa-solid fa-trash-arrow-up" style="color:#dc2626"></i> Papelera
-                </button>
-                <button class="btn btn-outline" id="btn-parques-moviles" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openParquesModal()" title="Gestionar Parques Móviles compartidos">
-                    <i class="fa-solid fa-people-group" style="color:#0f766e"></i> Parques Móviles
-                </button>
-                <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openUserEmailModal()" title="Configurar correo para avisos">
-                    <i class="fa-solid fa-envelope" style="color:#0284c7"></i> Correo
-                </button>
-                <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openImportModal()">
-                    <i class="fa-solid fa-file-import" style="color:var(--primary)"></i> Importar Excel/CSV
-                </button>
-                <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openEstacionesModal()">
-                    <i class="fa-solid fa-shop" style="color:var(--accent)"></i> Estaciones
-                </button>
-                <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openProveedoresModal()">
-                    <i class="fa-solid fa-screwdriver-wrench" style="color:#0284c7"></i> Talleres/Seguros/ITV
-                </button>
-                <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openVehiclesModal()">
-                    <i class="fa-solid fa-car"></i> Vehículos
-                </button>
-                <button class="btn btn-outline hidden" id="btn-parametros" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openParametrosModal()" title="Parámetros del sistema (Solo superusuario)">
-                    <i class="fa-solid fa-sliders" style="color:#7c3aed"></i> Parámetros
-                </button>
+
+                <div class="nav-dropdown" id="dd-flota">
+                    <button type="button" class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="toggleNavDropdown('dd-flota', event)">
+                        <i class="fa-solid fa-car" style="color:var(--primary)"></i> Flota <i class="fa-solid fa-chevron-down" style="font-size:0.65rem; opacity:0.7;"></i>
+                    </button>
+                    <div class="nav-dropdown-menu">
+                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openVehiclesModal()">
+                            <i class="fa-solid fa-car" style="width:16px; color:#0f766e;"></i> Vehículos
+                        </button>
+                        <button type="button" class="nav-dropdown-item" id="btn-parques-moviles" onclick="closeAllNavDropdowns(); openParquesModal()">
+                            <i class="fa-solid fa-people-group" style="width:16px; color:#0f766e;"></i> Parques Móviles
+                        </button>
+                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openEstacionesModal()">
+                            <i class="fa-solid fa-shop" style="width:16px; color:var(--accent);"></i> Estaciones de Servicio
+                        </button>
+                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openProveedoresModal()">
+                            <i class="fa-solid fa-screwdriver-wrench" style="width:16px; color:#0284c7;"></i> Talleres / Seguros / ITV
+                        </button>
+                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openTareasMaestroModal()">
+                            <i class="fa-solid fa-list-check" style="width:16px; color:var(--primary);"></i> Maestro de Tareas
+                        </button>
+                    </div>
+                </div>
+
+                <div class="nav-dropdown" id="dd-herramientas">
+                    <button type="button" class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="toggleNavDropdown('dd-herramientas', event)">
+                        <i class="fa-solid fa-toolbox" style="color:#0284c7"></i> Herramientas <i class="fa-solid fa-chevron-down" style="font-size:0.65rem; opacity:0.7;"></i>
+                    </button>
+                    <div class="nav-dropdown-menu">
+                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openImportModal()">
+                            <i class="fa-solid fa-file-import" style="width:16px; color:var(--primary);"></i> Importar Excel / CSV
+                        </button>
+                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openUserEmailModal()">
+                            <i class="fa-solid fa-envelope" style="width:16px; color:#0284c7;"></i> Correo de Avisos
+                        </button>
+                        <button type="button" class="nav-dropdown-item" id="btn-inactive-records" onclick="closeAllNavDropdowns(); openInactiveRecordsModal()">
+                            <i class="fa-solid fa-trash-arrow-up" style="width:16px; color:#dc2626;"></i> Papelera / Recuperar
+                        </button>
+                    </div>
+                </div>
+
+                <div class="nav-dropdown hidden" id="menu-admin-wrap">
+                    <button type="button" class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="toggleNavDropdown('menu-admin-wrap', event)">
+                        <i class="fa-solid fa-user-shield" style="color:#7c3aed"></i> Admin <i class="fa-solid fa-chevron-down" style="font-size:0.65rem; opacity:0.7;"></i>
+                    </button>
+                    <div class="nav-dropdown-menu">
+                        <button type="button" class="nav-dropdown-item hidden" id="btn-pending-users" onclick="closeAllNavDropdowns(); openPendingUsersModal()">
+                            <i class="fa-solid fa-user-check" style="width:16px; color:#d97706;"></i> Solicitudes de Registro
+                        </button>
+                        <button type="button" class="nav-dropdown-item hidden" id="btn-parametros" onclick="closeAllNavDropdowns(); openParametrosModal()">
+                            <i class="fa-solid fa-sliders" style="width:16px; color:#7c3aed;"></i> Parámetros del Sistema
+                        </button>
+                    </div>
+                </div>
+
                 <button class="btn btn-outline" id="btn-mejoras" style="padding: 0.45rem 0.75rem; font-size: 0.8rem; position:relative;" onclick="openMejorasModal()" title="Log de mejoras realizadas en el último año">
                     <i class="fa-solid fa-bullhorn" style="color:#d97706"></i> Novedades
                     <span id="mejoras-badge" class="hidden" style="position:absolute; top:-6px; right:-6px; background:#ef4444; color:#fff; font-size:0.65rem; font-weight:700; min-width:18px; height:18px; line-height:18px; text-align:center; border-radius:999px; padding:0 5px; box-shadow:0 1px 3px rgba(0,0,0,0.3);">0</span>
@@ -2030,9 +2091,14 @@ async function loadDashboard() {
     if (res.parametros) applyWebInactivityParam(res.parametros);
     updateMejorasBadge(res.mejoras_nuevas || 0);
     const btnParams = document.getElementById('btn-parametros');
+    const adminWrap = document.getElementById('menu-admin-wrap');
     if (btnParams) {
         if (res.user && res.user.is_admin) btnParams.classList.remove('hidden');
         else btnParams.classList.add('hidden');
+    }
+    if (adminWrap) {
+        if (res.user && res.user.is_admin) adminWrap.classList.remove('hidden');
+        else adminWrap.classList.add('hidden');
     }
     populateScopeSelect(scopeSel, scopeVal, res.user, res.parques, res.usuarios);
     document.getElementById('user-badge-text').textContent =
@@ -5311,6 +5377,21 @@ async function openMejorasModal() {
         updateMejorasBadge(0);
     }
 }
+
+function closeAllNavDropdowns() {
+    document.querySelectorAll('.nav-dropdown.open').forEach(el => el.classList.remove('open'));
+}
+function toggleNavDropdown(id, evt) {
+    if (evt) evt.stopPropagation();
+    const target = document.getElementById(id);
+    if (!target) return;
+    const wasOpen = target.classList.contains('open');
+    closeAllNavDropdowns();
+    if (!wasOpen) target.classList.add('open');
+}
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.nav-dropdown')) closeAllNavDropdowns();
+});
 
 function closeMejorasModal() {
     document.getElementById('mejoras-modal').classList.remove('active');

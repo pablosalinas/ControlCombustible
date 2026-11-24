@@ -1453,69 +1453,136 @@ class _DashboardScreenState extends State<DashboardScreen> {
             icon: const Icon(Icons.more_vert),
             onSelected: (val) async {
               switch (val) {
-                case 'version':
-                  _showAppVersionDialog();
-                  break;
-                case 'mejoras':
-                  await Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => MejorasScreen(api: widget.api)),
-                  );
-                  if (mounted) setState(() => _mejorasNuevas = 0);
-                  _loadData();
-                  break;
-                case 'vehiculos':
-                  await Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => VehiculosScreen(api: widget.api, vehiculos: _vehiculos, parques: _parques),
+                case 'sub_flota':
+                  await _showSubmenuSheet('Flota y Catálogos', [
+                    ListTile(
+                      leading: const Icon(Icons.directions_car, color: Color(0xFF0F766E)),
+                      title: const Text('Gestionar Vehículos'),
+                      onTap: () async {
+                        Navigator.pop(context);
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => VehiculosScreen(api: widget.api, vehiculos: _vehiculos, parques: _parques)),
+                        );
+                        _loadData();
+                      },
                     ),
-                  );
-                  _loadData();
-                  break;
-                case 'parques':
-                  await Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => ParquesMovilesScreen(api: widget.api, currentUserId: _currentUserId),
+                    ListTile(
+                      leading: const Icon(Icons.groups, color: Color(0xFF0F766E)),
+                      title: const Text('Parques Móviles'),
+                      onTap: () async {
+                        Navigator.pop(context);
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => ParquesMovilesScreen(api: widget.api, currentUserId: _currentUserId)),
+                        );
+                        _loadData();
+                      },
                     ),
-                  );
-                  _loadData();
-                  break;
-                case 'papelera':
-                  await Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => PapeleraScreen(api: widget.api),
+                    ListTile(
+                      leading: const Icon(Icons.storefront, color: Colors.amber),
+                      title: const Text('Estaciones de Servicio'),
+                      onTap: () async {
+                        Navigator.pop(context);
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => EstacionesScreen(api: widget.api, estaciones: _estaciones)),
+                        );
+                        _loadData();
+                      },
                     ),
-                  );
-                  _loadData();
-                  break;
-                case 'estaciones':
-                  await Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => EstacionesScreen(api: widget.api, estaciones: _estaciones),
+                    ListTile(
+                      leading: const Icon(Icons.build_circle_outlined, color: Colors.blue),
+                      title: const Text('Talleres, Aseguradoras e ITVs'),
+                      onTap: () async {
+                        Navigator.pop(context);
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => ProveedoresScreen(api: widget.api, proveedores: _proveedores)),
+                        );
+                        _loadData();
+                      },
                     ),
-                  );
-                  _loadData();
+                  ]);
                   break;
-                case 'proveedores':
-                  await Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => ProveedoresScreen(api: widget.api, proveedores: _proveedores),
+                case 'sub_herramientas':
+                  await _showSubmenuSheet('Herramientas y Avisos', [
+                    ListTile(
+                      leading: const Icon(Icons.email_outlined, color: Colors.blue),
+                      title: const Text('Correo de Avisos'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _showUserEmailDialog();
+                      },
                     ),
-                  );
-                  _loadData();
+                    ListTile(
+                      leading: const Icon(Icons.restore_from_trash, color: Colors.redAccent),
+                      title: const Text('Papelera (Recuperar)'),
+                      onTap: () async {
+                        Navigator.pop(context);
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => PapeleraScreen(api: widget.api)),
+                        );
+                        _loadData();
+                      },
+                    ),
+                  ]);
                   break;
-                case 'email':
-                  _showUserEmailDialog();
-                  break;
-                case 'pending':
-                  _showPendingUsersDialog();
-                  break;
-                case 'parametros':
+                case 'sub_admin':
                   if (widget.api.isAdmin) {
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => ParametrosScreen(api: widget.api)),
-                    );
-                    _loadData();
+                    await _showSubmenuSheet('Administración', [
+                      ListTile(
+                        leading: const Icon(Icons.how_to_reg, color: Color(0xFFD97706)),
+                        title: const Text('Solicitudes de Registro'),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _showPendingUsersDialog();
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.tune, color: Color(0xFF7C3AED)),
+                        title: const Text('Parámetros del Sistema'),
+                        onTap: () async {
+                          Navigator.pop(context);
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => ParametrosScreen(api: widget.api)),
+                          );
+                          _loadData();
+                        },
+                      ),
+                    ]);
                   }
+                  break;
+                case 'sub_info':
+                  await _showSubmenuSheet('Novedades y Versión', [
+                    ListTile(
+                      leading: Icon(Icons.campaign_outlined, color: _mejorasNuevas > 0 ? Colors.amber.shade800 : const Color(0xFFD97706)),
+                      title: const Text('Novedades y Mejoras (Último año)'),
+                      trailing: _mejorasNuevas > 0
+                          ? Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(color: Colors.redAccent, borderRadius: BorderRadius.circular(10)),
+                              child: Text('$_mejorasNuevas', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                            )
+                          : null,
+                      onTap: () async {
+                        Navigator.pop(context);
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => MejorasScreen(api: widget.api)),
+                        );
+                        if (mounted) setState(() => _mejorasNuevas = 0);
+                        _loadData();
+                      },
+                    ),
+                    ListTile(
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: Image.asset('assets/logo_v2.png', width: 24, height: 24),
+                      ),
+                      title: const Text('Versión y Actualizaciones'),
+                      subtitle: const Text(kAppVersion, style: TextStyle(fontSize: 11.5)),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _showAppVersionDialog();
+                      },
+                    ),
+                  ]);
                   break;
                 case 'logout':
                   widget.onLogout();
@@ -1523,70 +1590,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
               }
             },
             itemBuilder: (ctx) => [
-              PopupMenuItem<String>(
-                value: 'version',
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: Image.asset('assets/logo_v2.png', width: 24, height: 24),
-                    ),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('Versión y Actualizaciones', style: TextStyle(fontWeight: FontWeight.w600)),
-                          Text(kAppVersion, style: TextStyle(fontSize: 11, color: Colors.black54)),
-                        ],
-                      ),
-                    ),
-                  ],
+              const PopupMenuItem<String>(
+                value: 'sub_flota',
+                child: ListTile(
+                  leading: Icon(Icons.directions_car, color: Color(0xFF0F766E)),
+                  title: Text('Flota y Catálogos'),
+                  trailing: Icon(Icons.chevron_right, size: 18),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
                 ),
               ),
-              const PopupMenuDivider(),
               const PopupMenuItem<String>(
-                value: 'vehiculos',
-                child: ListTile(leading: Icon(Icons.directions_car), title: Text('Gestionar Vehículos'), dense: true, contentPadding: EdgeInsets.zero),
+                value: 'sub_herramientas',
+                child: ListTile(
+                  leading: Icon(Icons.build_outlined, color: Colors.blue),
+                  title: Text('Herramientas y Avisos'),
+                  trailing: Icon(Icons.chevron_right, size: 18),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
               ),
-              const PopupMenuItem<String>(
-                value: 'parques',
-                child: ListTile(leading: Icon(Icons.groups, color: Color(0xFF0F766E)), title: Text('Parques Móviles'), dense: true, contentPadding: EdgeInsets.zero),
-              ),
-              const PopupMenuItem<String>(
-                value: 'papelera',
-                child: ListTile(leading: Icon(Icons.restore_from_trash, color: Colors.redAccent), title: Text('Papelera (Recuperar)'), dense: true, contentPadding: EdgeInsets.zero),
-              ),
-              const PopupMenuItem<String>(
-                value: 'estaciones',
-                child: ListTile(leading: Icon(Icons.storefront), title: Text('Estaciones de Servicio'), dense: true, contentPadding: EdgeInsets.zero),
-              ),
-              const PopupMenuItem<String>(
-                value: 'proveedores',
-                child: ListTile(leading: Icon(Icons.build_circle_outlined), title: Text('Talleres, Aseguradoras e ITVs'), dense: true, contentPadding: EdgeInsets.zero),
-              ),
-              const PopupMenuItem<String>(
-                value: 'email',
-                child: ListTile(leading: Icon(Icons.email_outlined), title: Text('Correo de Avisos'), dense: true, contentPadding: EdgeInsets.zero),
-              ),
-              if (widget.api.isAdmin) ...[
+              if (widget.api.isAdmin)
                 const PopupMenuItem<String>(
-                  value: 'pending',
-                  child: ListTile(leading: Icon(Icons.how_to_reg), title: Text('Solicitudes de Registro'), dense: true, contentPadding: EdgeInsets.zero),
+                  value: 'sub_admin',
+                  child: ListTile(
+                    leading: Icon(Icons.admin_panel_settings, color: Color(0xFF7C3AED)),
+                    title: Text('Administración'),
+                    trailing: Icon(Icons.chevron_right, size: 18),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
                 ),
-                const PopupMenuItem<String>(
-                  value: 'parametros',
-                  child: ListTile(leading: Icon(Icons.tune, color: Color(0xFF7C3AED)), title: Text('Parámetros del Sistema'), dense: true, contentPadding: EdgeInsets.zero),
-                ),
-              ],
               PopupMenuItem<String>(
-                value: 'mejoras',
+                value: 'sub_info',
                 child: ListTile(
                   leading: Icon(Icons.campaign_outlined, color: _mejorasNuevas > 0 ? Colors.amber.shade800 : const Color(0xFFD97706)),
                   title: Row(
                     children: [
-                      const Expanded(child: Text('Novedades y Mejoras')),
+                      const Expanded(child: Text('Novedades y Versión')),
                       if (_mejorasNuevas > 0)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -1595,6 +1636,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                     ],
                   ),
+                  trailing: const Icon(Icons.chevron_right, size: 18),
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                 ),
@@ -1851,6 +1893,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
         label: const Text(
           'Nuevo Repostaje',
           style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, letterSpacing: 0.3),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showSubmenuSheet(String title, List<Widget> items) async {
+    await showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const Divider(height: 8),
+                ...items,
+              ],
+            ),
+          ),
         ),
       ),
     );
