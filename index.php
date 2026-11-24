@@ -1696,6 +1696,8 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         const res = await apiCall('login');
         if (res.success) {
             sessionStorage.setItem('veh_auth', JSON.stringify(authCreds));
+            sessionStorage.removeItem('veh_inactivity_expired');
+            touchWebActivity(true);
             document.getElementById('login-screen').classList.add('hidden');
             document.getElementById('app-screen').classList.remove('hidden');
             await loadDashboard();
@@ -1710,12 +1712,75 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     }
 });
 
-function logout() {
+const WEB_INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutos
+let lastWebActivityMs = Date.now();
+let lastPersistedActivityMs = 0;
+
+function isWebLoggedIn() {
+    const appScreen = document.getElementById('app-screen');
+    return !!(appScreen && !appScreen.classList.contains('hidden'));
+}
+
+function touchWebActivity(forcePersist = false) {
+    const now = Date.now();
+    lastWebActivityMs = now;
+    if (forcePersist || (now - lastPersistedActivityMs) >= 10000) {
+        lastPersistedActivityMs = now;
+        try {
+            sessionStorage.setItem('veh_last_activity', String(now));
+        } catch (_) {}
+    }
+}
+
+function checkWebInactivityTimeout() {
+    if (!isWebLoggedIn()) return;
+    let storedTs = lastWebActivityMs;
+    try {
+        const raw = sessionStorage.getItem('veh_last_activity');
+        if (raw) {
+            const parsed = parseInt(raw, 10);
+            if (!isNaN(parsed) && parsed > storedTs) storedTs = parsed;
+        }
+    } catch (_) {}
+    if ((Date.now() - storedTs) >= WEB_INACTIVITY_TIMEOUT_MS) {
+        logout(true);
+    }
+}
+
+function logout(expiredByInactivity = false) {
     sessionStorage.removeItem('veh_auth');
+    sessionStorage.removeItem('veh_last_activity');
+    if (expiredByInactivity) {
+        sessionStorage.setItem('veh_inactivity_expired', '1');
+    } else {
+        sessionStorage.removeItem('veh_inactivity_expired');
+    }
     authCreds = null;
     document.getElementById('app-screen').classList.add('hidden');
     document.getElementById('login-screen').classList.remove('hidden');
+    if (typeof generateCaptcha === 'function') generateCaptcha();
+    const err = document.getElementById('login-error');
+    if (err) {
+        if (expiredByInactivity) {
+            err.textContent = '⏱️ Tu sesión se cerró automáticamente tras 30 minutos de inactividad.';
+            err.classList.remove('hidden');
+        } else {
+            err.classList.add('hidden');
+        }
+    }
 }
+
+['click', 'keydown', 'mousemove', 'scroll', 'touchstart'].forEach((evt) => {
+    window.addEventListener(evt, () => {
+        if (isWebLoggedIn()) touchWebActivity();
+    }, { passive: true });
+});
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        checkWebInactivityTimeout();
+    }
+});
+setInterval(checkWebInactivityTimeout, 15000);
 
 function parseScopeFilter(scopeVal) {
     const val = String(scopeVal || 'all');
@@ -4994,12 +5059,21 @@ async function exportTareasPDF(sendByEmail = false) {
 // Restaurar sesión (por sessionStorage o por sesión activa de moratalla-murcia.com/admin)
 window.addEventListener('DOMContentLoaded', async () => {
     const saved = sessionStorage.getItem('veh_auth');
+    const lastAct = parseInt(sessionStorage.getItem('veh_last_activity') || '0', 10);
+    const expiredFlag = sessionStorage.getItem('veh_inactivity_expired') === '1';
+
+    if (expiredFlag || (saved && lastAct > 0 && (Date.now() - lastAct) >= WEB_INACTIVITY_TIMEOUT_MS)) {
+        logout(true);
+        return;
+    }
+
     if (saved) {
         authCreds = JSON.parse(saved);
     }
     try {
         const res = await apiCall('login');
         if (res && res.success) {
+            touchWebActivity(true);
             document.getElementById('login-screen').classList.add('hidden');
             document.getElementById('app-screen').classList.remove('hidden');
             await loadDashboard();
