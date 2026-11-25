@@ -542,8 +542,7 @@ function ensureMejorasTables(PDO $pdo) {
                 array('2026-11-23', 'Mejoras OCR en facturas complejas y 3 fotos', 'Soporte para tickets matriciales sin comas, facturas tipo Solred/preautorización, edición de estación detectada y subida/reprocesado de Factura, Surtidor y Odómetro.', 'ambos'),
                 array('2026-11-23', 'Entrenador visual OCR y aviso de fiabilidad (<95%)', 'Permite marcar con ratón o toque las zonas exactas de cada campo para guardar formatos nuevos y avisa si la lectura no alcanza el 95% de acierto.', 'ambos'),
                 array('2026-11-24', 'Cierre automático de sesión web por inactividad', 'Protección automática de la sesión web tras el tiempo configurado sin actividad.', 'web'),
-                array('2026-11-24', 'Parámetros globales para superusuario', 'Configuración de tiempos de inactividad (Web y App) y márgenes de aviso de tareas (días y km). En tareas mixtas se aplica la primera condición que se cumpla.', 'ambos'),
-                array('2026-11-24', 'Log de mejoras del último año y testigo de novedades', 'Nueva sección en Web y App con las mejoras del último año, testigo visual de novedades sin leer y gestión completa para superusuario.', 'ambos'),
+                array('2026-11-24', 'Log de mejoras del último año y testigo de novedades', 'Nueva sección en Web y App con las mejoras del último año y testigo visual de novedades sin leer.', 'ambos'),
             );
             $stmtIns = $pdo->prepare("INSERT INTO `veh_mejoras_log` (fecha, titulo, descripcion, ambito, activo, eliminado) VALUES (?, ?, ?, ?, 1, 0)");
             foreach ($seed as $row) {
@@ -600,6 +599,10 @@ function getMejorasBadgeInfo(PDO $pdo, $userId) {
                 SUM(CASE WHEN id > ? THEN 1 ELSE 0 END) AS unread_count
             FROM `veh_mejoras_log`
             WHERE eliminado = 0 AND activo = 1 AND fecha >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+              AND LOWER(titulo) NOT LIKE '%superusuario%'
+              AND LOWER(descripcion) NOT LIKE '%superusuario%'
+              AND LOWER(titulo) NOT LIKE '%superadmin%'
+              AND LOWER(descripcion) NOT LIKE '%superadmin%'
         ");
         $stmtStats->execute(array($lastSeen));
         $stats = $stmtStats->fetch();
@@ -3204,6 +3207,10 @@ try {
                 FROM `veh_mejoras_log`
                 WHERE eliminado = 0
                   AND fecha >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+                  AND LOWER(titulo) NOT LIKE '%superusuario%'
+                  AND LOWER(descripcion) NOT LIKE '%superusuario%'
+                  AND LOWER(titulo) NOT LIKE '%superadmin%'
+                  AND LOWER(descripcion) NOT LIKE '%superadmin%'
             ";
             if (!$isAdmin) {
                 $sqlMej .= " AND activo = 1 ";

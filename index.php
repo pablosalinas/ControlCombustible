@@ -1129,10 +1129,9 @@
             </div>
 
             <div style="border:1px solid var(--border); border-radius:10px; padding:0.8rem;">
-                <strong><i class="fa-solid fa-bullhorn" style="color:#d97706"></i> Novedades, PDF y Submenú Admin</strong>
+                <strong><i class="fa-solid fa-bullhorn" style="color:#d97706"></i> Novedades y PDF</strong>
                 <p style="margin:0.35rem 0 0;">• <b>Novedades (con testigo rojo):</b> muestra las mejoras del último año; el testigo numérico indica cuántas hay sin leer.<br>
-                • <b>PDF:</b> genera informes imprimibles o enviables por correo según los filtros activos (ámbito, vehículo, fechas y remolque).<br>
-                • <b>Admin (solo superusuario):</b> aprueba <i>Solicitudes de Registro</i> de nuevos usuarios y ajusta los <i>Parámetros del Sistema</i> (tiempos de inactividad y márgenes de aviso).</p>
+                • <b>PDF:</b> genera informes imprimibles o enviables por correo según los filtros activos (ámbito, vehículo, fechas y remolque).</p>
             </div>
         </div>
     </div>
