@@ -1259,6 +1259,92 @@ try {
                 ORDER BY tipo ASC, nombre ASC
             ")->fetchAll();
 
+            // Obtener catálogo de aditivos activos y enriquecer repostajes con sus aditivos y desfases
+            $aditivosCatalogo = $pdo->query("
+                SELECT id, usuario_id, nombre, marca, componentes, descripcion, unidad, dosis_por_litro, precio_envase, cantidad_envase, created_at
+                FROM `veh_aditivos`
+                WHERE activo = 1
+                ORDER BY nombre ASC
+            ")->fetchAll();
+            foreach ($aditivosCatalogo as &$adCat) {
+                $adCat['id'] = (int)$adCat['id'];
+                $adCat['dosis_por_litro'] = (float)$adCat['dosis_por_litro'];
+                $adCat['precio_envase'] = (float)$adCat['precio_envase'];
+                $adCat['cantidad_envase'] = (float)$adCat['cantidad_envase'];
+                $adCat['precio_unitario'] = ($adCat['cantidad_envase'] > 0) ? round($adCat['precio_envase'] / $adCat['cantidad_envase'], 4) : 0.0;
+            }
+            unset($adCat);
+
+            $aditivosPorRepostaje = array();
+            $resumenAditivosMap = array();
+            if (!empty($repostajesCalculados)) {
+                $repIds = array_map(function($r) { return (int)$r['id']; }, $repostajesCalculados);
+                $ph = implode(',', array_fill(0, count($repIds), '?'));
+                $stmtRa = $pdo->prepare("
+                    SELECT ra.id, ra.repostaje_id, ra.aditivo_id, ra.dosis_por_litro, ra.unidad,
+                           ra.cantidad_recomendada, ra.cantidad_real,
+                           a.nombre AS aditivo_nombre, a.marca AS aditivo_marca,
+                           a.precio_envase, a.cantidad_envase
+                    FROM `veh_repostaje_aditivos` ra
+                    INNER JOIN `veh_aditivos` a ON a.id = ra.aditivo_id
+                    WHERE ra.repostaje_id IN ($ph) AND ra.activo = 1
+                    ORDER BY ra.id ASC
+                ");
+                $stmtRa->execute($repIds);
+                while ($ra = $stmtRa->fetch()) {
+                    $rId = (int)$ra['repostaje_id'];
+                    $aId = (int)$ra['aditivo_id'];
+                    $rec = (float)$ra['cantidad_recomendada'];
+                    $real = (float)$ra['cantidad_real'];
+                    $desfase = round($real - $rec, 6);
+                    $cantEnv = (float)$ra['cantidad_envase'];
+                    $precEnv = (float)$ra['precio_envase'];
+                    $precioUnit = ($cantEnv > 0) ? ($precEnv / $cantEnv) : 0.0;
+                    $costeEst = round($real * $precioUnit, 4);
+
+                    if (!isset($aditivosPorRepostaje[$rId])) {
+                        $aditivosPorRepostaje[$rId] = array();
+                    }
+                    $aditivosPorRepostaje[$rId][] = array(
+                        'id'                   => (int)$ra['id'],
+                        'aditivo_id'           => $aId,
+                        'nombre'               => $ra['aditivo_nombre'],
+                        'marca'                => $ra['aditivo_marca'],
+                        'unidad'               => $ra['unidad'],
+                        'dosis_por_litro'      => (float)$ra['dosis_por_litro'],
+                        'cantidad_recomendada' => $rec,
+                        'cantidad_real'        => $real,
+                        'desfase'              => $desfase,
+                        'precio_unitario'      => round($precioUnit, 4),
+                        'coste_estimado'       => $costeEst,
+                    );
+
+                    if (!isset($resumenAditivosMap[$aId])) {
+                        $resumenAditivosMap[$aId] = array(
+                            'aditivo_id'        => $aId,
+                            'nombre'            => $ra['aditivo_nombre'],
+                            'marca'             => $ra['aditivo_marca'],
+                            'unidad'            => $ra['unidad'],
+                            'usos'              => 0,
+                            'total_recomendado' => 0.0,
+                            'total_real'        => 0.0,
+                            'total_desfase'     => 0.0,
+                            'coste_total'       => 0.0,
+                        );
+                    }
+                    $resumenAditivosMap[$aId]['usos']++;
+                    $resumenAditivosMap[$aId]['total_recomendado'] = round($resumenAditivosMap[$aId]['total_recomendado'] + $rec, 6);
+                    $resumenAditivosMap[$aId]['total_real']        = round($resumenAditivosMap[$aId]['total_real'] + $real, 6);
+                    $resumenAditivosMap[$aId]['total_desfase']     = round($resumenAditivosMap[$aId]['total_real'] - $resumenAditivosMap[$aId]['total_recomendado'], 6);
+                    $resumenAditivosMap[$aId]['coste_total']       = round($resumenAditivosMap[$aId]['coste_total'] + $costeEst, 2);
+                }
+            }
+            foreach ($repostajesCalculados as &$repItem) {
+                $rId = (int)$repItem['id'];
+                $repItem['aditivos'] = isset($aditivosPorRepostaje[$rId]) ? $aditivosPorRepostaje[$rId] : array();
+            }
+            unset($repItem);
+
             $parques = getAccessibleParques($pdo, $userId, $isAdmin);
 
             $usuariosFiltro = array();
@@ -1279,6 +1365,8 @@ try {
                 'filtro_remolque'          => $filterRemolque,
                 'estaciones'               => $estaciones,
                 'proveedores'              => $proveedores,
+                'aditivos'                 => $aditivosCatalogo,
+                'resumen_aditivos'         => array_values($resumenAditivosMap),
                 'tareas_maestro'           => $tareasMaestro,
                 'vehiculo_tareas'          => $vehiculoTareas,
                 'ultimo_km_por_vehiculo'   => empty($ultimoKmPorVehiculo) ? new stdClass() : $ultimoKmPorVehiculo,
@@ -1361,6 +1449,61 @@ try {
                 ");
                 $stmt->execute(array($vehiculoId, $ownerUserId, $fecha, $litros, $precioLitro, $importeTotal, $kmOdometro, $estacionServicio, $conRemolque, $notas, $fotoTicketPath, $fotoSurtidorPath, $fotoOdometroPath));
                 $savedId = (int)$pdo->lastInsertId();
+            }
+
+            // Guardar aditivos adicionales del repostaje (sin DELETE físico: baja lógica + reactivación/inserción)
+            $aditivosRaw = arr_get($jsonBody, 'aditivos', isset($_POST['aditivos']) ? $_POST['aditivos'] : array());
+            if (is_string($aditivosRaw)) {
+                $decodedAdit = json_decode($aditivosRaw, true);
+                $aditivosRaw = is_array($decodedAdit) ? $decodedAdit : array();
+            }
+            if (!is_array($aditivosRaw)) {
+                $aditivosRaw = array();
+            }
+
+            $pdo->prepare("UPDATE `veh_repostaje_aditivos` SET activo = 0 WHERE repostaje_id = ?")->execute(array($savedId));
+
+            if (!empty($aditivosRaw)) {
+                $stmtGetAdit = $pdo->prepare("SELECT id, unidad, dosis_por_litro FROM `veh_aditivos` WHERE id = ? AND activo = 1 LIMIT 1");
+                $stmtChkRa   = $pdo->prepare("SELECT id FROM `veh_repostaje_aditivos` WHERE repostaje_id = ? AND aditivo_id = ? LIMIT 1");
+                $stmtUpdRa   = $pdo->prepare("
+                    UPDATE `veh_repostaje_aditivos`
+                    SET dosis_por_litro = ?, unidad = ?, cantidad_recomendada = ?, cantidad_real = ?, activo = 1
+                    WHERE id = ?
+                ");
+                $stmtInsRa   = $pdo->prepare("
+                    INSERT INTO `veh_repostaje_aditivos`
+                    (repostaje_id, aditivo_id, dosis_por_litro, unidad, cantidad_recomendada, cantidad_real, activo)
+                    VALUES (?, ?, ?, ?, ?, ?, 1)
+                ");
+
+                $seenAditIds = array();
+                foreach ($aditivosRaw as $adItem) {
+                    if (!is_array($adItem)) continue;
+                    $aditId = (int)arr_get($adItem, 'aditivo_id', 0);
+                    if ($aditId <= 0 || isset($seenAditIds[$aditId])) continue;
+                    $seenAditIds[$aditId] = true;
+
+                    $stmtGetAdit->execute(array($aditId));
+                    $aditRow = $stmtGetAdit->fetch();
+                    if (!$aditRow) continue;
+
+                    $dosis   = (float)$aditRow['dosis_por_litro'];
+                    $unidad  = $aditRow['unidad'];
+                    $cantRec = round($litros * $dosis, 6);
+                    $cantRealRaw = arr_get($adItem, 'cantidad_real', null);
+                    $cantReal = ($cantRealRaw !== null && $cantRealRaw !== '')
+                        ? max(0.0, round((float)str_replace(',', '.', (string)$cantRealRaw), 6))
+                        : $cantRec;
+
+                    $stmtChkRa->execute(array($savedId, $aditId));
+                    $existingRa = $stmtChkRa->fetch();
+                    if ($existingRa) {
+                        $stmtUpdRa->execute(array($dosis, $unidad, $cantRec, $cantReal, (int)$existingRa['id']));
+                    } else {
+                        $stmtInsRa->execute(array($savedId, $aditId, $dosis, $unidad, $cantRec, $cantReal));
+                    }
+                }
             }
 
             $emailSent = false;
@@ -1555,6 +1698,93 @@ try {
             echo json_encode(array(
                 'success' => true,
                 'message' => 'Estación dada de baja lógicamente (activo = 0).',
+            ));
+            break;
+
+        case 'list_aditivos':
+            $stmt = $pdo->query("
+                SELECT id, usuario_id, nombre, marca, componentes, descripcion, unidad, dosis_por_litro, precio_envase, cantidad_envase, created_at
+                FROM `veh_aditivos`
+                WHERE activo = 1
+                ORDER BY nombre ASC
+            ");
+            $rows = $stmt->fetchAll();
+            foreach ($rows as &$r) {
+                $r['id'] = (int)$r['id'];
+                $r['dosis_por_litro'] = (float)$r['dosis_por_litro'];
+                $r['precio_envase'] = (float)$r['precio_envase'];
+                $r['cantidad_envase'] = (float)$r['cantidad_envase'];
+                $r['precio_unitario'] = ($r['cantidad_envase'] > 0) ? round($r['precio_envase'] / $r['cantidad_envase'], 4) : 0.0;
+            }
+            unset($r);
+            echo json_encode(array(
+                'success'  => true,
+                'aditivos' => $rows,
+            ));
+            break;
+
+        case 'save_aditivo':
+            $id             = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            $nombre         = trim((string)arr_get($jsonBody, 'nombre', isset($_POST['nombre']) ? $_POST['nombre'] : ''));
+            $marca          = trim((string)arr_get($jsonBody, 'marca', isset($_POST['marca']) ? $_POST['marca'] : ''));
+            $componentes    = trim((string)arr_get($jsonBody, 'componentes', isset($_POST['componentes']) ? $_POST['componentes'] : ''));
+            $descripcion    = trim((string)arr_get($jsonBody, 'descripcion', isset($_POST['descripcion']) ? $_POST['descripcion'] : ''));
+            $unidad         = trim((string)arr_get($jsonBody, 'unidad', isset($_POST['unidad']) ? $_POST['unidad'] : 'L'));
+            $dosisPorLitro  = (float)str_replace(',', '.', (string)arr_get($jsonBody, 'dosis_por_litro', isset($_POST['dosis_por_litro']) ? $_POST['dosis_por_litro'] : 0));
+            $precioEnvase   = (float)str_replace(',', '.', (string)arr_get($jsonBody, 'precio_envase', isset($_POST['precio_envase']) ? $_POST['precio_envase'] : 0));
+            $cantidadEnvase = (float)str_replace(',', '.', (string)arr_get($jsonBody, 'cantidad_envase', isset($_POST['cantidad_envase']) ? $_POST['cantidad_envase'] : 0));
+
+            if (!in_array($unidad, array('L', 'kg'), true)) {
+                $unidad = 'L';
+            }
+
+            if ($nombre === '') {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'El nombre del aditivo es obligatorio.'));
+                exit;
+            }
+            if ($dosisPorLitro < 0 || $precioEnvase < 0 || $cantidadEnvase < 0) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'La dosis, el precio y la cantidad del envase no pueden ser negativos.'));
+                exit;
+            }
+
+            if ($id > 0) {
+                $stmt = $pdo->prepare("
+                    UPDATE `veh_aditivos`
+                    SET nombre = ?, marca = ?, componentes = ?, descripcion = ?, unidad = ?, dosis_por_litro = ?, precio_envase = ?, cantidad_envase = ?
+                    WHERE id = ? AND activo = 1
+                ");
+                $stmt->execute(array($nombre, $marca, $componentes, $descripcion, $unidad, $dosisPorLitro, $precioEnvase, $cantidadEnvase, $id));
+                $savedId = $id;
+            } else {
+                $stmt = $pdo->prepare("
+                    INSERT INTO `veh_aditivos` (usuario_id, nombre, marca, componentes, descripcion, unidad, dosis_por_litro, precio_envase, cantidad_envase, activo)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                ");
+                $stmt->execute(array($userId, $nombre, $marca, $componentes, $descripcion, $unidad, $dosisPorLitro, $precioEnvase, $cantidadEnvase));
+                $savedId = (int)$pdo->lastInsertId();
+            }
+
+            echo json_encode(array(
+                'success'    => true,
+                'message'    => $id > 0 ? 'Aditivo actualizado correctamente.' : 'Aditivo dado de alta correctamente.',
+                'aditivo_id' => $savedId,
+            ));
+            break;
+
+        case 'deactivate_aditivo':
+            $id = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            if ($id <= 0) {
+                http_response_code(400);
+                echo json_encode(array('success' => false, 'error' => 'ID de aditivo inválido.'));
+                exit;
+            }
+            $stmt = $pdo->prepare("UPDATE `veh_aditivos` SET activo = 0 WHERE id = ?");
+            $stmt->execute(array($id));
+            echo json_encode(array(
+                'success' => true,
+                'message' => 'Aditivo dado de baja lógicamente (activo = 0).',
             ));
             break;
 

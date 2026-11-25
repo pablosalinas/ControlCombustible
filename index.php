@@ -660,6 +660,9 @@
                         <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openEstacionesModal()">
                             <i class="fa-solid fa-shop" style="width:16px; color:var(--accent);"></i> Estaciones de Servicio
                         </button>
+                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openAditivosModal()">
+                            <i class="fa-solid fa-flask" style="width:16px; color:#8b5cf6;"></i> Aditivos Combustible
+                        </button>
                         <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openProveedoresModal()">
                             <i class="fa-solid fa-screwdriver-wrench" style="width:16px; color:#0284c7;"></i> Talleres / Seguros / ITV
                         </button>
@@ -961,6 +964,23 @@
                     <label>Notas / Mantenimiento</label>
                     <input type="text" id="rep-notas" class="form-control" placeholder="Ej: Revisión o incidencia">
                 </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem; padding:0.75rem; border:1px solid var(--border); border-radius:10px; background:#f8fafc;">
+                <label style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.45rem;">
+                    <span><i class="fa-solid fa-flask" style="color:#8b5cf6;"></i> Aditivos adicionales en el repostaje (opcional)</span>
+                    <button type="button" class="btn btn-outline" style="padding:0.2rem 0.5rem; font-size:0.74rem;" onclick="openAditivosModal()" title="Gestionar catálogo de aditivos">
+                        <i class="fa-solid fa-gear"></i> Catálogo
+                    </button>
+                </label>
+                <div style="display:flex; gap:0.4rem; margin-bottom:0.5rem;">
+                    <select id="rep-aditivo-select" class="form-control">
+                        <option value="">-- Seleccionar aditivo para añadir --</option>
+                    </select>
+                    <button type="button" class="btn btn-outline" style="white-space:nowrap; padding:0.45rem 0.75rem;" onclick="addAditivoToRepostaje()">
+                        <i class="fa-solid fa-plus"></i> Añadir
+                    </button>
+                </div>
+                <div id="rep-aditivos-rows" style="display:flex; flex-direction:column; gap:0.45rem;"></div>
             </div>
             <div class="form-group" style="margin-bottom:0.6rem;">
                 <label style="display:inline-flex; align-items:center; gap:0.5rem; cursor:pointer; font-weight:600; color:var(--text);">
@@ -1269,6 +1289,70 @@
             <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
                 <button type="button" class="btn btn-outline" onclick="resetEstacionForm()">Limpiar</button>
                 <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Guardar Estación</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL GESTIÓN DE ADITIVOS DE COMBUSTIBLE -->
+<div class="modal-backdrop" id="aditivos-modal">
+    <div class="modal-content" style="max-width:740px; max-height:92vh; overflow-y:auto;">
+        <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-flask" style="color:#8b5cf6"></i> Aditivos de Combustible</div>
+            <button class="btn btn-outline" style="padding:0.35rem 0.65rem;" onclick="closeAditivosModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="aditivos-desfases-summary" style="margin-bottom:0.9rem;"></div>
+        <div id="aditivos-list" style="margin-bottom:1.1rem; max-height:240px; overflow-y:auto;"></div>
+        <hr style="border:none; border-top:1px solid var(--border); margin:0.9rem 0;">
+        <h4 style="font-size:0.92rem; margin-bottom:0.75rem;" id="adit-form-title">Añadir / Editar Aditivo</h4>
+        <form id="aditivo-form">
+            <input type="hidden" id="adit-id" value="0">
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Nombre del Aditivo *</label>
+                    <input type="text" id="adit-nombre" class="form-control" placeholder="Ej: Limpiador Inyectores Diésel" required>
+                </div>
+                <div class="form-group">
+                    <label>Marca</label>
+                    <input type="text" id="adit-marca" class="form-control" placeholder="Ej: Wynn's, Liqui Moly, Bardahl">
+                </div>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Unidad (Sistema Internacional) *</label>
+                    <select id="adit-unidad" class="form-control" onchange="updateAditivoUnitLabels()">
+                        <option value="L">Litros (L)</option>
+                        <option value="kg">Kilogramos (kg)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Dosis por litro (<span id="adit-lbl-dosis">L/L</span>) *</label>
+                    <input type="number" step="0.000001" min="0" id="adit-dosis" class="form-control" placeholder="Ej: 0.002" required>
+                    <small style="color:var(--muted); font-size:0.73rem;">Cantidad de aditivo (<span id="adit-lbl-dosis-hint">L</span>) por cada 1 L de combustible.</small>
+                </div>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Cantidad del envase (<span id="adit-lbl-envase">L</span>) *</label>
+                    <input type="number" step="0.0001" min="0" id="adit-cant-envase" class="form-control" placeholder="Ej: 0.250" required oninput="updateAditivoUnitLabels()">
+                </div>
+                <div class="form-group">
+                    <label>Precio del envase (€) *</label>
+                    <input type="number" step="0.01" min="0" id="adit-precio-envase" class="form-control" placeholder="Ej: 12.50" required oninput="updateAditivoUnitLabels()">
+                    <div id="adit-precio-unit-preview" style="font-size:0.74rem; color:#6d28d9; font-weight:600; margin-top:0.25rem;"></div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Componentes</label>
+                <input type="text" id="adit-componentes" class="form-control" placeholder="Ej: Hidrocarburos C10-C13, mejorador de cetano, detergentes...">
+            </div>
+            <div class="form-group">
+                <label>Descripción</label>
+                <textarea id="adit-descripcion" class="form-control" rows="2" placeholder="Uso recomendado, beneficios, observaciones..."></textarea>
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button type="button" class="btn btn-outline" onclick="resetAditivoForm()">Limpiar</button>
+                <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Guardar Aditivo</button>
             </div>
         </form>
     </div>
@@ -2214,6 +2298,11 @@ async function loadDashboard() {
         if (prevEst) estSelEl.value = prevEst;
     }
 
+    // Poblar desplegable de aditivos de combustible
+    if (typeof populateAditivosSelect === 'function') {
+        populateAditivosSelect();
+    }
+
     // Actualizar KPIs
     const s = res.resumen || {};
     document.getElementById('kpi-consumo-medio').innerHTML = `${fmtNum(s.consumo_medio_l100, 2)} <small style="font-size:0.75rem">L/100</small>`;
@@ -2261,10 +2350,18 @@ function renderTable() {
         return (r.fecha && (r.fecha.toLowerCase().includes(q) || fmtDate(r.fecha).toLowerCase().includes(q))) ||
                (String(r.km_odometro).includes(q)) ||
                (r.notas && r.notas.toLowerCase().includes(q)) ||
-               (r.vehiculo_nombre && r.vehiculo_nombre.toLowerCase().includes(q));
+               (r.vehiculo_nombre && r.vehiculo_nombre.toLowerCase().includes(q)) ||
+               ((r.aditivos || []).some(a => ((a.nombre || '') + ' ' + (a.marca || '')).toLowerCase().includes(q)));
     });
 
     filtered.forEach(r => {
+        const aditBadges = (r.aditivos || []).map(a => {
+            const desf = Number(a.desfase || 0);
+            const desfStr = Math.abs(desf) < 1e-6 ? 'Exacto' : `${desf > 0 ? '+' : ''}${fmtNum(desf, 4)} ${a.unidad}`;
+            const tip = `Rec: ${fmtNum(a.cantidad_recomendada, 4)} ${a.unidad} | Real: ${fmtNum(a.cantidad_real, 4)} ${a.unidad} | Desfase: ${desfStr} | Coste: ${fmtNum(a.coste_estimado || 0, 2)} €`;
+            return `<span class="badge" style="background:#ede9fe; color:#5b21b6; margin-right:0.25rem; margin-top:0.15rem; display:inline-block;" title="${escapeHtml(tip)}">🧪 ${escapeHtml(a.nombre)}: ${fmtNum(a.cantidad_real, 4)} ${escapeHtml(a.unidad)}${Math.abs(desf) >= 1e-6 ? ` (${desf > 0 ? '+' : ''}${fmtNum(desf, 4)})` : ''}</span>`;
+        }).join('');
+
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td style="font-weight:600;">${fmtDate(r.fecha)}</td>
@@ -2280,7 +2377,7 @@ function renderTable() {
             <td>${fmtNum(r.total_litros_acum, 1)}</td>
             <td>${fmtNum(r.total_euros_acum, 2)} €</td>
             <td>${r.coste_medio_100_acum !== null ? fmtNum(r.coste_medio_100_acum, 2) : '-'}</td>
-            <td class="wrap-col" style="text-align:left; max-width:130px;">${Number(r.con_remolque) === 1 ? '<span class="badge" style="background:#fef3c7; color:#92400e; margin-right:0.25rem;">🚐 Remolque</span>' : ''}${r.notas || ''}</td>
+            <td class="wrap-col" style="text-align:left; max-width:160px;">${Number(r.con_remolque) === 1 ? '<span class="badge" style="background:#fef3c7; color:#92400e; margin-right:0.25rem;">🚐 Remolque</span>' : ''}${r.notas || ''}${aditBadges ? `<div style="margin-top:0.2rem;">${aditBadges}</div>` : ''}</td>
             <td class="col-actions">
                 ${r.foto_ticket_path ? `<button class="btn btn-outline" style="padding:0.25rem 0.45rem; font-size:0.75rem; color:var(--primary);" onclick="openPhotoLightbox('${r.foto_ticket_path}', 'Factura / Ticket (${r.fecha})')" title="Ver foto factura/ticket"><i class="fa-solid fa-receipt"></i></button>` : ''}
                 ${r.foto_surtidor_path ? `<button class="btn btn-outline" style="padding:0.25rem 0.45rem; font-size:0.75rem; color:#0284c7;" onclick="openPhotoLightbox('${r.foto_surtidor_path}', 'Surtidor (${r.fecha})')" title="Ver foto surtidor"><i class="fa-solid fa-gas-pump"></i></button>` : ''}
@@ -2315,6 +2412,7 @@ function renderTable() {
                 <div><span>Media €/100</span><strong>${r.coste_medio_100_acum !== null ? fmtNum(r.coste_medio_100_acum, 2) + ' €' : '-'}</strong></div>
             </div>
             ${r.notas ? `<div style="margin-top:0.45rem; font-size:0.78rem; color:#92400e; background:#fef3c7; padding:0.3rem 0.55rem; border-radius:6px;"><i class="fa-solid fa-screwdriver-wrench"></i> ${r.notas}</div>` : ''}
+            ${aditBadges ? `<div style="margin-top:0.4rem; display:flex; flex-wrap:wrap; gap:0.25rem;">${aditBadges}</div>` : ''}
             <div style="display:flex; justify-content:flex-end; gap:0.4rem; margin-top:0.55rem; flex-wrap:wrap;">
                 ${r.foto_ticket_path ? `<button class="btn btn-outline" style="padding:0.3rem 0.55rem; font-size:0.76rem; color:var(--primary);" onclick="openPhotoLightbox('${r.foto_ticket_path}', 'Factura / Ticket (${r.fecha})')"><i class="fa-solid fa-receipt"></i> Factura</button>` : ''}
                 ${r.foto_surtidor_path ? `<button class="btn btn-outline" style="padding:0.3rem 0.55rem; font-size:0.76rem; color:#0284c7;" onclick="openPhotoLightbox('${r.foto_surtidor_path}', 'Surtidor (${r.fecha})')"><i class="fa-solid fa-gas-pump"></i> Surtidor</button>` : ''}
@@ -2385,6 +2483,9 @@ function autoCalcForm(changedField) {
         if (i > 0 && p > 0) {
             document.getElementById('rep-litros').value = (i / p).toFixed(2);
         }
+    }
+    if (typeof recalcRepostajeAditivos === 'function') {
+        recalcRepostajeAditivos();
     }
 }
 
@@ -2468,6 +2569,8 @@ function openRepostajeModal() {
     document.getElementById('ocr-status').classList.add('hidden');
     document.getElementById('detected-station-banner').classList.add('hidden');
     lastDetectedStation = null;
+    repAditivosState = [];
+    renderRepostajeAditivosRows();
     renderRepostajePhotosPreview();
     updateParcialKmPreview();
     document.getElementById('repostaje-modal').classList.add('active');
@@ -2500,6 +2603,22 @@ function editRepostaje(r) {
     document.getElementById('ocr-status').classList.add('hidden');
     document.getElementById('detected-station-banner').classList.add('hidden');
     lastDetectedStation = null;
+    repAditivosState = (r.aditivos || []).map(a => {
+        const rec = Number(a.cantidad_recomendada || 0);
+        const real = Number(a.cantidad_real || 0);
+        return {
+            aditivo_id: Number(a.aditivo_id),
+            nombre: a.nombre || 'Aditivo',
+            marca: a.marca || '',
+            unidad: a.unidad || 'L',
+            dosis_por_litro: Number(a.dosis_por_litro || 0),
+            precio_unitario: Number(a.precio_unitario || 0),
+            cantidad_recomendada: rec,
+            cantidad_real: real,
+            manual_override: Math.abs(real - rec) > 1e-6
+        };
+    });
+    renderRepostajeAditivosRows();
     renderRepostajePhotosPreview();
     updateParcialKmPreview();
     document.getElementById('repostaje-modal').classList.add('active');
@@ -2524,7 +2643,11 @@ document.getElementById('repostaje-form').addEventListener('submit', async (e) =
         notas: document.getElementById('rep-notas').value,
         foto_ticket_path: document.getElementById('rep-foto-ticket').value,
         foto_surtidor_path: document.getElementById('rep-foto-surtidor').value,
-        foto_odometro_path: document.getElementById('rep-foto-odometro').value
+        foto_odometro_path: document.getElementById('rep-foto-odometro').value,
+        aditivos: repAditivosState.map(a => ({
+            aditivo_id: a.aditivo_id,
+            cantidad_real: a.cantidad_real
+        }))
     };
     const res = await apiCall('save_repostaje', payload);
     if (res.success) {
@@ -3821,6 +3944,290 @@ async function deactivateEstacion(id) {
     if (res.success) {
         await loadDashboard();
         renderEstacionesList();
+    }
+}
+
+// ============================================================================
+// GESTIÓN DE ADITIVOS DE COMBUSTIBLE Y CÁLCULO DE DOSIS / DESFASES EN REPOSTAJE
+// ============================================================================
+let repAditivosState = [];
+
+function populateAditivosSelect() {
+    const sel = document.getElementById('rep-aditivo-select');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">-- Seleccionar aditivo para añadir --</option>';
+    (currentData.aditivos || []).forEach(a => {
+        const opt = document.createElement('option');
+        opt.value = String(a.id);
+        opt.textContent = `${a.nombre}${a.marca ? ' (' + a.marca + ')' : ''} · ${Number(a.dosis_por_litro)} ${a.unidad}/L`;
+        sel.appendChild(opt);
+    });
+}
+
+function addAditivoToRepostaje() {
+    const sel = document.getElementById('rep-aditivo-select');
+    const aditId = parseInt(sel ? sel.value : '0', 10);
+    if (!aditId) return;
+    if (repAditivosState.some(x => x.aditivo_id === aditId)) {
+        alert('Este aditivo ya está añadido al repostaje.');
+        return;
+    }
+    const adit = (currentData.aditivos || []).find(x => Number(x.id) === aditId);
+    if (!adit) return;
+    const litros = parseFloat(document.getElementById('rep-litros').value || '0') || 0;
+    const dosis = Number(adit.dosis_por_litro || 0);
+    const rec = Number((litros * dosis).toFixed(6));
+    repAditivosState.push({
+        aditivo_id: aditId,
+        nombre: adit.nombre,
+        marca: adit.marca || '',
+        unidad: adit.unidad || 'L',
+        dosis_por_litro: dosis,
+        precio_unitario: Number(adit.precio_unitario || 0),
+        cantidad_recomendada: rec,
+        cantidad_real: rec,
+        manual_override: false
+    });
+    sel.value = '';
+    renderRepostajeAditivosRows();
+}
+
+function removeAditivoFromRepostaje(aditId) {
+    repAditivosState = repAditivosState.filter(x => x.aditivo_id !== aditId);
+    renderRepostajeAditivosRows();
+}
+
+function recalcRepostajeAditivos() {
+    if (!repAditivosState || repAditivosState.length === 0) return;
+    const litros = parseFloat(document.getElementById('rep-litros').value || '0') || 0;
+    repAditivosState.forEach(item => {
+        const newRec = Number((litros * Number(item.dosis_por_litro || 0)).toFixed(6));
+        item.cantidad_recomendada = newRec;
+        if (!item.manual_override) {
+            item.cantidad_real = newRec;
+        }
+    });
+    renderRepostajeAditivosRows();
+}
+
+function onAditivoRealInput(aditId, valStr) {
+    const item = repAditivosState.find(x => x.aditivo_id === aditId);
+    if (!item) return;
+    const val = parseFloat(String(valStr).replace(',', '.'));
+    item.cantidad_real = isNaN(val) || val < 0 ? 0 : val;
+    item.manual_override = Math.abs(item.cantidad_real - item.cantidad_recomendada) > 1e-6;
+    const desfEl = document.getElementById(`rep-adit-desfase-${aditId}`);
+    if (desfEl) {
+        const desf = Number((item.cantidad_real - item.cantidad_recomendada).toFixed(6));
+        const coste = item.cantidad_real * Number(item.precio_unitario || 0);
+        desfEl.innerHTML = formatDesfaseBadgeHtml(desf, item.unidad, coste);
+    }
+}
+
+function formatDesfaseBadgeHtml(desf, unidad, coste) {
+    let badge = '';
+    if (Math.abs(desf) < 1e-6) {
+        badge = `<span class="badge" style="background:#dcfce7; color:#166534;">Exacto (0 ${escapeHtml(unidad)})</span>`;
+    } else if (desf > 0) {
+        badge = `<span class="badge" style="background:#fef3c7; color:#92400e;">+${fmtNum(desf, 4)} ${escapeHtml(unidad)}</span>`;
+    } else {
+        badge = `<span class="badge" style="background:#fee2e2; color:#991b1b;">${fmtNum(desf, 4)} ${escapeHtml(unidad)}</span>`;
+    }
+    return `${badge}${coste > 0 ? ` <small style="color:var(--muted);">· ~${fmtNum(coste, 2)} €</small>` : ''}`;
+}
+
+function renderRepostajeAditivosRows() {
+    const container = document.getElementById('rep-aditivos-rows');
+    if (!container) return;
+    container.innerHTML = '';
+    if (repAditivosState.length === 0) {
+        container.innerHTML = '<div style="font-size:0.78rem; color:var(--muted);">Ningún aditivo seleccionado para este repostaje.</div>';
+        return;
+    }
+    repAditivosState.forEach(item => {
+        const desf = Number((item.cantidad_real - item.cantidad_recomendada).toFixed(6));
+        const coste = item.cantidad_real * Number(item.precio_unitario || 0);
+        const div = document.createElement('div');
+        div.style = 'background:#fff; border:1px solid var(--border); border-radius:8px; padding:0.55rem 0.65rem;';
+        div.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+                <div>
+                    <strong style="font-size:0.84rem;">${escapeHtml(item.nombre)}</strong>
+                    ${item.marca ? `<span class="badge badge-amber" style="margin-left:0.25rem;">${escapeHtml(item.marca)}</span>` : ''}
+                    <small style="color:var(--muted); margin-left:0.3rem;">Dosis: ${Number(item.dosis_por_litro)} ${escapeHtml(item.unidad)}/L</small>
+                </div>
+                <button type="button" class="btn btn-danger" style="padding:0.15rem 0.45rem; font-size:0.72rem;" onclick="removeAditivoFromRepostaje(${item.aditivo_id})" title="Quitar aditivo">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.5rem; align-items:center;">
+                <div>
+                    <div style="font-size:0.72rem; color:var(--muted);">Recomendado</div>
+                    <div style="font-weight:700; font-size:0.84rem; color:#475569;">${fmtNum(item.cantidad_recomendada, 4)} ${escapeHtml(item.unidad)}</div>
+                </div>
+                <div>
+                    <label style="font-size:0.72rem; color:var(--muted); margin-bottom:0.15rem; display:block;">Real incorporado (${escapeHtml(item.unidad)})</label>
+                    <input type="number" step="0.000001" min="0" class="form-control" style="padding:0.3rem 0.45rem; font-size:0.84rem;" value="${item.cantidad_real}" oninput="onAditivoRealInput(${item.aditivo_id}, this.value)">
+                </div>
+                <div>
+                    <div style="font-size:0.72rem; color:var(--muted);">Desfase / Coste</div>
+                    <div id="rep-adit-desfase-${item.aditivo_id}" style="font-size:0.78rem;">${formatDesfaseBadgeHtml(desf, item.unidad, coste)}</div>
+                </div>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function openAditivosModal() {
+    renderAditivosModalContent();
+    updateAditivoUnitLabels();
+    document.getElementById('aditivos-modal').classList.add('active');
+}
+function closeAditivosModal() {
+    document.getElementById('aditivos-modal').classList.remove('active');
+}
+function updateAditivoUnitLabels() {
+    const u = document.getElementById('adit-unidad').value || 'L';
+    document.getElementById('adit-lbl-dosis').textContent = `${u}/L`;
+    document.getElementById('adit-lbl-dosis-hint').textContent = u;
+    document.getElementById('adit-lbl-envase').textContent = u;
+    const cant = parseFloat(document.getElementById('adit-cant-envase').value || '0') || 0;
+    const prec = parseFloat(document.getElementById('adit-precio-envase').value || '0') || 0;
+    const prevEl = document.getElementById('adit-precio-unit-preview');
+    if (prevEl) {
+        prevEl.textContent = (cant > 0 && prec > 0) ? `Precio unitario: ${fmtNum(prec / cant, 2)} €/${u}` : '';
+    }
+}
+function renderAditivosModalContent() {
+    const sumBox = document.getElementById('aditivos-desfases-summary');
+    const resumenAdit = currentData.resumen_aditivos || [];
+    if (sumBox) {
+        if (resumenAdit.length === 0) {
+            sumBox.innerHTML = '';
+        } else {
+            let rowsHtml = resumenAdit.map(ra => {
+                const desf = Number(ra.total_desfase || 0);
+                const desfColor = Math.abs(desf) < 1e-6 ? '#166534' : (desf > 0 ? '#92400e' : '#991b1b');
+                return `
+                    <tr>
+                        <td style="text-align:left; font-weight:600;">${escapeHtml(ra.nombre)}${ra.marca ? ` <small style="color:var(--muted);">(${escapeHtml(ra.marca)})</small>` : ''}</td>
+                        <td>${ra.usos}</td>
+                        <td>${fmtNum(ra.total_recomendado, 4)} ${escapeHtml(ra.unidad)}</td>
+                        <td>${fmtNum(ra.total_real, 4)} ${escapeHtml(ra.unidad)}</td>
+                        <td style="font-weight:700; color:${desfColor};">${desf > 0 ? '+' : ''}${fmtNum(desf, 4)} ${escapeHtml(ra.unidad)}</td>
+                        <td>${fmtNum(ra.coste_total, 2)} €</td>
+                    </tr>
+                `;
+            }).join('');
+            sumBox.innerHTML = `
+                <div style="background:#f5f3ff; border:1px solid #ddd6fe; border-radius:10px; padding:0.65rem;">
+                    <div style="font-size:0.82rem; font-weight:700; color:#5b21b6; margin-bottom:0.4rem;">
+                        <i class="fa-solid fa-scale-balanced"></i> Control de Desfases Acumulados (Recomendado vs Real)
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table style="width:100%; font-size:0.78rem; border-collapse:collapse;">
+                            <thead>
+                                <tr style="border-bottom:1px solid #ddd6fe; color:#4c1d95;">
+                                    <th style="text-align:left; padding:0.25rem;">Aditivo</th>
+                                    <th style="padding:0.25rem;">Usos</th>
+                                    <th style="padding:0.25rem;">Recomendado</th>
+                                    <th style="padding:0.25rem;">Real</th>
+                                    <th style="padding:0.25rem;">Desfase</th>
+                                    <th style="padding:0.25rem;">Coste Est.</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rowsHtml}</tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    const container = document.getElementById('aditivos-list');
+    container.innerHTML = '';
+    const list = currentData.aditivos || [];
+    if (list.length === 0) {
+        container.innerHTML = '<div style="font-size:0.82rem; color:var(--muted); text-align:center; padding:0.75rem;">No hay aditivos registrados todavía.</div>';
+        return;
+    }
+    list.forEach(a => {
+        const div = document.createElement('div');
+        div.style = 'display:flex; justify-content:space-between; align-items:flex-start; gap:0.5rem; padding:0.65rem; border:1px solid var(--border); border-radius:10px; margin-bottom:0.45rem;';
+        div.innerHTML = `
+            <div style="flex:1;">
+                <div style="font-weight:700;">
+                    ${escapeHtml(a.nombre)}
+                    ${a.marca ? `<span class="badge badge-amber">${escapeHtml(a.marca)}</span>` : ''}
+                    <span class="badge" style="background:#ede9fe; color:#5b21b6;">${Number(a.dosis_por_litro)} ${escapeHtml(a.unidad)}/L</span>
+                </div>
+                <div style="font-size:0.76rem; color:var(--muted); margin-top:0.15rem;">
+                    Envase: <strong>${fmtNum(a.cantidad_envase, 3)} ${escapeHtml(a.unidad)}</strong> · <strong>${fmtNum(a.precio_envase, 2)} €</strong>
+                    ${a.precio_unitario > 0 ? ` (${fmtNum(a.precio_unitario, 2)} €/${escapeHtml(a.unidad)})` : ''}
+                </div>
+                ${a.componentes ? `<div style="font-size:0.75rem; color:#475569; margin-top:0.15rem;"><strong>Componentes:</strong> ${escapeHtml(a.componentes)}</div>` : ''}
+                ${a.descripcion ? `<div style="font-size:0.74rem; color:var(--muted); margin-top:0.1rem;">${escapeHtml(a.descripcion)}</div>` : ''}
+            </div>
+            <div style="display:flex; gap:0.35rem;">
+                <button class="btn btn-outline" style="padding:0.28rem 0.55rem; font-size:0.76rem;" onclick='editAditivo(${JSON.stringify(a)})'><i class="fa-solid fa-pen"></i></button>
+                <button class="btn btn-danger" style="padding:0.28rem 0.55rem; font-size:0.76rem;" onclick="deactivateAditivo(${a.id})"><i class="fa-solid fa-trash"></i></button>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+function editAditivo(a) {
+    document.getElementById('adit-id').value = a.id;
+    document.getElementById('adit-nombre').value = a.nombre || '';
+    document.getElementById('adit-marca').value = a.marca || '';
+    document.getElementById('adit-unidad').value = a.unidad || 'L';
+    document.getElementById('adit-dosis').value = a.dosis_por_litro;
+    document.getElementById('adit-cant-envase').value = a.cantidad_envase;
+    document.getElementById('adit-precio-envase').value = a.precio_envase;
+    document.getElementById('adit-componentes').value = a.componentes || '';
+    document.getElementById('adit-descripcion').value = a.descripcion || '';
+    updateAditivoUnitLabels();
+}
+function resetAditivoForm() {
+    document.getElementById('adit-id').value = '0';
+    document.getElementById('adit-nombre').value = '';
+    document.getElementById('adit-marca').value = '';
+    document.getElementById('adit-unidad').value = 'L';
+    document.getElementById('adit-dosis').value = '';
+    document.getElementById('adit-cant-envase').value = '';
+    document.getElementById('adit-precio-envase').value = '';
+    document.getElementById('adit-componentes').value = '';
+    document.getElementById('adit-descripcion').value = '';
+    updateAditivoUnitLabels();
+}
+document.getElementById('aditivo-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const res = await apiCall('save_aditivo', {
+        id: document.getElementById('adit-id').value,
+        nombre: document.getElementById('adit-nombre').value,
+        marca: document.getElementById('adit-marca').value,
+        unidad: document.getElementById('adit-unidad').value,
+        dosis_por_litro: document.getElementById('adit-dosis').value,
+        cantidad_envase: document.getElementById('adit-cant-envase').value,
+        precio_envase: document.getElementById('adit-precio-envase').value,
+        componentes: document.getElementById('adit-componentes').value,
+        descripcion: document.getElementById('adit-descripcion').value
+    });
+    if (res.success) {
+        resetAditivoForm();
+        await loadDashboard();
+        renderAditivosModalContent();
+    } else {
+        alert(res.error || 'Error guardando aditivo');
+    }
+});
+async function deactivateAditivo(id) {
+    if (!confirm('¿Dar de baja lógica este aditivo? (activo = 0)')) return;
+    const res = await apiCall('deactivate_aditivo', { id });
+    if (res.success) {
+        await loadDashboard();
+        renderAditivosModalContent();
     }
 }
 
