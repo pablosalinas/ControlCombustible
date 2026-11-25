@@ -314,6 +314,8 @@ function ensureAdditiveSchema(PDO $pdo) {
             `marca` VARCHAR(100) DEFAULT NULL,
             `componentes` TEXT DEFAULT NULL,
             `descripcion` TEXT DEFAULT NULL,
+            `caracteristicas` TEXT DEFAULT NULL,
+            `fuente_info` VARCHAR(255) DEFAULT NULL,
             `unidad` VARCHAR(10) NOT NULL DEFAULT 'L' COMMENT 'Unidad SI: L o kg',
             `dosis_por_litro` DECIMAL(12, 6) NOT NULL DEFAULT 0.000000,
             `precio_envase` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
@@ -324,6 +326,15 @@ function ensureAdditiveSchema(PDO $pdo) {
             INDEX `idx_adit_activo` (`activo`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ");
+
+    try {
+        if (!$pdo->query("SHOW COLUMNS FROM `veh_aditivos` LIKE 'caracteristicas'")->fetch()) {
+            $pdo->exec("ALTER TABLE `veh_aditivos` ADD COLUMN `caracteristicas` TEXT DEFAULT NULL AFTER `descripcion`");
+        }
+        if (!$pdo->query("SHOW COLUMNS FROM `veh_aditivos` LIKE 'fuente_info'")->fetch()) {
+            $pdo->exec("ALTER TABLE `veh_aditivos` ADD COLUMN `fuente_info` VARCHAR(255) DEFAULT NULL AFTER `caracteristicas`");
+        }
+    } catch (Exception $e) {}
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS `veh_repostaje_aditivos` (

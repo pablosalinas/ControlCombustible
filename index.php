@@ -1304,7 +1304,22 @@
         <div id="aditivos-desfases-summary" style="margin-bottom:0.9rem;"></div>
         <div id="aditivos-list" style="margin-bottom:1.1rem; max-height:240px; overflow-y:auto;"></div>
         <hr style="border:none; border-top:1px solid var(--border); margin:0.9rem 0;">
-        <h4 style="font-size:0.92rem; margin-bottom:0.75rem;" id="adit-form-title">Añadir / Editar Aditivo</h4>
+        <h4 style="font-size:0.92rem; margin-bottom:0.55rem;" id="adit-form-title">Añadir / Editar Aditivo</h4>
+        <div style="background:#f5f3ff; border:1px solid #ddd6fe; border-radius:10px; padding:0.6rem 0.75rem; margin-bottom:0.8rem;">
+            <label style="font-size:0.78rem; font-weight:700; color:#5b21b6; display:block; margin-bottom:0.35rem;">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Buscar características en Internet / IA
+            </label>
+            <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+                <input type="text" id="adit-ai-query" class="form-control" style="flex:1; min-width:200px;" placeholder="Ej: Liqui Moly Super Diesel Additiv 250ml">
+                <button type="button" class="btn btn-primary" id="btn-adit-ai" style="background:#7c3aed; border-color:#7c3aed; white-space:nowrap;" onclick="lookupAditivoAI()">
+                    <i class="fa-solid fa-robot"></i> Buscar con IA
+                </button>
+                <button type="button" class="btn btn-outline" style="white-space:nowrap;" onclick="openAditivoGoogleSearch()" title="Abrir búsqueda en Google">
+                    <i class="fa-brands fa-google"></i> Google
+                </button>
+            </div>
+            <div id="adit-ai-status" class="hidden" style="font-size:0.76rem; margin-top:0.4rem; padding:0.35rem 0.55rem; border-radius:6px;"></div>
+        </div>
         <form id="aditivo-form">
             <input type="hidden" id="adit-id" value="0">
             <div class="grid-2">
@@ -1349,6 +1364,14 @@
             <div class="form-group">
                 <label>Descripción</label>
                 <textarea id="adit-descripcion" class="form-control" rows="2" placeholder="Uso recomendado, beneficios, observaciones..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Características Técnicas (IA / Internet)</label>
+                <textarea id="adit-caracteristicas" class="form-control" rows="2" placeholder="Índice de cetano/octano, compatibilidad, rango térmico, proporción de mezcla..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Fuente / Referencia</label>
+                <input type="text" id="adit-fuente" class="form-control" placeholder="URL o fuente de la ficha técnica (opcional)">
             </div>
             <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
                 <button type="button" class="btn btn-outline" onclick="resetAditivoForm()">Limpiar</button>
@@ -4168,6 +4191,8 @@ function renderAditivosModalContent() {
                 </div>
                 ${a.componentes ? `<div style="font-size:0.75rem; color:#475569; margin-top:0.15rem;"><strong>Componentes:</strong> ${escapeHtml(a.componentes)}</div>` : ''}
                 ${a.descripcion ? `<div style="font-size:0.74rem; color:var(--muted); margin-top:0.1rem;">${escapeHtml(a.descripcion)}</div>` : ''}
+                ${a.caracteristicas ? `<div style="font-size:0.74rem; color:#4c1d95; background:#f5f3ff; padding:0.25rem 0.45rem; border-radius:6px; margin-top:0.2rem;"><strong>Características:</strong> ${escapeHtml(a.caracteristicas)}</div>` : ''}
+                ${a.fuente_info ? `<div style="font-size:0.71rem; color:var(--muted); margin-top:0.12rem;"><i class="fa-solid fa-link"></i> ${escapeHtml(a.fuente_info)}</div>` : ''}
             </div>
             <div style="display:flex; gap:0.35rem;">
                 <button class="btn btn-outline" style="padding:0.28rem 0.55rem; font-size:0.76rem;" onclick='editAditivo(${JSON.stringify(a)})'><i class="fa-solid fa-pen"></i></button>
@@ -4187,6 +4212,8 @@ function editAditivo(a) {
     document.getElementById('adit-precio-envase').value = a.precio_envase;
     document.getElementById('adit-componentes').value = a.componentes || '';
     document.getElementById('adit-descripcion').value = a.descripcion || '';
+    document.getElementById('adit-caracteristicas').value = a.caracteristicas || '';
+    document.getElementById('adit-fuente').value = a.fuente_info || '';
     updateAditivoUnitLabels();
 }
 function resetAditivoForm() {
@@ -4199,7 +4226,84 @@ function resetAditivoForm() {
     document.getElementById('adit-precio-envase').value = '';
     document.getElementById('adit-componentes').value = '';
     document.getElementById('adit-descripcion').value = '';
+    document.getElementById('adit-caracteristicas').value = '';
+    document.getElementById('adit-fuente').value = '';
+    const qEl = document.getElementById('adit-ai-query');
+    if (qEl) qEl.value = '';
+    const stEl = document.getElementById('adit-ai-status');
+    if (stEl) stEl.classList.add('hidden');
     updateAditivoUnitLabels();
+}
+async function lookupAditivoAI() {
+    const qInput = document.getElementById('adit-ai-query');
+    const nombreVal = (document.getElementById('adit-nombre').value || '').trim();
+    const marcaVal = (document.getElementById('adit-marca').value || '').trim();
+    let query = (qInput ? qInput.value : '').trim();
+    if (!query) {
+        query = [marcaVal, nombreVal].filter(Boolean).join(' ');
+        if (qInput && query) qInput.value = query;
+    }
+    if (!query) {
+        alert('Escribe el nombre o marca del aditivo para buscarlo.');
+        return;
+    }
+    const btn = document.getElementById('btn-adit-ai');
+    const statusEl = document.getElementById('adit-ai-status');
+    if (btn) btn.disabled = true;
+    if (statusEl) {
+        statusEl.classList.remove('hidden');
+        statusEl.style.background = '#e0f2fe';
+        statusEl.style.color = '#0369a1';
+        statusEl.textContent = 'Buscando características del aditivo en Internet / IA...';
+    }
+    try {
+        const res = await apiCall('lookup_aditivo_ai', { query });
+        if (res.success && res.data) {
+            const d = res.data;
+            if (d.nombre && !document.getElementById('adit-nombre').value.trim()) document.getElementById('adit-nombre').value = d.nombre;
+            if (d.marca && !document.getElementById('adit-marca').value.trim()) document.getElementById('adit-marca').value = d.marca;
+            if (d.unidad === 'L' || d.unidad === 'kg') document.getElementById('adit-unidad').value = d.unidad;
+            if (d.dosis_por_litro !== null && d.dosis_por_litro !== undefined) document.getElementById('adit-dosis').value = d.dosis_por_litro;
+            if (d.cantidad_envase !== null && d.cantidad_envase !== undefined) document.getElementById('adit-cant-envase').value = d.cantidad_envase;
+            if (d.precio_envase !== null && d.precio_envase !== undefined) document.getElementById('adit-precio-envase').value = d.precio_envase;
+            if (d.componentes) document.getElementById('adit-componentes').value = d.componentes;
+            if (d.descripcion) document.getElementById('adit-descripcion').value = d.descripcion;
+            if (d.caracteristicas) document.getElementById('adit-caracteristicas').value = d.caracteristicas;
+            if (d.fuente_info) document.getElementById('adit-fuente').value = d.fuente_info;
+            updateAditivoUnitLabels();
+            if (statusEl) {
+                statusEl.style.background = '#dcfce7';
+                statusEl.style.color = '#166534';
+                statusEl.innerHTML = '✅ Datos obtenidos y rellenados en el formulario. Revísalos y pulsa <strong>Guardar Aditivo</strong> para almacenarlos.';
+            }
+        } else {
+            if (statusEl) {
+                statusEl.style.background = '#fef3c7';
+                statusEl.style.color = '#92400e';
+                statusEl.innerHTML = `⚠️ ${escapeHtml(res.error || 'No se pudieron obtener datos automáticamente.')} ` +
+                    (res.web_search_url ? `<a href="${escapeHtml(res.web_search_url)}" target="_blank" rel="noopener" style="color:#5b21b6; font-weight:700; text-decoration:underline;">Abrir búsqueda en Google</a>` : '');
+            }
+        }
+    } catch (err) {
+        if (statusEl) {
+            statusEl.style.background = '#fee2e2';
+            statusEl.style.color = '#991b1b';
+            statusEl.textContent = 'Error de conexión al buscar el aditivo.';
+        }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+function openAditivoGoogleSearch() {
+    const qInput = (document.getElementById('adit-ai-query')?.value || '').trim();
+    const nombreVal = (document.getElementById('adit-nombre')?.value || '').trim();
+    const marcaVal = (document.getElementById('adit-marca')?.value || '').trim();
+    const q = qInput || [marcaVal, nombreVal].filter(Boolean).join(' ');
+    if (!q) {
+        alert('Escribe el nombre o marca del aditivo para buscar en Google.');
+        return;
+    }
+    window.open('https://www.google.com/search?q=' + encodeURIComponent(q + ' aditivo combustible ficha tecnica dosis'), '_blank', 'noopener');
 }
 document.getElementById('aditivo-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -4212,7 +4316,9 @@ document.getElementById('aditivo-form').addEventListener('submit', async (e) => 
         cantidad_envase: document.getElementById('adit-cant-envase').value,
         precio_envase: document.getElementById('adit-precio-envase').value,
         componentes: document.getElementById('adit-componentes').value,
-        descripcion: document.getElementById('adit-descripcion').value
+        descripcion: document.getElementById('adit-descripcion').value,
+        caracteristicas: document.getElementById('adit-caracteristicas').value,
+        fuente_info: document.getElementById('adit-fuente').value
     });
     if (res.success) {
         resetAditivoForm();

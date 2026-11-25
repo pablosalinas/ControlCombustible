@@ -226,6 +226,154 @@ function extractRepostajeWithGemini($tipo, $binary, $mimeType = 'image/jpeg') {
 }
 
 /**
+ * Busca características técnicas de un aditivo de combustible usando Gemini (con Google Search Grounding)
+ * o fallback a búsqueda web pública si no hay clave de IA configurada.
+ */
+function lookupAditivoWithGeminiAndWeb($query) {
+    $query = trim((string)$query);
+    if ($query === '') {
+        return array('success' => false, 'error' => 'Indica el nombre o marca del aditivo a buscar.');
+    }
+
+    $webSearchUrl = 'https://www.google.com/search?q=' . urlencode($query . ' aditivo combustible ficha tecnica dosis');
+    $apiKey = veh_env('GEMINI_API_KEY', '');
+
+    if ($apiKey !== '' && function_exists('curl_init')) {
+        $model = veh_env('GEMINI_MODEL', 'gemini-2.5-flash');
+        $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode($model) . ':generateContent?key=' . urlencode($apiKey);
+
+        $prompt = "Busca y analiza las características técnicas reales del siguiente aditivo para combustible: \"{$query}\".\n"
+                . "Convierte TODAS las unidades al Sistema Internacional: 'L' (litros) para líquidos o 'kg' (kilogramos) para sólidos/polvos.\n"
+                . "Calcula 'dosis_por_litro' como la cantidad de aditivo (en 'L' o 'kg') necesaria por cada 1 litro de combustible "
+                . "(ejemplo: si un bote de 250 ml = 0.25 L trata 50 L de diésel, dosis_por_litro = 0.25 / 50 = 0.005).\n"
+                . "Responde ÚNICAMENTE con un JSON válido (sin texto adicional ni bloques markdown) con esta estructura exacta:\n"
+                . "{\n"
+                . "  \"nombre\": string,\n"
+                . "  \"marca\": string_or_empty,\n"
+                . "  \"unidad\": \"L\"|\"kg\",\n"
+                . "  \"dosis_por_litro\": number_or_null,\n"
+                . "  \"cantidad_envase\": number_or_null,\n"
+                . "  \"precio_envase\": number_or_null,\n"
+                . "  \"componentes\": string_or_empty,\n"
+                . "  \"descripcion\": string_or_empty,\n"
+                . "  \"caracteristicas\": string_or_empty,\n"
+                . "  \"fuente_info\": string_or_empty\n"
+                . "}";
+
+        $attempts = array(true, false); // 1º con Google Search Grounding, 2º fallback sin tools
+        $lastError = '';
+        foreach ($attempts as $useSearch) {
+            $payload = array(
+                'contents' => array(
+                    array('parts' => array(array('text' => $prompt)))
+                ),
+                'generationConfig' => array(
+                    'temperature' => 0.1,
+                ),
+            );
+            if ($useSearch) {
+                $payload['tools'] = array(array('google_search' => new stdClass()));
+            } else {
+                $payload['generationConfig']['responseMimeType'] = 'application/json';
+            }
+
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+            curl_setopt($ch, CURLOPT_TIMEOUT, 25);
+            $resp = curl_exec($ch);
+            $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($resp === false || $httpCode < 200 || $httpCode >= 300) {
+                $lastError = 'Error HTTP ' . $httpCode . ' en Gemini API';
+                continue;
+            }
+
+            $decoded = json_decode($resp, true);
+            $text = '';
+            if (isset($decoded['candidates'][0]['content']['parts'][0]['text'])) {
+                $text = trim($decoded['candidates'][0]['content']['parts'][0]['text']);
+            }
+            $text = preg_replace('/^```(?:json)?\s*|\s*```$/is', '', $text);
+            if (preg_match('/\{.*\}/s', $text, $m)) {
+                $text = $m[0];
+            }
+            $data = json_decode($text, true);
+            if (!is_array($data)) {
+                $lastError = 'Respuesta JSON inválida de Gemini';
+                continue;
+            }
+
+            // Extraer fuentes de grounding si las hay
+            $groundingUrls = array();
+            if (isset($decoded['candidates'][0]['groundingMetadata']['groundingChunks']) && is_array($decoded['candidates'][0]['groundingMetadata']['groundingChunks'])) {
+                foreach ($decoded['candidates'][0]['groundingMetadata']['groundingChunks'] as $chunk) {
+                    if (isset($chunk['web']['uri'])) {
+                        $groundingUrls[] = $chunk['web']['uri'];
+                    }
+                }
+            }
+            if (!empty($groundingUrls) && empty($data['fuente_info'])) {
+                $data['fuente_info'] = implode(', ', array_slice(array_unique($groundingUrls), 0, 3));
+            } elseif (empty($data['fuente_info'])) {
+                $data['fuente_info'] = $useSearch ? 'IA + Búsqueda Internet (Gemini)' : 'IA (Gemini)';
+            }
+
+            return array(
+                'success'        => true,
+                'engine'         => $useSearch ? 'gemini_search' : 'gemini',
+                'data'           => $data,
+                'web_search_url' => $webSearchUrl,
+            );
+        }
+
+        return array(
+            'success'        => false,
+            'error'          => $lastError ?: 'No se pudo consultar la IA.',
+            'web_search_url' => $webSearchUrl,
+        );
+    }
+
+    // Fallback sin GEMINI_API_KEY: consulta ligera en DuckDuckGo Instant Answer + enlace directo a búsqueda web
+    $ddgAbstract = '';
+    $ddgUrl = '';
+    if (function_exists('curl_init')) {
+        $ddgEndpoint = 'https://api.duckduckgo.com/?q=' . urlencode($query) . '&format=json&no_html=1&skip_disambig=1';
+        $ch = curl_init($ddgEndpoint);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'ControlCombustible/1.0');
+        $ddgResp = curl_exec($ch);
+        $ddgCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($ddgResp !== false && $ddgCode >= 200 && $ddgCode < 300) {
+            $ddgJson = json_decode($ddgResp, true);
+            if (is_array($ddgJson)) {
+                $ddgAbstract = trim((string)(isset($ddgJson['AbstractText']) ? $ddgJson['AbstractText'] : ''));
+                $ddgUrl = trim((string)(isset($ddgJson['AbstractURL']) ? $ddgJson['AbstractURL'] : ''));
+            }
+        }
+    }
+
+    return array(
+        'success'        => $ddgAbstract !== '',
+        'no_ai_key'      => true,
+        'engine'         => 'web_fallback',
+        'error'          => $ddgAbstract === '' ? 'GEMINI_API_KEY no configurada en el servidor. Puedes usar el botón "Buscar en Google" para consultar la ficha técnica.' : null,
+        'data'           => $ddgAbstract !== '' ? array(
+            'nombre'          => $query,
+            'descripcion'     => $ddgAbstract,
+            'caracteristicas' => $ddgAbstract,
+            'fuente_info'     => $ddgUrl !== '' ? $ddgUrl : 'DuckDuckGo',
+        ) : null,
+        'web_search_url' => $webSearchUrl,
+    );
+}
+
+/**
  * Asegura la existencia de la columna aditiva `validado` en `users`
  * (1 = validado por defecto para usuarios existentes, 0 = pendiente, -1 = rechazado/baja).
  */
@@ -400,6 +548,24 @@ function ensureMejorasTables(PDO $pdo) {
             $stmtIns = $pdo->prepare("INSERT INTO `veh_mejoras_log` (fecha, titulo, descripcion, ambito, activo, eliminado) VALUES (?, ?, ?, ?, 1, 0)");
             foreach ($seed as $row) {
                 $stmtIns->execute($row);
+            }
+        }
+
+        // Mejoras incrementales idempotentes (sin duplicar si ya existen por título)
+        $incrementalMejoras = array(
+            array(
+                '2026-11-25',
+                'Gestión de aditivos de combustible con búsqueda IA/Internet',
+                'Catálogo de aditivos en unidades SI (L/kg) con dosis por litro, precio y cantidad de envase, búsqueda de características por IA/Internet, selección múltiple en repostajes y control de desfases entre cantidad recomendada y real suministrada.',
+                'web',
+            ),
+        );
+        $stmtChkMej = $pdo->prepare("SELECT id FROM `veh_mejoras_log` WHERE titulo = ? LIMIT 1");
+        $stmtInsMej = $pdo->prepare("INSERT INTO `veh_mejoras_log` (fecha, titulo, descripcion, ambito, activo, eliminado) VALUES (?, ?, ?, ?, 1, 0)");
+        foreach ($incrementalMejoras as $mRow) {
+            $stmtChkMej->execute(array($mRow[1]));
+            if (!$stmtChkMej->fetch()) {
+                $stmtInsMej->execute($mRow);
             }
         }
     } catch (Exception $e) {
@@ -1261,7 +1427,7 @@ try {
 
             // Obtener catálogo de aditivos activos y enriquecer repostajes con sus aditivos y desfases
             $aditivosCatalogo = $pdo->query("
-                SELECT id, usuario_id, nombre, marca, componentes, descripcion, unidad, dosis_por_litro, precio_envase, cantidad_envase, created_at
+                SELECT id, usuario_id, nombre, marca, componentes, descripcion, caracteristicas, fuente_info, unidad, dosis_por_litro, precio_envase, cantidad_envase, created_at
                 FROM `veh_aditivos`
                 WHERE activo = 1
                 ORDER BY nombre ASC
@@ -1703,7 +1869,7 @@ try {
 
         case 'list_aditivos':
             $stmt = $pdo->query("
-                SELECT id, usuario_id, nombre, marca, componentes, descripcion, unidad, dosis_por_litro, precio_envase, cantidad_envase, created_at
+                SELECT id, usuario_id, nombre, marca, componentes, descripcion, caracteristicas, fuente_info, unidad, dosis_por_litro, precio_envase, cantidad_envase, created_at
                 FROM `veh_aditivos`
                 WHERE activo = 1
                 ORDER BY nombre ASC
@@ -1724,15 +1890,17 @@ try {
             break;
 
         case 'save_aditivo':
-            $id             = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
-            $nombre         = trim((string)arr_get($jsonBody, 'nombre', isset($_POST['nombre']) ? $_POST['nombre'] : ''));
-            $marca          = trim((string)arr_get($jsonBody, 'marca', isset($_POST['marca']) ? $_POST['marca'] : ''));
-            $componentes    = trim((string)arr_get($jsonBody, 'componentes', isset($_POST['componentes']) ? $_POST['componentes'] : ''));
-            $descripcion    = trim((string)arr_get($jsonBody, 'descripcion', isset($_POST['descripcion']) ? $_POST['descripcion'] : ''));
-            $unidad         = trim((string)arr_get($jsonBody, 'unidad', isset($_POST['unidad']) ? $_POST['unidad'] : 'L'));
-            $dosisPorLitro  = (float)str_replace(',', '.', (string)arr_get($jsonBody, 'dosis_por_litro', isset($_POST['dosis_por_litro']) ? $_POST['dosis_por_litro'] : 0));
-            $precioEnvase   = (float)str_replace(',', '.', (string)arr_get($jsonBody, 'precio_envase', isset($_POST['precio_envase']) ? $_POST['precio_envase'] : 0));
-            $cantidadEnvase = (float)str_replace(',', '.', (string)arr_get($jsonBody, 'cantidad_envase', isset($_POST['cantidad_envase']) ? $_POST['cantidad_envase'] : 0));
+            $id              = (int)arr_get($jsonBody, 'id', isset($_POST['id']) ? $_POST['id'] : 0);
+            $nombre          = trim((string)arr_get($jsonBody, 'nombre', isset($_POST['nombre']) ? $_POST['nombre'] : ''));
+            $marca           = trim((string)arr_get($jsonBody, 'marca', isset($_POST['marca']) ? $_POST['marca'] : ''));
+            $componentes     = trim((string)arr_get($jsonBody, 'componentes', isset($_POST['componentes']) ? $_POST['componentes'] : ''));
+            $descripcion     = trim((string)arr_get($jsonBody, 'descripcion', isset($_POST['descripcion']) ? $_POST['descripcion'] : ''));
+            $caracteristicas = trim((string)arr_get($jsonBody, 'caracteristicas', isset($_POST['caracteristicas']) ? $_POST['caracteristicas'] : ''));
+            $fuenteInfo      = substr(trim((string)arr_get($jsonBody, 'fuente_info', isset($_POST['fuente_info']) ? $_POST['fuente_info'] : '')), 0, 255);
+            $unidad          = trim((string)arr_get($jsonBody, 'unidad', isset($_POST['unidad']) ? $_POST['unidad'] : 'L'));
+            $dosisPorLitro   = (float)str_replace(',', '.', (string)arr_get($jsonBody, 'dosis_por_litro', isset($_POST['dosis_por_litro']) ? $_POST['dosis_por_litro'] : 0));
+            $precioEnvase    = (float)str_replace(',', '.', (string)arr_get($jsonBody, 'precio_envase', isset($_POST['precio_envase']) ? $_POST['precio_envase'] : 0));
+            $cantidadEnvase  = (float)str_replace(',', '.', (string)arr_get($jsonBody, 'cantidad_envase', isset($_POST['cantidad_envase']) ? $_POST['cantidad_envase'] : 0));
 
             if (!in_array($unidad, array('L', 'kg'), true)) {
                 $unidad = 'L';
@@ -1752,17 +1920,17 @@ try {
             if ($id > 0) {
                 $stmt = $pdo->prepare("
                     UPDATE `veh_aditivos`
-                    SET nombre = ?, marca = ?, componentes = ?, descripcion = ?, unidad = ?, dosis_por_litro = ?, precio_envase = ?, cantidad_envase = ?
+                    SET nombre = ?, marca = ?, componentes = ?, descripcion = ?, caracteristicas = ?, fuente_info = ?, unidad = ?, dosis_por_litro = ?, precio_envase = ?, cantidad_envase = ?
                     WHERE id = ? AND activo = 1
                 ");
-                $stmt->execute(array($nombre, $marca, $componentes, $descripcion, $unidad, $dosisPorLitro, $precioEnvase, $cantidadEnvase, $id));
+                $stmt->execute(array($nombre, $marca, $componentes, $descripcion, $caracteristicas, $fuenteInfo, $unidad, $dosisPorLitro, $precioEnvase, $cantidadEnvase, $id));
                 $savedId = $id;
             } else {
                 $stmt = $pdo->prepare("
-                    INSERT INTO `veh_aditivos` (usuario_id, nombre, marca, componentes, descripcion, unidad, dosis_por_litro, precio_envase, cantidad_envase, activo)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    INSERT INTO `veh_aditivos` (usuario_id, nombre, marca, componentes, descripcion, caracteristicas, fuente_info, unidad, dosis_por_litro, precio_envase, cantidad_envase, activo)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                 ");
-                $stmt->execute(array($userId, $nombre, $marca, $componentes, $descripcion, $unidad, $dosisPorLitro, $precioEnvase, $cantidadEnvase));
+                $stmt->execute(array($userId, $nombre, $marca, $componentes, $descripcion, $caracteristicas, $fuenteInfo, $unidad, $dosisPorLitro, $precioEnvase, $cantidadEnvase));
                 $savedId = (int)$pdo->lastInsertId();
             }
 
@@ -1786,6 +1954,12 @@ try {
                 'success' => true,
                 'message' => 'Aditivo dado de baja lógicamente (activo = 0).',
             ));
+            break;
+
+        case 'lookup_aditivo_ai':
+            $query = trim((string)arr_get($jsonBody, 'query', isset($_GET['query']) ? $_GET['query'] : ''));
+            $result = lookupAditivoWithGeminiAndWeb($query);
+            echo json_encode($result);
             break;
 
         case 'list_proveedores':

@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS `veh_aditivos` (
     `marca` VARCHAR(100) DEFAULT NULL,
     `componentes` TEXT DEFAULT NULL,
     `descripcion` TEXT DEFAULT NULL,
+    `caracteristicas` TEXT DEFAULT NULL,
+    `fuente_info` VARCHAR(255) DEFAULT NULL,
     `unidad` VARCHAR(10) NOT NULL DEFAULT 'L' COMMENT 'Unidad SI: L o kg',
     `dosis_por_litro` DECIMAL(12, 6) NOT NULL DEFAULT 0.000000 COMMENT 'Dosis por litro de combustible (L/L o kg/L)',
     `precio_envase` DECIMAL(10, 2) NOT NULL DEFAULT 0.00 COMMENT 'Precio del envase en EUR',
