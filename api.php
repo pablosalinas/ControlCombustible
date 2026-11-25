@@ -588,6 +588,12 @@ function ensureMejorasTables(PDO $pdo) {
                 'Menús principales y submenús ordenados alfabéticamente en Web y App Android con adaptación responsive para pantallas pequeñas.',
                 'ambos',
             ),
+            array(
+                '2026-11-25',
+                'Gestión de aditivos de combustible en App Android',
+                'Catálogo de aditivos con búsqueda IA/Internet, selección múltiple en repostajes, cálculo de dosis recomendada vs real y control de desfases en la App Android.',
+                'app',
+            ),
         );
         $stmtChkMej = $pdo->prepare("SELECT id FROM `veh_mejoras_log` WHERE titulo = ? LIMIT 1");
         $stmtInsMej = $pdo->prepare("INSERT INTO `veh_mejoras_log` (fecha, titulo, descripcion, ambito, activo, eliminado) VALUES (?, ?, ?, ?, 1, 0)");

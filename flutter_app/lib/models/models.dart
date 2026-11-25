@@ -82,6 +82,7 @@ class Repostaje {
   final String fotoSurtidorPath;
   final String fotoOdometroPath;
   final bool conRemolque;
+  final List<RepostajeAditivo> aditivos;
 
   Repostaje({
     required this.id,
@@ -116,6 +117,7 @@ class Repostaje {
     this.fotoSurtidorPath = '',
     this.fotoOdometroPath = '',
     this.conRemolque = false,
+    this.aditivos = const [],
   });
 
   static double? _toNullableDouble(dynamic v) {
@@ -157,6 +159,148 @@ class Repostaje {
       fotoSurtidorPath: (j['foto_surtidor_path'] ?? '').toString(),
       fotoOdometroPath: (j['foto_odometro_path'] ?? '').toString(),
       conRemolque: j['con_remolque'] == true || j['con_remolque'].toString() == '1',
+      aditivos: (j['aditivos'] as List? ?? [])
+          .map((e) => RepostajeAditivo.fromJson(Map<String, dynamic>.from(e)))
+          .toList(),
+    );
+  }
+}
+
+class Aditivo {
+  final int id;
+  final int usuarioId;
+  final String nombre;
+  final String marca;
+  final String componentes;
+  final String descripcion;
+  final String caracteristicas;
+  final String fuenteInfo;
+  final String unidad;
+  final double dosisPorLitro;
+  final double precioEnvase;
+  final double cantidadEnvase;
+  final double precioUnitario;
+
+  Aditivo({
+    required this.id,
+    required this.usuarioId,
+    required this.nombre,
+    required this.marca,
+    required this.componentes,
+    required this.descripcion,
+    required this.caracteristicas,
+    required this.fuenteInfo,
+    required this.unidad,
+    required this.dosisPorLitro,
+    required this.precioEnvase,
+    required this.cantidadEnvase,
+    required this.precioUnitario,
+  });
+
+  factory Aditivo.fromJson(Map<String, dynamic> j) {
+    final cant = double.tryParse((j['cantidad_envase'] ?? 0).toString()) ?? 0.0;
+    final prec = double.tryParse((j['precio_envase'] ?? 0).toString()) ?? 0.0;
+    final unitP = j['precio_unitario'] != null
+        ? (double.tryParse(j['precio_unitario'].toString()) ?? 0.0)
+        : (cant > 0 ? prec / cant : 0.0);
+    return Aditivo(
+      id: int.tryParse((j['id'] ?? 0).toString()) ?? 0,
+      usuarioId: int.tryParse((j['usuario_id'] ?? 0).toString()) ?? 0,
+      nombre: (j['nombre'] ?? '').toString(),
+      marca: (j['marca'] ?? '').toString(),
+      componentes: (j['componentes'] ?? '').toString(),
+      descripcion: (j['descripcion'] ?? '').toString(),
+      caracteristicas: (j['caracteristicas'] ?? '').toString(),
+      fuenteInfo: (j['fuente_info'] ?? '').toString(),
+      unidad: (j['unidad'] ?? 'L').toString() == 'kg' ? 'kg' : 'L',
+      dosisPorLitro: double.tryParse((j['dosis_por_litro'] ?? 0).toString()) ?? 0.0,
+      precioEnvase: prec,
+      cantidadEnvase: cant,
+      precioUnitario: unitP,
+    );
+  }
+}
+
+class RepostajeAditivo {
+  final int id;
+  final int aditivoId;
+  final String nombre;
+  final String marca;
+  final String unidad;
+  final double dosisPorLitro;
+  final double cantidadRecomendada;
+  final double cantidadReal;
+  final double desfase;
+  final double precioUnitario;
+  final double costeEstimado;
+
+  RepostajeAditivo({
+    required this.id,
+    required this.aditivoId,
+    required this.nombre,
+    required this.marca,
+    required this.unidad,
+    required this.dosisPorLitro,
+    required this.cantidadRecomendada,
+    required this.cantidadReal,
+    required this.desfase,
+    required this.precioUnitario,
+    required this.costeEstimado,
+  });
+
+  factory RepostajeAditivo.fromJson(Map<String, dynamic> j) {
+    final rec = double.tryParse((j['cantidad_recomendada'] ?? 0).toString()) ?? 0.0;
+    final real = double.tryParse((j['cantidad_real'] ?? 0).toString()) ?? 0.0;
+    return RepostajeAditivo(
+      id: int.tryParse((j['id'] ?? 0).toString()) ?? 0,
+      aditivoId: int.tryParse((j['aditivo_id'] ?? 0).toString()) ?? 0,
+      nombre: (j['nombre'] ?? '').toString(),
+      marca: (j['marca'] ?? '').toString(),
+      unidad: (j['unidad'] ?? 'L').toString() == 'kg' ? 'kg' : 'L',
+      dosisPorLitro: double.tryParse((j['dosis_por_litro'] ?? 0).toString()) ?? 0.0,
+      cantidadRecomendada: rec,
+      cantidadReal: real,
+      desfase: j['desfase'] != null ? (double.tryParse(j['desfase'].toString()) ?? (real - rec)) : (real - rec),
+      precioUnitario: double.tryParse((j['precio_unitario'] ?? 0).toString()) ?? 0.0,
+      costeEstimado: double.tryParse((j['coste_estimado'] ?? 0).toString()) ?? 0.0,
+    );
+  }
+}
+
+class AditivoResumen {
+  final int aditivoId;
+  final String nombre;
+  final String marca;
+  final String unidad;
+  final int usos;
+  final double totalRecomendado;
+  final double totalReal;
+  final double totalDesfase;
+  final double costeTotal;
+
+  AditivoResumen({
+    required this.aditivoId,
+    required this.nombre,
+    required this.marca,
+    required this.unidad,
+    required this.usos,
+    required this.totalRecomendado,
+    required this.totalReal,
+    required this.totalDesfase,
+    required this.costeTotal,
+  });
+
+  factory AditivoResumen.fromJson(Map<String, dynamic> j) {
+    return AditivoResumen(
+      aditivoId: int.tryParse((j['aditivo_id'] ?? 0).toString()) ?? 0,
+      nombre: (j['nombre'] ?? '').toString(),
+      marca: (j['marca'] ?? '').toString(),
+      unidad: (j['unidad'] ?? 'L').toString() == 'kg' ? 'kg' : 'L',
+      usos: int.tryParse((j['usos'] ?? 0).toString()) ?? 0,
+      totalRecomendado: double.tryParse((j['total_recomendado'] ?? 0).toString()) ?? 0.0,
+      totalReal: double.tryParse((j['total_real'] ?? 0).toString()) ?? 0.0,
+      totalDesfase: double.tryParse((j['total_desfase'] ?? 0).toString()) ?? 0.0,
+      costeTotal: double.tryParse((j['coste_total'] ?? 0).toString()) ?? 0.0,
     );
   }
 }

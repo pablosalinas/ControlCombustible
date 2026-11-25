@@ -675,6 +675,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<ParqueMovil> _parques = [];
   List<Map<String, dynamic>> _usuariosFiltro = [];
   List<EstacionServicio> _estaciones = [];
+  List<Aditivo> _aditivos = [];
+  List<AditivoResumen> _resumenAditivos = [];
   List<Proveedor> _proveedores = [];
   List<TareaMaestro> _tareasMaestro = [];
   List<VehiculoTarea> _vehiculoTareas = [];
@@ -728,6 +730,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final estList = (res['estaciones'] as List? ?? [])
             .map((e) => EstacionServicio.fromJson(e as Map<String, dynamic>))
             .toList();
+        final aditList = (res['aditivos'] as List? ?? [])
+            .map((e) => Aditivo.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList();
+        final resAditList = (res['resumen_aditivos'] as List? ?? [])
+            .map((e) => AditivoResumen.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList();
         final provList = (res['proveedores'] as List? ?? [])
             .map((e) => Proveedor.fromJson(e as Map<String, dynamic>))
             .toList();
@@ -772,6 +780,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _selectedVehiculoId = 0;
             }
             _estaciones = estList;
+            _aditivos = aditList;
+            _resumenAditivos = resAditList;
             _proveedores = provList;
             _tareasMaestro = tmList;
             _vehiculoTareas = vtList;
@@ -910,6 +920,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           api: widget.api,
           vehiculos: _vehiculos,
           estaciones: _estaciones,
+          aditivos: _aditivos,
           ultimoKmPorVehiculo: _ultimoKmPorVehiculo,
           initialVehiculoId: defaultVehId,
           editItem: editItem,
@@ -1455,6 +1466,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
               switch (val) {
                 case 'sub_flota':
                   await _showSubmenuSheet('Flota y Catálogos', [
+                    ListTile(
+                      leading: const Icon(Icons.science_outlined, color: Color(0xFF7C3AED)),
+                      title: const Text('Aditivos Combustible'),
+                      onTap: () async {
+                        Navigator.pop(context);
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => AditivosScreen(
+                              api: widget.api,
+                              aditivos: _aditivos,
+                              resumenAditivos: _resumenAditivos,
+                            ),
+                          ),
+                        );
+                        _loadData();
+                      },
+                    ),
                     ListTile(
                       leading: const Icon(Icons.storefront, color: Colors.amber),
                       title: const Text('Estaciones de Servicio'),
@@ -2317,6 +2345,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(height: 6),
                   Text('Nota: ${r.notas}', style: const TextStyle(fontStyle: FontStyle.italic)),
                 ],
+                if (r.aditivos.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: r.aditivos.map((a) {
+                      final desf = a.desfase;
+                      final desfStr = desf.abs() < 1e-6
+                          ? ''
+                          : ' (${desf > 0 ? '+' : ''}${desf.toStringAsFixed(4)})';
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEDE9FE),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '🧪 ${a.nombre}: ${a.cantidadReal.toStringAsFixed(4)} ${a.unidad}$desfStr',
+                          style: const TextStyle(fontSize: 11.5, color: Color(0xFF5B21B6), fontWeight: FontWeight.w600),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
                 if (r.fotoTicketPath.isNotEmpty || r.fotoSurtidorPath.isNotEmpty || r.fotoOdometroPath.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Wrap(
@@ -2372,10 +2424,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
+class _RepAditivoDraft {
+  final int aditivoId;
+  final String nombre;
+  final String marca;
+  final String unidad;
+  final double dosisPorLitro;
+  final double precioUnitario;
+  double cantidadRecomendada;
+  double cantidadReal;
+  bool manualOverride;
+  late TextEditingController realCtrl;
+
+  _RepAditivoDraft({
+    required this.aditivoId,
+    required this.nombre,
+    required this.marca,
+    required this.unidad,
+    required this.dosisPorLitro,
+    required this.precioUnitario,
+    required this.cantidadRecomendada,
+    required this.cantidadReal,
+    this.manualOverride = false,
+  }) {
+    realCtrl = TextEditingController(text: cantidadReal.toStringAsFixed(6).replaceFirst(RegExp(r'\.?0+$'), ''));
+    if (realCtrl.text.isEmpty) realCtrl.text = '0';
+  }
+}
+
 class RepostajeFormScreen extends StatefulWidget {
   final ApiService api;
   final List<Vehiculo> vehiculos;
   final List<EstacionServicio> estaciones;
+  final List<Aditivo> aditivos;
   final Map<int, double> ultimoKmPorVehiculo;
   final int? initialVehiculoId;
   final Repostaje? editItem;
@@ -2385,6 +2466,7 @@ class RepostajeFormScreen extends StatefulWidget {
     required this.api,
     required this.vehiculos,
     required this.estaciones,
+    this.aditivos = const [],
     required this.ultimoKmPorVehiculo,
     required this.initialVehiculoId,
     this.editItem,
@@ -2404,6 +2486,9 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
   late TextEditingController _importeCtrl;
   String _selectedEstacion = '';
   late List<EstacionServicio> _localEstaciones;
+  late List<Aditivo> _localAditivos;
+  final List<_RepAditivoDraft> _selectedAditivos = [];
+  int? _pickerAditivoId;
   String _fotoTicketPath = '';
   String _fotoSurtidorPath = '';
   String _fotoOdometroPath = '';
@@ -2459,11 +2544,71 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
     _importeCtrl = TextEditingController(text: e != null ? e.importeTotal.toStringAsFixed(2) : '');
     _selectedEstacion = e?.estacionServicio ?? '';
     _localEstaciones = List<EstacionServicio>.from(widget.estaciones);
+    _localAditivos = List<Aditivo>.from(widget.aditivos);
+    if (e != null) {
+      for (final a in e.aditivos) {
+        _selectedAditivos.add(_RepAditivoDraft(
+          aditivoId: a.aditivoId,
+          nombre: a.nombre,
+          marca: a.marca,
+          unidad: a.unidad,
+          dosisPorLitro: a.dosisPorLitro,
+          precioUnitario: a.precioUnitario,
+          cantidadRecomendada: a.cantidadRecomendada,
+          cantidadReal: a.cantidadReal,
+          manualOverride: (a.cantidadReal - a.cantidadRecomendada).abs() > 1e-6,
+        ));
+      }
+    }
+    _litrosCtrl.addListener(_recalcAditivos);
     _fotoTicketPath = e?.fotoTicketPath ?? '';
     _fotoSurtidorPath = e?.fotoSurtidorPath ?? '';
     _fotoOdometroPath = e?.fotoOdometroPath ?? '';
     _conRemolque = e?.conRemolque ?? false;
     _notasCtrl = TextEditingController(text: e?.notas ?? '');
+  }
+
+  void _recalcAditivos() {
+    if (!mounted || _selectedAditivos.isEmpty) return;
+    final litros = double.tryParse(_litrosCtrl.text.replaceAll(',', '.')) ?? 0.0;
+    setState(() {
+      for (final item in _selectedAditivos) {
+        final newRec = double.parse((litros * item.dosisPorLitro).toStringAsFixed(6));
+        item.cantidadRecomendada = newRec;
+        if (!item.manualOverride) {
+          item.cantidadReal = newRec;
+          item.realCtrl.text = newRec.toStringAsFixed(6).replaceFirst(RegExp(r'\.?0+$'), '');
+          if (item.realCtrl.text.isEmpty) item.realCtrl.text = '0';
+        }
+      }
+    });
+  }
+
+  void _addAditivoToForm() {
+    if (_pickerAditivoId == null) return;
+    if (_selectedAditivos.any((a) => a.aditivoId == _pickerAditivoId)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Este aditivo ya está añadido al repostaje.')),
+      );
+      return;
+    }
+    final adit = _localAditivos.where((a) => a.id == _pickerAditivoId).firstOrNull;
+    if (adit == null) return;
+    final litros = double.tryParse(_litrosCtrl.text.replaceAll(',', '.')) ?? 0.0;
+    final rec = double.parse((litros * adit.dosisPorLitro).toStringAsFixed(6));
+    setState(() {
+      _selectedAditivos.add(_RepAditivoDraft(
+        aditivoId: adit.id,
+        nombre: adit.nombre,
+        marca: adit.marca,
+        unidad: adit.unidad,
+        dosisPorLitro: adit.dosisPorLitro,
+        precioUnitario: adit.precioUnitario,
+        cantidadRecomendada: rec,
+        cantidadReal: rec,
+      ));
+      _pickerAditivoId = null;
+    });
   }
 
   double? _getPreviousKm() {
@@ -3134,6 +3279,12 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
         'foto_ticket_path': _fotoTicketPath,
         'foto_surtidor_path': _fotoSurtidorPath,
         'foto_odometro_path': _fotoOdometroPath,
+        'aditivos': _selectedAditivos
+            .map((a) => {
+                  'aditivo_id': a.aditivoId,
+                  'cantidad_real': a.cantidadReal,
+                })
+            .toList(),
       });
       if (res['success'] == true && mounted) {
         if (res['email_sent'] == true) {
@@ -3418,6 +3569,179 @@ class _RepostajeFormScreenState extends State<RepostajeFormScreen> {
             controller: _notasCtrl,
             decoration: const InputDecoration(labelText: 'Notas / Mantenimiento', border: OutlineInputBorder()),
           ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.science_outlined, color: Color(0xFF7C3AED), size: 18),
+                    const SizedBox(width: 6),
+                    const Expanded(
+                      child: Text(
+                        'Aditivos adicionales (opcional)',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => AditivosScreen(api: widget.api, aditivos: _localAditivos, resumenAditivos: const []),
+                          ),
+                        );
+                        final r = await widget.api.post('list_aditivos', {});
+                        if (r['success'] == true && mounted) {
+                          setState(() {
+                            _localAditivos = (r['aditivos'] as List? ?? [])
+                                .map((e) => Aditivo.fromJson(Map<String, dynamic>.from(e as Map)))
+                                .toList();
+                          });
+                        }
+                      },
+                      icon: const Icon(Icons.settings, size: 16),
+                      label: const Text('Catálogo', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        value: _pickerAditivoId,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Seleccionar aditivo',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: _localAditivos
+                            .map((a) => DropdownMenuItem<int>(
+                                  value: a.id,
+                                  child: Text(
+                                    '${a.nombre}${a.marca.isNotEmpty ? ' (${a.marca})' : ''} · ${a.dosisPorLitro} ${a.unidad}/L',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ))
+                            .toList(),
+                        onChanged: (val) => setState(() => _pickerAditivoId = val),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: _addAditivoToForm,
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Añadir'),
+                    ),
+                  ],
+                ),
+                if (_selectedAditivos.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Ningún aditivo seleccionado para este repostaje.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    ),
+                  ),
+                ..._selectedAditivos.map((item) {
+                  final desf = item.cantidadReal - item.cantidadRecomendada;
+                  final coste = item.cantidadReal * item.precioUnitario;
+                  final Color desfColor = desf.abs() < 1e-6
+                      ? const Color(0xFF166534)
+                      : (desf > 0 ? const Color(0xFF92400E) : const Color(0xFF991B1B));
+                  return Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${item.nombre}${item.marca.isNotEmpty ? ' (${item.marca})' : ''} · ${item.dosisPorLitro} ${item.unidad}/L',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
+                              ),
+                            ),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.close, size: 18, color: Colors.red),
+                              onPressed: () => setState(() => _selectedAditivos.removeWhere((x) => x.aditivoId == item.aditivoId)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Recomendado', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                  Text(
+                                    '${item.cantidadRecomendada.toStringAsFixed(4)} ${item.unidad}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Expanded(
+                              child: TextField(
+                                controller: item.realCtrl,
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: InputDecoration(
+                                  labelText: 'Real (${item.unidad})',
+                                  border: const OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                                onChanged: (v) {
+                                  final parsed = double.tryParse(v.replaceAll(',', '.')) ?? 0.0;
+                                  setState(() {
+                                    item.cantidadReal = parsed < 0 ? 0.0 : parsed;
+                                    item.manualOverride = (item.cantidadReal - item.cantidadRecomendada).abs() > 1e-6;
+                                  });
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text('Desfase / Coste', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                  Text(
+                                    desf.abs() < 1e-6
+                                        ? 'Exacto (0)'
+                                        : '${desf > 0 ? '+' : ''}${desf.toStringAsFixed(4)} ${item.unidad}',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: desfColor),
+                                  ),
+                                  if (coste > 0)
+                                    Text('~${coste.toStringAsFixed(2)} €', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
           const SizedBox(height: 20),
           SizedBox(
             height: 50,
@@ -3644,6 +3968,419 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
             onPressed: _saveVehiculo,
             icon: const Icon(Icons.save),
             label: Text(_editingId == 0 ? 'Guardar Vehículo' : 'Actualizar Vehículo'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AditivosScreen extends StatefulWidget {
+  final ApiService api;
+  final List<Aditivo> aditivos;
+  final List<AditivoResumen> resumenAditivos;
+
+  const AditivosScreen({
+    super.key,
+    required this.api,
+    required this.aditivos,
+    this.resumenAditivos = const [],
+  });
+
+  @override
+  State<AditivosScreen> createState() => _AditivosScreenState();
+}
+
+class _AditivosScreenState extends State<AditivosScreen> {
+  final _aiQueryCtrl = TextEditingController();
+  final _nombreCtrl = TextEditingController();
+  final _marcaCtrl = TextEditingController();
+  final _dosisCtrl = TextEditingController();
+  final _cantEnvaseCtrl = TextEditingController();
+  final _precioEnvaseCtrl = TextEditingController();
+  final _componentesCtrl = TextEditingController();
+  final _descripcionCtrl = TextEditingController();
+  final _caracteristicasCtrl = TextEditingController();
+  final _fuenteCtrl = TextEditingController();
+  String _unidad = 'L';
+  int _editingId = 0;
+  bool _aiLoading = false;
+  String? _aiStatus;
+  bool _aiSuccess = false;
+  late List<Aditivo> _items;
+
+  @override
+  void initState() {
+    super.initState();
+    _items = List<Aditivo>.from(widget.aditivos);
+  }
+
+  Future<void> _reloadList() async {
+    final res = await widget.api.post('list_aditivos', {});
+    if (res['success'] == true && mounted) {
+      setState(() {
+        _items = (res['aditivos'] as List? ?? [])
+            .map((e) => Aditivo.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList();
+      });
+    }
+  }
+
+  void _resetForm() {
+    setState(() {
+      _editingId = 0;
+      _unidad = 'L';
+      _aiQueryCtrl.clear();
+      _nombreCtrl.clear();
+      _marcaCtrl.clear();
+      _dosisCtrl.clear();
+      _cantEnvaseCtrl.clear();
+      _precioEnvaseCtrl.clear();
+      _componentesCtrl.clear();
+      _descripcionCtrl.clear();
+      _caracteristicasCtrl.clear();
+      _fuenteCtrl.clear();
+      _aiStatus = null;
+    });
+  }
+
+  Future<void> _lookupAI() async {
+    String q = _aiQueryCtrl.text.trim();
+    if (q.isEmpty) {
+      q = [_marcaCtrl.text.trim(), _nombreCtrl.text.trim()].where((e) => e.isNotEmpty).join(' ');
+      _aiQueryCtrl.text = q;
+    }
+    if (q.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Escribe el nombre o marca del aditivo a buscar.')),
+      );
+      return;
+    }
+    setState(() {
+      _aiLoading = true;
+      _aiStatus = 'Buscando características en Internet / IA...';
+      _aiSuccess = false;
+    });
+    try {
+      final res = await widget.api.post('lookup_aditivo_ai', {'query': q});
+      if (res['success'] == true && res['data'] is Map && mounted) {
+        final d = Map<String, dynamic>.from(res['data'] as Map);
+        setState(() {
+          if ((d['nombre'] ?? '').toString().isNotEmpty && _nombreCtrl.text.trim().isEmpty) {
+            _nombreCtrl.text = d['nombre'].toString();
+          }
+          if ((d['marca'] ?? '').toString().isNotEmpty && _marcaCtrl.text.trim().isEmpty) {
+            _marcaCtrl.text = d['marca'].toString();
+          }
+          if (d['unidad'] == 'L' || d['unidad'] == 'kg') {
+            _unidad = d['unidad'].toString();
+          }
+          if (d['dosis_por_litro'] != null) _dosisCtrl.text = d['dosis_por_litro'].toString();
+          if (d['cantidad_envase'] != null) _cantEnvaseCtrl.text = d['cantidad_envase'].toString();
+          if (d['precio_envase'] != null) _precioEnvaseCtrl.text = d['precio_envase'].toString();
+          if ((d['componentes'] ?? '').toString().isNotEmpty) _componentesCtrl.text = d['componentes'].toString();
+          if ((d['descripcion'] ?? '').toString().isNotEmpty) _descripcionCtrl.text = d['descripcion'].toString();
+          if ((d['caracteristicas'] ?? '').toString().isNotEmpty) _caracteristicasCtrl.text = d['caracteristicas'].toString();
+          if ((d['fuente_info'] ?? '').toString().isNotEmpty) _fuenteCtrl.text = d['fuente_info'].toString();
+          _aiSuccess = true;
+          _aiStatus = 'Datos obtenidos y rellenados. Revísalos y pulsa Guardar Aditivo.';
+        });
+      } else if (mounted) {
+        setState(() {
+          _aiSuccess = false;
+          _aiStatus = (res['error'] ?? 'No se pudieron obtener datos automáticamente.').toString();
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _aiSuccess = false;
+          _aiStatus = 'Error de conexión al buscar con IA.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _aiLoading = false);
+    }
+  }
+
+  Future<void> _saveAditivo() async {
+    if (_nombreCtrl.text.trim().isEmpty) return;
+    final res = await widget.api.post('save_aditivo', {
+      'id': _editingId,
+      'nombre': _nombreCtrl.text.trim(),
+      'marca': _marcaCtrl.text.trim(),
+      'unidad': _unidad,
+      'dosis_por_litro': _dosisCtrl.text.trim(),
+      'cantidad_envase': _cantEnvaseCtrl.text.trim(),
+      'precio_envase': _precioEnvaseCtrl.text.trim(),
+      'componentes': _componentesCtrl.text.trim(),
+      'descripcion': _descripcionCtrl.text.trim(),
+      'caracteristicas': _caracteristicasCtrl.text.trim(),
+      'fuente_info': _fuenteCtrl.text.trim(),
+    });
+    if (res['success'] == true && mounted) {
+      _resetForm();
+      await _reloadList();
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((res['error'] ?? 'Error al guardar aditivo').toString())),
+      );
+    }
+  }
+
+  Future<void> _deactivateAditivo(int id) async {
+    await widget.api.post('deactivate_aditivo', {'id': id});
+    await _reloadList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cant = double.tryParse(_cantEnvaseCtrl.text.replaceAll(',', '.')) ?? 0.0;
+    final prec = double.tryParse(_precioEnvaseCtrl.text.replaceAll(',', '.')) ?? 0.0;
+    final unitPreview = (cant > 0 && prec > 0) ? '${(prec / cant).toStringAsFixed(2)} €/$_unidad' : '';
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Aditivos de Combustible')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          if (widget.resumenAditivos.isNotEmpty) ...[
+            Card(
+              color: const Color(0xFFF5F3FF),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Control de Desfases Acumulados',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF5B21B6)),
+                    ),
+                    const SizedBox(height: 8),
+                    ...widget.resumenAditivos.map((ra) {
+                      final d = ra.totalDesfase;
+                      final c = d.abs() < 1e-6
+                          ? const Color(0xFF166534)
+                          : (d > 0 ? const Color(0xFF92400E) : const Color(0xFF991B1B));
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${ra.nombre} (${ra.usos}x)',
+                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5),
+                              ),
+                            ),
+                            Text(
+                              'Rec: ${ra.totalRecomendado.toStringAsFixed(3)} · Real: ${ra.totalReal.toStringAsFixed(3)} ${ra.unidad}',
+                              style: const TextStyle(fontSize: 11.5),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${d > 0 ? '+' : ''}${d.toStringAsFixed(3)}',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: c),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+          if (_items.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Center(child: Text('No hay aditivos registrados todavía.')),
+            ),
+          ..._items.map(
+            (a) => Card(
+              child: ListTile(
+                leading: const Icon(Icons.science_outlined, color: Color(0xFF7C3AED)),
+                title: Text(
+                  '${a.nombre}${a.marca.isNotEmpty ? ' (${a.marca})' : ''}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(
+                  'Dosis: ${a.dosisPorLitro} ${a.unidad}/L · Envase: ${a.cantidadEnvase.toStringAsFixed(3)} ${a.unidad} (${a.precioEnvase.toStringAsFixed(2)} €)'
+                  '${a.caracteristicas.isNotEmpty ? '\n${a.caracteristicas}' : ''}',
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit),
+                      onPressed: () {
+                        setState(() {
+                          _editingId = a.id;
+                          _nombreCtrl.text = a.nombre;
+                          _marcaCtrl.text = a.marca;
+                          _unidad = a.unidad;
+                          _dosisCtrl.text = a.dosisPorLitro.toString();
+                          _cantEnvaseCtrl.text = a.cantidadEnvase.toString();
+                          _precioEnvaseCtrl.text = a.precioEnvase.toString();
+                          _componentesCtrl.text = a.componentes;
+                          _descripcionCtrl.text = a.descripcion;
+                          _caracteristicasCtrl.text = a.caracteristicas;
+                          _fuenteCtrl.text = a.fuenteInfo;
+                        });
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () => _deactivateAditivo(a.id),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const Divider(height: 32),
+          Text(
+            _editingId == 0 ? 'Añadir Aditivo' : 'Editar Aditivo',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF5F3FF),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFDDD6FE)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Buscar características en Internet / IA',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF5B21B6)),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _aiQueryCtrl,
+                        decoration: const InputDecoration(
+                          hintText: 'Ej: Liqui Moly Super Diesel',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                          filled: true,
+                          fillColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.icon(
+                      onPressed: _aiLoading ? null : _lookupAI,
+                      style: FilledButton.styleFrom(backgroundColor: const Color(0xFF7C3AED)),
+                      icon: const Icon(Icons.smart_toy_outlined, size: 18),
+                      label: Text(_aiLoading ? '...' : 'IA'),
+                    ),
+                  ],
+                ),
+                if (_aiStatus != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    _aiStatus!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _aiSuccess ? const Color(0xFF166534) : const Color(0xFF92400E),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _nombreCtrl,
+            decoration: const InputDecoration(labelText: 'Nombre del aditivo *', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _marcaCtrl,
+            decoration: const InputDecoration(labelText: 'Marca', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
+            value: _unidad,
+            decoration: const InputDecoration(labelText: 'Unidad SI *', border: OutlineInputBorder()),
+            items: const [
+              DropdownMenuItem(value: 'L', child: Text('Litros (L)')),
+              DropdownMenuItem(value: 'kg', child: Text('Kilogramos (kg)')),
+            ],
+            onChanged: (v) => setState(() => _unidad = v ?? 'L'),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _dosisCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(labelText: 'Dosis por litro ($_unidad/L) *', border: const OutlineInputBorder()),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _cantEnvaseCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(labelText: 'Cantidad envase ($_unidad) *', border: const OutlineInputBorder()),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _precioEnvaseCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Precio envase (€) *', border: OutlineInputBorder()),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+            ],
+          ),
+          if (unitPreview.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text('Precio unitario: $unitPreview', style: const TextStyle(fontSize: 12, color: Color(0xFF6D28D9), fontWeight: FontWeight.w600)),
+          ],
+          const SizedBox(height: 10),
+          TextField(
+            controller: _componentesCtrl,
+            decoration: const InputDecoration(labelText: 'Componentes', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _descripcionCtrl,
+            maxLines: 2,
+            decoration: const InputDecoration(labelText: 'Descripción', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _caracteristicasCtrl,
+            maxLines: 2,
+            decoration: const InputDecoration(labelText: 'Características técnicas (IA / Internet)', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _fuenteCtrl,
+            decoration: const InputDecoration(labelText: 'Fuente / Referencia', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(onPressed: _resetForm, child: const Text('Limpiar')),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton(onPressed: _saveAditivo, child: const Text('Guardar Aditivo')),
+              ),
+            ],
           ),
         ],
       ),
