@@ -43,7 +43,7 @@ class FuelMailer
     /**
      * Desencripta valores ENCv1 de la tabla `settings` de moratalla-murcia-2026.
      */
-    private static function decryptSetting($cipherText)
+    public static function decryptSetting($cipherText)
     {
         if (function_exists('decryptSecret')) {
             return decryptSecret($cipherText);

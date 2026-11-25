@@ -143,10 +143,34 @@ function saveUploadedRepostajeFoto($tipo, $fileInfo = null, $base64Data = '') {
 }
 
 /**
+ * Obtiene la clave API de Gemini desde .env o desde la tabla compartida `settings` (`gemini_api_key_enc`) de moratalla-murcia.com.
+ */
+function getSharedGeminiApiKey(PDO $pdo = null) {
+    $apiKey = trim((string)veh_env('GEMINI_API_KEY', ''));
+    if ($apiKey !== '') {
+        return $apiKey;
+    }
+    if ($pdo !== null) {
+        try {
+            $stmt = $pdo->prepare("SELECT setting_value FROM `settings` WHERE setting_key = 'gemini_api_key_enc' LIMIT 1");
+            $stmt->execute();
+            $enc = $stmt->fetchColumn();
+            if (!empty($enc)) {
+                $dec = class_exists('FuelMailer') ? FuelMailer::decryptSetting($enc) : '';
+                if ($dec !== '') {
+                    return trim($dec);
+                }
+            }
+        } catch (Exception $e) {}
+    }
+    return '';
+}
+
+/**
  * Extrae datos de factura/surtidor/odómetro usando Gemini Vision si GEMINI_API_KEY está configurada.
  */
-function extractRepostajeWithGemini($tipo, $binary, $mimeType = 'image/jpeg') {
-    $apiKey = veh_env('GEMINI_API_KEY', '');
+function extractRepostajeWithGemini($tipo, $binary, $mimeType = 'image/jpeg', PDO $pdo = null) {
+    $apiKey = getSharedGeminiApiKey($pdo);
     if ($apiKey === '') {
         return array('available' => false);
     }
@@ -229,14 +253,14 @@ function extractRepostajeWithGemini($tipo, $binary, $mimeType = 'image/jpeg') {
  * Busca características técnicas de un aditivo de combustible usando Gemini (con Google Search Grounding)
  * o fallback a búsqueda web pública si no hay clave de IA configurada.
  */
-function lookupAditivoWithGeminiAndWeb($query) {
+function lookupAditivoWithGeminiAndWeb($query, PDO $pdo = null) {
     $query = trim((string)$query);
     if ($query === '') {
         return array('success' => false, 'error' => 'Indica el nombre o marca del aditivo a buscar.');
     }
 
     $webSearchUrl = 'https://www.google.com/search?q=' . urlencode($query . ' aditivo combustible ficha tecnica dosis');
-    $apiKey = veh_env('GEMINI_API_KEY', '');
+    $apiKey = getSharedGeminiApiKey($pdo);
 
     if ($apiKey !== '' && function_exists('curl_init')) {
         $model = veh_env('GEMINI_MODEL', 'gemini-2.5-flash');
@@ -1788,7 +1812,7 @@ try {
                 echo json_encode(array('success' => false, 'error' => 'Imagen requerida.'));
                 break;
             }
-            $gem = extractRepostajeWithGemini($tipo, $binary, $mimeType);
+            $gem = extractRepostajeWithGemini($tipo, $binary, $mimeType, $pdo);
             if (empty($gem['available'])) {
                 echo json_encode(array(
                     'success'         => false,
@@ -1967,7 +1991,7 @@ try {
 
         case 'lookup_aditivo_ai':
             $query = trim((string)arr_get($jsonBody, 'query', isset($_GET['query']) ? $_GET['query'] : ''));
-            $result = lookupAditivoWithGeminiAndWeb($query);
+            $result = lookupAditivoWithGeminiAndWeb($query, $pdo);
             echo json_encode($result);
             break;
 
