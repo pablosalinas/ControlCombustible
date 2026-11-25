@@ -1456,6 +1456,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 case 'sub_flota':
                   await _showSubmenuSheet('Flota y Catálogos', [
                     ListTile(
+                      leading: const Icon(Icons.storefront, color: Colors.amber),
+                      title: const Text('Estaciones de Servicio'),
+                      onTap: () async {
+                        Navigator.pop(context);
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => EstacionesScreen(api: widget.api, estaciones: _estaciones)),
+                        );
+                        _loadData();
+                      },
+                    ),
+                    ListTile(
                       leading: const Icon(Icons.directions_car, color: Color(0xFF0F766E)),
                       title: const Text('Gestionar Vehículos'),
                       onTap: () async {
@@ -1473,17 +1484,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Navigator.pop(context);
                         await Navigator.of(context).push(
                           MaterialPageRoute(builder: (_) => ParquesMovilesScreen(api: widget.api, currentUserId: _currentUserId)),
-                        );
-                        _loadData();
-                      },
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.storefront, color: Colors.amber),
-                      title: const Text('Estaciones de Servicio'),
-                      onTap: () async {
-                        Navigator.pop(context);
-                        await Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => EstacionesScreen(api: widget.api, estaciones: _estaciones)),
                         );
                         _loadData();
                       },
@@ -1528,14 +1528,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   if (widget.api.isAdmin) {
                     await _showSubmenuSheet('Administración', [
                       ListTile(
-                        leading: const Icon(Icons.how_to_reg, color: Color(0xFFD97706)),
-                        title: const Text('Solicitudes de Registro'),
-                        onTap: () {
-                          Navigator.pop(context);
-                          _showPendingUsersDialog();
-                        },
-                      ),
-                      ListTile(
                         leading: const Icon(Icons.tune, color: Color(0xFF7C3AED)),
                         title: const Text('Parámetros del Sistema'),
                         onTap: () async {
@@ -1546,11 +1538,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           _loadData();
                         },
                       ),
+                      ListTile(
+                        leading: const Icon(Icons.how_to_reg, color: Color(0xFFD97706)),
+                        title: const Text('Solicitudes de Registro'),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _showPendingUsersDialog();
+                        },
+                      ),
                     ]);
                   }
                   break;
                 case 'sub_info':
                   await _showSubmenuSheet('Novedades y Versión', [
+                    ListTile(
+                      leading: const Icon(Icons.menu_book_outlined, color: Color(0xFF0F766E)),
+                      title: const Text('Manual / Tutorial de Uso'),
+                      subtitle: const Text('Guía paso a paso de todas las opciones', style: TextStyle(fontSize: 11.5)),
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const TutorialScreen()),
+                        );
+                      },
+                    ),
                     ListTile(
                       leading: Icon(Icons.campaign_outlined, color: _mejorasNuevas > 0 ? Colors.amber.shade800 : const Color(0xFFD97706)),
                       title: const Text('Novedades y Mejoras (Último año)'),
@@ -1582,17 +1593,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         _showAppVersionDialog();
                       },
                     ),
-                    ListTile(
-                      leading: const Icon(Icons.menu_book_outlined, color: Color(0xFF0F766E)),
-                      title: const Text('Manual / Tutorial de Uso'),
-                      subtitle: const Text('Guía paso a paso de todas las opciones', style: TextStyle(fontSize: 11.5)),
-                      onTap: () {
-                        Navigator.pop(context);
-                        Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const TutorialScreen()),
-                        );
-                      },
-                    ),
                   ]);
                   break;
                 case 'logout':
@@ -1601,6 +1601,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
               }
             },
             itemBuilder: (ctx) => [
+              if (widget.api.isAdmin)
+                const PopupMenuItem<String>(
+                  value: 'sub_admin',
+                  child: ListTile(
+                    leading: Icon(Icons.admin_panel_settings, color: Color(0xFF7C3AED)),
+                    title: Text('Administración'),
+                    trailing: Icon(Icons.chevron_right, size: 18),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
               const PopupMenuItem<String>(
                 value: 'sub_flota',
                 child: ListTile(
@@ -1621,17 +1632,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
-              if (widget.api.isAdmin)
-                const PopupMenuItem<String>(
-                  value: 'sub_admin',
-                  child: ListTile(
-                    leading: Icon(Icons.admin_panel_settings, color: Color(0xFF7C3AED)),
-                    title: Text('Administración'),
-                    trailing: Icon(Icons.chevron_right, size: 18),
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
               PopupMenuItem<String>(
                 value: 'sub_info',
                 child: ListTile(
@@ -1935,7 +1935,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ],
                 ),
                 const Divider(height: 8),
-                ...items,
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: items,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),

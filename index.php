@@ -515,7 +515,7 @@
         }
         .nav-dropdown-item:hover { background: #f1f5f9; }
         @media (max-width: 768px) {
-            .nav-dropdown-menu { right: auto; left: 0; }
+            .nav-dropdown-menu { right: auto; left: 0; max-width: calc(100vw - 1.5rem); max-height: 75vh; overflow-y: auto; }
             .app-header { padding: 0.7rem 0.85rem; }
             .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
             .kpi-card { padding: 0.8rem; }
@@ -642,32 +642,42 @@
                 </div>
             </div>
             <div style="display: flex; gap: 0.45rem; flex-wrap: wrap; align-items: center;">
-                <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="document.getElementById('maintenance-section').scrollIntoView({behavior:'smooth'})">
-                    <i class="fa-solid fa-wrench" style="color:var(--primary)"></i> Tareas <span id="tasks-alert-badge" class="hidden" style="background:#dc2626; color:#fff; border-radius:999px; padding:0.08rem 0.42rem; font-size:0.7rem; margin-left:2px;">0</span>
-                </button>
+                <div class="nav-dropdown hidden" id="menu-admin-wrap">
+                    <button type="button" class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="toggleNavDropdown('menu-admin-wrap', event)">
+                        <i class="fa-solid fa-user-shield" style="color:#7c3aed"></i> Admin <i class="fa-solid fa-chevron-down" style="font-size:0.65rem; opacity:0.7;"></i>
+                    </button>
+                    <div class="nav-dropdown-menu">
+                        <button type="button" class="nav-dropdown-item hidden" id="btn-parametros" onclick="closeAllNavDropdowns(); openParametrosModal()">
+                            <i class="fa-solid fa-sliders" style="width:16px; color:#7c3aed;"></i> Parámetros del Sistema
+                        </button>
+                        <button type="button" class="nav-dropdown-item hidden" id="btn-pending-users" onclick="closeAllNavDropdowns(); openPendingUsersModal()">
+                            <i class="fa-solid fa-user-check" style="width:16px; color:#d97706;"></i> Solicitudes de Registro
+                        </button>
+                    </div>
+                </div>
 
                 <div class="nav-dropdown" id="dd-flota">
                     <button type="button" class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="toggleNavDropdown('dd-flota', event)">
                         <i class="fa-solid fa-car" style="color:var(--primary)"></i> Flota <i class="fa-solid fa-chevron-down" style="font-size:0.65rem; opacity:0.7;"></i>
                     </button>
                     <div class="nav-dropdown-menu">
-                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openVehiclesModal()">
-                            <i class="fa-solid fa-car" style="width:16px; color:#0f766e;"></i> Vehículos
-                        </button>
-                        <button type="button" class="nav-dropdown-item" id="btn-parques-moviles" onclick="closeAllNavDropdowns(); openParquesModal()">
-                            <i class="fa-solid fa-people-group" style="width:16px; color:#0f766e;"></i> Parques Móviles
+                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openAditivosModal()">
+                            <i class="fa-solid fa-flask" style="width:16px; color:#8b5cf6;"></i> Aditivos Combustible
                         </button>
                         <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openEstacionesModal()">
                             <i class="fa-solid fa-shop" style="width:16px; color:var(--accent);"></i> Estaciones de Servicio
                         </button>
-                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openAditivosModal()">
-                            <i class="fa-solid fa-flask" style="width:16px; color:#8b5cf6;"></i> Aditivos Combustible
+                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openTareasMaestroModal()">
+                            <i class="fa-solid fa-list-check" style="width:16px; color:var(--primary);"></i> Maestro de Tareas
+                        </button>
+                        <button type="button" class="nav-dropdown-item" id="btn-parques-moviles" onclick="closeAllNavDropdowns(); openParquesModal()">
+                            <i class="fa-solid fa-people-group" style="width:16px; color:#0f766e;"></i> Parques Móviles
                         </button>
                         <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openProveedoresModal()">
                             <i class="fa-solid fa-screwdriver-wrench" style="width:16px; color:#0284c7;"></i> Talleres / Seguros / ITV
                         </button>
-                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openTareasMaestroModal()">
-                            <i class="fa-solid fa-list-check" style="width:16px; color:var(--primary);"></i> Maestro de Tareas
+                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openVehiclesModal()">
+                            <i class="fa-solid fa-car" style="width:16px; color:#0f766e;"></i> Vehículos
                         </button>
                     </div>
                 </div>
@@ -677,31 +687,17 @@
                         <i class="fa-solid fa-toolbox" style="color:#0284c7"></i> Herramientas <i class="fa-solid fa-chevron-down" style="font-size:0.65rem; opacity:0.7;"></i>
                     </button>
                     <div class="nav-dropdown-menu">
-                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openImportModal()">
-                            <i class="fa-solid fa-file-import" style="width:16px; color:var(--primary);"></i> Importar Excel / CSV
-                        </button>
                         <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openUserEmailModal()">
                             <i class="fa-solid fa-envelope" style="width:16px; color:#0284c7;"></i> Correo de Avisos
                         </button>
-                        <button type="button" class="nav-dropdown-item" id="btn-inactive-records" onclick="closeAllNavDropdowns(); openInactiveRecordsModal()">
-                            <i class="fa-solid fa-trash-arrow-up" style="width:16px; color:#dc2626;"></i> Papelera / Recuperar
+                        <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openImportModal()">
+                            <i class="fa-solid fa-file-import" style="width:16px; color:var(--primary);"></i> Importar Excel / CSV
                         </button>
                         <button type="button" class="nav-dropdown-item" onclick="closeAllNavDropdowns(); openTutorialModal()">
                             <i class="fa-solid fa-book-open" style="width:16px; color:#0f766e;"></i> Manual / Tutorial
                         </button>
-                    </div>
-                </div>
-
-                <div class="nav-dropdown hidden" id="menu-admin-wrap">
-                    <button type="button" class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="toggleNavDropdown('menu-admin-wrap', event)">
-                        <i class="fa-solid fa-user-shield" style="color:#7c3aed"></i> Admin <i class="fa-solid fa-chevron-down" style="font-size:0.65rem; opacity:0.7;"></i>
-                    </button>
-                    <div class="nav-dropdown-menu">
-                        <button type="button" class="nav-dropdown-item hidden" id="btn-pending-users" onclick="closeAllNavDropdowns(); openPendingUsersModal()">
-                            <i class="fa-solid fa-user-check" style="width:16px; color:#d97706;"></i> Solicitudes de Registro
-                        </button>
-                        <button type="button" class="nav-dropdown-item hidden" id="btn-parametros" onclick="closeAllNavDropdowns(); openParametrosModal()">
-                            <i class="fa-solid fa-sliders" style="width:16px; color:#7c3aed;"></i> Parámetros del Sistema
+                        <button type="button" class="nav-dropdown-item" id="btn-inactive-records" onclick="closeAllNavDropdowns(); openInactiveRecordsModal()">
+                            <i class="fa-solid fa-trash-arrow-up" style="width:16px; color:#dc2626;"></i> Papelera / Recuperar
                         </button>
                     </div>
                 </div>
@@ -712,6 +708,9 @@
                 </button>
                 <button class="btn btn-accent" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="openPdfOptionsModal()">
                     <i class="fa-solid fa-file-pdf"></i> PDF
+                </button>
+                <button class="btn btn-outline" style="padding: 0.45rem 0.75rem; font-size: 0.8rem;" onclick="document.getElementById('maintenance-section').scrollIntoView({behavior:'smooth'})">
+                    <i class="fa-solid fa-wrench" style="color:var(--primary)"></i> Tareas <span id="tasks-alert-badge" class="hidden" style="background:#dc2626; color:#fff; border-radius:999px; padding:0.08rem 0.42rem; font-size:0.7rem; margin-left:2px;">0</span>
                 </button>
                 <button class="btn btn-danger" style="padding: 0.45rem 0.7rem; font-size: 0.8rem;" onclick="logout()" title="Cerrar sesión">
                     <i class="fa-solid fa-power-off"></i>

@@ -559,6 +559,12 @@ function ensureMejorasTables(PDO $pdo) {
                 'Catálogo de aditivos en unidades SI (L/kg) con dosis por litro, precio y cantidad de envase, búsqueda de características por IA/Internet, selección múltiple en repostajes y control de desfases entre cantidad recomendada y real suministrada.',
                 'web',
             ),
+            array(
+                '2026-11-25',
+                'Ordenación alfabética de menús y submenús responsive',
+                'Menús principales y submenús ordenados alfabéticamente en Web y App Android con adaptación responsive para pantallas pequeñas.',
+                'ambos',
+            ),
         );
         $stmtChkMej = $pdo->prepare("SELECT id FROM `veh_mejoras_log` WHERE titulo = ? LIMIT 1");
         $stmtInsMej = $pdo->prepare("INSERT INTO `veh_mejoras_log` (fecha, titulo, descripcion, ambito, activo, eliminado) VALUES (?, ?, ?, ?, 1, 0)");
