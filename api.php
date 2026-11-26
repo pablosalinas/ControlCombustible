@@ -267,8 +267,46 @@ function lookupAditivoWithGeminiAndWeb($query, PDO $pdo = null) {
             trim((string)veh_env('GEMINI_MODEL', '')),
             'gemini-2.5-flash',
             'gemini-2.0-flash',
-            'gemini-1.5-flash',
+            'gemini-2.5-pro',
+            'gemini-1.5-flash-latest',
         ))));
+
+        // Si los modelos por defecto fallan con 404, consultar dinámicamente ListModels
+        $discoverModels = function() use ($apiKey) {
+            $listUrl = 'https://generativelanguage.googleapis.com/v1beta/models?key=' . urlencode($apiKey);
+            $ch = curl_init($listUrl);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 12);
+            $resp = curl_exec($ch);
+            $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($resp === false || $code < 200 || $code >= 300) {
+                return array();
+            }
+            $json = json_decode($resp, true);
+            $found = array();
+            if (isset($json['models']) && is_array($json['models'])) {
+                foreach ($json['models'] as $m) {
+                    $name = isset($m['name']) ? (string)$m['name'] : '';
+                    $methods = isset($m['supportedGenerationMethods']) && is_array($m['supportedGenerationMethods']) ? $m['supportedGenerationMethods'] : array();
+                    if (strpos($name, 'models/') === 0) {
+                        $name = substr($name, 7);
+                    }
+                    if ($name === '' || !in_array('generateContent', $methods, true)) continue;
+                    if (stripos($name, 'gemini') === false) continue;
+                    if (stripos($name, 'embedding') !== false || stripos($name, 'tts') !== false || stripos($name, 'imagen') !== false || stripos($name, 'robotics') !== false) continue;
+                    $found[] = $name;
+                }
+            }
+            // Priorizar modelos flash recientes
+            usort($found, function($a, $b) {
+                $aFlash = (stripos($a, 'flash') !== false) ? 0 : 1;
+                $bFlash = (stripos($b, 'flash') !== false) ? 0 : 1;
+                if ($aFlash !== $bFlash) return $aFlash - $bFlash;
+                return strcmp($b, $a);
+            });
+            return array_slice($found, 0, 5);
+        };
 
         $prompt = "Busca y analiza las características técnicas reales del siguiente aditivo para combustible: \"{$query}\".\n"
                 . "Convierte TODAS las unidades al Sistema Internacional: 'L' (litros) para líquidos o 'kg' (kilogramos) para sólidos/polvos.\n"
@@ -290,85 +328,102 @@ function lookupAditivoWithGeminiAndWeb($query, PDO $pdo = null) {
 
         $attempts = array(true, false); // 1º con Google Search Grounding, 2º fallback sin tools
         $lastError = '';
-        foreach ($models as $model) {
-            $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode($model) . ':generateContent?key=' . urlencode($apiKey);
-            foreach ($attempts as $useSearch) {
-                $payload = array(
-                    'contents' => array(
-                        array('parts' => array(array('text' => $prompt)))
-                    ),
-                    'generationConfig' => array(
-                        'temperature' => 0.1,
-                    ),
-                );
-                if ($useSearch) {
-                    $payload['tools'] = array(array('google_search' => new stdClass()));
-                } else {
-                    $payload['generationConfig']['responseMimeType'] = 'application/json';
-                }
+        $triedModels = array();
+        $tryModelList = function($modelList) use (&$triedModels, &$lastError, $attempts, $apiKey, $prompt, $webSearchUrl) {
+            foreach ($modelList as $model) {
+                if (isset($triedModels[$model])) continue;
+                $triedModels[$model] = true;
+                $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . urlencode($model) . ':generateContent?key=' . urlencode($apiKey);
+                foreach ($attempts as $useSearch) {
+                    $payload = array(
+                        'contents' => array(
+                            array('parts' => array(array('text' => $prompt)))
+                        ),
+                        'generationConfig' => array(
+                            'temperature' => 0.1,
+                        ),
+                    );
+                    if ($useSearch) {
+                        $payload['tools'] = array(array('google_search' => new stdClass()));
+                    } else {
+                        $payload['generationConfig']['responseMimeType'] = 'application/json';
+                    }
 
-                $ch = curl_init($url);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_POST, true);
-                curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
-                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-                curl_setopt($ch, CURLOPT_TIMEOUT, 25);
-                $resp = curl_exec($ch);
-                $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                curl_close($ch);
+                    $ch = curl_init($url);
+                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                    curl_setopt($ch, CURLOPT_POST, true);
+                    curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+                    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+                    curl_setopt($ch, CURLOPT_TIMEOUT, 25);
+                    $resp = curl_exec($ch);
+                    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                    curl_close($ch);
 
-                if ($resp === false || $httpCode < 200 || $httpCode >= 300) {
-                    $errDetail = '';
-                    if (is_string($resp) && $resp !== '') {
-                        $errJson = json_decode($resp, true);
-                        if (isset($errJson['error']['message'])) {
-                            $errDetail = ' (' . $errJson['error']['message'] . ')';
+                    if ($resp === false || $httpCode < 200 || $httpCode >= 300) {
+                        $errDetail = '';
+                        if (is_string($resp) && $resp !== '') {
+                            $errJson = json_decode($resp, true);
+                            if (isset($errJson['error']['message'])) {
+                                $errDetail = ' (' . $errJson['error']['message'] . ')';
+                            }
+                        }
+                        $lastError = 'Error HTTP ' . $httpCode . ' en Gemini API [' . $model . ']' . $errDetail;
+                        if ($httpCode === 404) {
+                            break; // Probar siguiente modelo
+                        }
+                        continue;
+                    }
+
+                    $decoded = json_decode($resp, true);
+                    $text = '';
+                    if (isset($decoded['candidates'][0]['content']['parts'][0]['text'])) {
+                        $text = trim($decoded['candidates'][0]['content']['parts'][0]['text']);
+                    }
+                    $text = preg_replace('/^```(?:json)?\s*|\s*```$/is', '', $text);
+                    if (preg_match('/\{.*\}/s', $text, $m)) {
+                        $text = $m[0];
+                    }
+                    $data = json_decode($text, true);
+                    if (!is_array($data)) {
+                        $lastError = 'Respuesta JSON inválida de Gemini [' . $model . ']';
+                        continue;
+                    }
+
+                    $groundingUrls = array();
+                    if (isset($decoded['candidates'][0]['groundingMetadata']['groundingChunks']) && is_array($decoded['candidates'][0]['groundingMetadata']['groundingChunks'])) {
+                        foreach ($decoded['candidates'][0]['groundingMetadata']['groundingChunks'] as $chunk) {
+                            if (isset($chunk['web']['uri'])) {
+                                $groundingUrls[] = $chunk['web']['uri'];
+                            }
                         }
                     }
-                    $lastError = 'Error HTTP ' . $httpCode . ' en Gemini API [' . $model . ']' . $errDetail;
-                    if ($httpCode === 404) {
-                        break; // Probar siguiente modelo
+                    if (!empty($groundingUrls) && empty($data['fuente_info'])) {
+                        $data['fuente_info'] = implode(', ', array_slice(array_unique($groundingUrls), 0, 3));
+                    } elseif (empty($data['fuente_info'])) {
+                        $data['fuente_info'] = $useSearch ? 'IA + Búsqueda Internet (Gemini ' . $model . ')' : 'IA (Gemini ' . $model . ')';
                     }
-                    continue;
-                }
 
-                $decoded = json_decode($resp, true);
-                $text = '';
-                if (isset($decoded['candidates'][0]['content']['parts'][0]['text'])) {
-                    $text = trim($decoded['candidates'][0]['content']['parts'][0]['text']);
+                    return array(
+                        'success'        => true,
+                        'engine'         => $useSearch ? 'gemini_search' : 'gemini',
+                        'model'          => $model,
+                        'data'           => $data,
+                        'web_search_url' => $webSearchUrl,
+                    );
                 }
-                $text = preg_replace('/^```(?:json)?\s*|\s*```$/is', '', $text);
-                if (preg_match('/\{.*\}/s', $text, $m)) {
-                    $text = $m[0];
-                }
-                $data = json_decode($text, true);
-                if (!is_array($data)) {
-                    $lastError = 'Respuesta JSON inválida de Gemini [' . $model . ']';
-                    continue;
-                }
+            }
+            return null;
+        };
 
-                // Extraer fuentes de grounding si las hay
-                $groundingUrls = array();
-                if (isset($decoded['candidates'][0]['groundingMetadata']['groundingChunks']) && is_array($decoded['candidates'][0]['groundingMetadata']['groundingChunks'])) {
-                    foreach ($decoded['candidates'][0]['groundingMetadata']['groundingChunks'] as $chunk) {
-                        if (isset($chunk['web']['uri'])) {
-                            $groundingUrls[] = $chunk['web']['uri'];
-                        }
-                    }
-                }
-                if (!empty($groundingUrls) && empty($data['fuente_info'])) {
-                    $data['fuente_info'] = implode(', ', array_slice(array_unique($groundingUrls), 0, 3));
-                } elseif (empty($data['fuente_info'])) {
-                    $data['fuente_info'] = $useSearch ? 'IA + Búsqueda Internet (Gemini ' . $model . ')' : 'IA (Gemini ' . $model . ')';
-                }
-
-                return array(
-                    'success'        => true,
-                    'engine'         => $useSearch ? 'gemini_search' : 'gemini',
-                    'model'          => $model,
-                    'data'           => $data,
-                    'web_search_url' => $webSearchUrl,
-                );
+        $resLookup = $tryModelList($models);
+        if ($resLookup !== null) {
+            return $resLookup;
+        }
+        $discovered = $discoverModels();
+        if (!empty($discovered)) {
+            $resLookup = $tryModelList($discovered);
+            if ($resLookup !== null) {
+                return $resLookup;
             }
         }
 
